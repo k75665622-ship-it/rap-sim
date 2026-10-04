@@ -1,0 +1,199 @@
+@import "tailwindcss";
+
+/* ─── RAP LIFE DESIGN TOKENS ───────────────────────────────────────────────
+ * One set of tokens, used by every screen and every platform page. The only
+ * thing that changes per streaming platform is the accent colour and the logo
+ * mark — everything else reads from here.
+ * ------------------------------------------------------------------------ */
+@theme {
+  --color-bg: #0a0b10;
+  --color-sidebar: #0d0e14;
+  --color-card: #14161e;
+  --color-cardhover: #1b1e28;
+  --color-line: #232632;
+
+  --color-ink: #ffffff;
+  --color-ink2: #9aa0b4;
+  --color-ink3: #6b7186;
+
+  --color-amber: #ffb800;
+  --color-rise: #2ed573;
+  --color-fall: #ff4757;
+  --color-new: #4da3ff;
+  --color-re: #b57bff;
+
+  --radius-card: 14px;
+  --radius-input: 10px;
+
+  --font-sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every number in the app is tabular, so columns never jitter as digits change. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2e3c;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3f52;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+input[type='range'] {
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: #1f2937;
+  outline: none;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-amber);
+  cursor: pointer;
+  border: 2px solid #1f2937;
+}
+
+input[type='date'] {
+  color-scheme: dark;
+}
+
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── MOTION ───────────────────────────────────────────────────────────────
+ * Short and subtle. Nothing bounces.
+ * ------------------------------------------------------------------------ */
+@keyframes rl-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes rl-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes rl-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes rl-shimmer {
+  0% {
+    background-position: -420px 0;
+  }
+  100% {
+    background-position: 420px 0;
+  }
+}
+/* The live indicator. A slow ping, not a strobe. */
+@keyframes rl-pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.rl-fade {
+  animation: rl-fade-in 150ms ease-out both;
+}
+.rl-slide {
+  animation: rl-slide-in-right 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.rl-rise {
+  animation: rl-rise 200ms ease-out both;
+}
+.rl-pulse {
+  animation: rl-pulse-ring 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.rl-skeleton {
+  background: linear-gradient(90deg, #14161e 0%, #1b1e28 40%, #14161e 80%);
+  background-size: 420px 100%;
+  animation: rl-shimmer 1.3s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rl-fade,
+  .rl-slide,
+  .rl-rise,
+  .rl-pulse,
+  .rl-skeleton {
+    animation: none;
+  }
+}

@@ -111,6 +111,12 @@ export interface StreamContext {
   isNpc: boolean;
   /** Weeks already out when the game begins — used to seed a back catalogue. */
   weeksOut: number;
+  /**
+   * How much of the artist's audience this record reaches, 0-1. Absent means
+   * 1. An album's deep cuts are heard by a fraction of the people who play
+   * the lead single — without this a 12-track album earned like 12 singles.
+   */
+  weight?: number;
 }
 
 export interface DayTick {
@@ -268,7 +274,8 @@ export function popularityFactor(ctx: StreamContext): number {
     qualityFactor(ctx.quality) *
     artistFactor(ctx.artistPopularity) *
     fanFactor(ctx.fanbase) *
-    (1 + Math.max(0, ctx.marketing) * 0.55)
+    (1 + Math.max(0, ctx.marketing) * 0.55) *
+    Math.max(0.02, Math.min(1, ctx.weight ?? 1))
   );
 }
 

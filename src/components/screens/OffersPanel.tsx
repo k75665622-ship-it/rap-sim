@@ -12,6 +12,7 @@ import {
   MOOD_INFO,
   backOutTerms,
 } from '../../sim/offers';
+import { LineupStrip } from '../shows/Lineup';
 
 const KIND_LABEL: Record<ShowOffer['kind'], string> = {
   headline: 'Headline show',
@@ -27,7 +28,7 @@ function money(n: number): string {
 // ─── THE NEGOTIATION PAGE ──────────────────────────────────────────────────
 
 function Negotiation({ offer, onClose }: { offer: ShowOffer; onClose: () => void }) {
-  const { showOfferContext, counterShowOffer, acceptShowOffer, declineShowOffer, quoteDecline, gameDate } = useGameStore();
+  const { showOfferContext, counterShowOffer, acceptShowOffer, declineShowOffer, quoteDecline, gameDate, askToDropAct, player } = useGameStore();
   const ctx = showOfferContext(offer.id);
   const today = dateToSerial(gameDate);
 
@@ -244,6 +245,24 @@ function Negotiation({ offer, onClose }: { offer: ShowOffer; onClose: () => void
 
       {/* ── The other side of the table ── */}
       <div className="lg:col-span-2 space-y-4">
+        {(offer.lineup ?? []).length > 0 && (
+          <Card className="space-y-2">
+            <div className="text-xs font-bold text-white">The bill</div>
+            <LineupStrip acts={offer.lineup ?? []} you={`${player?.artistName ?? 'You'} · ${BILLING_LABEL[ask.billing]}`} />
+            {(offer.lineup ?? []).filter((a) => a.beef && a.npcId !== offer.hostId).map((a) => (
+              <div key={a.npcId} className="rounded-lg p-2 bg-red-500/10 border border-red-500/30 space-y-1.5">
+                <p className="text-[11px] text-red-200">
+                  🔥 You and {a.name} are at war. On the night, anything can happen: you can steal the show, get upstaged, squash it backstage — or your crews can clash.
+                </p>
+                {!closed && (
+                  <Button variant="secondary" onClick={() => { const r = askToDropAct(offer.id, a.npcId); setReply({ ok: r.ok, text: r.message }); }}>
+                    Ask {offer.hostName} to drop {a.name}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </Card>
+        )}
         <Card className="space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-lg">{arche.emoji}</div>
@@ -318,7 +337,7 @@ function Negotiation({ offer, onClose }: { offer: ShowOffer; onClose: () => void
 // ─── THE INBOX ─────────────────────────────────────────────────────────────
 
 export function OffersPanel() {
-  const { showOffers, bookedGigs, gameDate, backOutOfGig } = useGameStore();
+  const { showOffers, bookedGigs, gameDate, backOutOfGig, setGigAvoidRival } = useGameStore();
   const [openId, setOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const today = dateToSerial(gameDate);
@@ -367,6 +386,7 @@ export function OffersPanel() {
                     </div>
                     <div className="text-yellow-400 font-bold tabular-nums">{money(o.terms.fee)}</div>
                   </div>
+                  {(o.lineup ?? []).length > 0 && <div className="mt-2"><LineupStrip acts={o.lineup ?? []} compact /></div>}
                   <p className="text-[11px] text-gray-500 mt-2 line-clamp-2">{o.reason}</p>
                 </button>
               );
@@ -393,6 +413,14 @@ export function OffersPanel() {
                       <span className="text-yellow-400">({days <= 0 ? 'tonight' : `in ${days}d`})</span>
                     </div>
                     {g.terms.exclusivityDays > 0 && <div className="text-[11px] text-orange-300 mt-0.5">Radius clause: {g.terms.exclusivityDays} days</div>}
+                    {(g.lineup ?? []).length > 0 && <div className="mt-1"><LineupStrip acts={g.lineup ?? []} compact /></div>}
+                    {(g.lineup ?? []).some((a) => a.beef) && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <span className="text-red-300">On the night:</span>
+                        <button onClick={() => setGigAvoidRival(g.id, true)} className={`px-2 py-0.5 rounded-md border ${g.avoidRival ? 'border-green-500 bg-green-500/15 text-green-200' : 'border-gray-700 text-gray-400'}`}>Keep your distance</button>
+                        <button onClick={() => setGigAvoidRival(g.id, false)} className={`px-2 py-0.5 rounded-md border ${!g.avoidRival ? 'border-red-500 bg-red-500/15 text-red-200' : 'border-gray-700 text-gray-400'}`}>Don't back down</button>
+                      </div>
+                    )}
                   </div>
                   <Button variant="danger" onClick={() => {
                     if (window.confirm(`Pull out? It costs about ${money(t.penalty)} and hurts your standing with ${g.hostName}.`)) {

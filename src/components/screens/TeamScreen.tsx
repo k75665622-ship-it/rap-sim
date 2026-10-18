@@ -1,3 +1,4 @@
+import { MomentCard } from '../moments/MomentCard';
 // ─── TEAM & MANAGEMENT ─────────────────────────────────────────────────────
 //
 // One page for the people who work for you and the people who work you.
@@ -67,6 +68,7 @@ export function TeamScreen() {
   const selectNPC = useGameStore((s) => s.selectNPC);
   const setScreen = useGameStore((s) => s.setScreen);
   const openSong = useGameStore((s) => s.openSong);
+  const moments = useGameStore((s) => s.moments);
 
   const [roleFilter, setRoleFilter] = useState<NPCRole | 'all'>('all');
   const [query, setQuery] = useState('');
@@ -208,6 +210,10 @@ export function TeamScreen() {
 
   const seatsFilled = seatRows.reduce((a, r) => a + r.seats.filter((s) => s.filled.length > 0).length, 0);
 
+  const teamMoments = (moments ?? []).filter((m) => m.channel === 'team');
+  const openTeam = teamMoments.filter((m) => m.status === 'open');
+  const pastTeam = teamMoments.filter((m) => m.status !== 'open' && m.status !== 'scheduled').slice(0, 4);
+
   return (
     <div className="space-y-6">
       <PageTitle
@@ -228,6 +234,15 @@ export function TeamScreen() {
       >
         Team &amp; Management
       </PageTitle>
+
+      {(openTeam.length > 0 || pastTeam.length > 0) && (
+        <div className="space-y-2">
+          <div className="text-[13px] font-semibold text-ink">{openTeam.length ? `🗣️ Your team needs a decision (${openTeam.length})` : '🗣️ Recent team calls'}</div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {[...openTeam, ...pastTeam].slice(0, 6).map((m) => <MomentCard key={m.id} moment={m} />)}
+          </div>
+        </div>
+      )}
 
       {flash ? (
         <div
@@ -287,6 +302,7 @@ export function TeamScreen() {
                     : `${managerContract.terms.percentage}% of gross`
                 }
               />
+
               <Stat
                 label="Network"
                 value={`${managerNet}/100`}

@@ -64,8 +64,8 @@ export function Sidebar() {
   // Things at the label waiting on the player: records to fund, demands,
   // poaching and disputes, and talks about to lapse.
   const labelAlerts = label
-    ? label.roster.filter((s) => (s.requestSerial !== undefined && !s.inStudio) || s.demand || s.rivalOffer || s.status === 'dispute').length +
-      label.pitches.filter((p) => p.status === 'open' && p.renewal).length
+    ? label.roster.filter((s) => s.demand || s.rivalOffer || s.status === 'dispute' || s.status === 'expiring').length +
+      (label.submissions ?? []).filter((x) => x.status === 'pending').length
     : 0;
 
   const navItems: NavItem[] = [

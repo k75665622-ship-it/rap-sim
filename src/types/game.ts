@@ -217,6 +217,8 @@ export interface Song {
   peakWeeklyStreams?: number;
   /** Set on records released through the player's own label. */
   labelName?: string;
+  /** Share of the artist's audience this record reaches (album deep cuts < 1). */
+  streamWeight?: number;
 }
 
 /** Where a record sits in its life cycle. */
@@ -620,12 +622,16 @@ export interface DMMessage {
    */
   attachedTitle?: string;
   read: boolean;
+  /** A message that wants a decision — the options live on the moment. */
+  momentId?: string;
 }
 
 export interface DMThread {
   npcId: string;
   messages: DMMessage[];
   unread: number;
+  /** Messages the player sent today — double-texting has a cost. */
+  sentToday?: { serial: number; count: number };
 }
 
 // ─── FEATURE NEGOTIATION ──────────────────────────────────────────────────
@@ -1223,6 +1229,8 @@ export interface ScheduledShow {
   notes: string[];
   /** Highest sold-percentage milestone announced (25/50/75/100). */
   milestone: number;
+  /** Openers and special guests on your own bill. */
+  guests?: ShowGuest[];
 }
 
 // ─── SHOW OFFERS & INVITATIONS ───────────────────────────────────────────
@@ -1284,6 +1292,31 @@ export interface ShowOffer {
   agreed?: boolean;
   /** What was said, newest first. */
   log: string[];
+  /** Everybody else on the bill. Optional: offers made before lineups existed have none. */
+  lineup?: LineupAct[];
+}
+
+/** One act on a bill that is not the player. */
+export interface LineupAct {
+  npcId: string;
+  name: string;
+  fame: number;
+  slot: 'headliner' | 'co_headliner' | 'support' | 'opener' | 'dj' | 'guest';
+  /** You are at war with them. */
+  beef?: boolean;
+  /** You are cool with them. */
+  friend?: boolean;
+}
+
+/** An artist you asked onto YOUR show. */
+export interface ShowGuest {
+  npcId: string;
+  name: string;
+  fame: number;
+  role: 'opener' | 'special_guest';
+  fee: number;
+  status: 'confirmed' | 'declined' | 'no_show' | 'played';
+  askedSerial: number;
 }
 
 /** An accepted offer, waiting for its night. Played by the clock. */
@@ -1303,6 +1336,10 @@ export interface BookedGig {
   acceptedSerial: number;
   terms: OfferTerms;
   reminded: number[];
+  /** Who else is on the bill. */
+  lineup?: LineupAct[];
+  /** With a rival on the bill: stay out of their way, or not. */
+  avoidRival?: boolean;
 }
 
 // ─── THE STUDIO ──────────────────────────────────────────────────────────
@@ -1415,31 +1452,110 @@ export interface Business {
   purchaseDate: string;
 }
 
+// ─── MOMENTS ─────────────────────────────────────────────────────────────
+// People texting you, your team walking in with a problem. Small decisions
+// with consequences. See `sim/moments.ts`.
+
+export interface MomentOption {
+  id: string;
+  label: string;
+  hint?: string;
+  /** Money it costs to choose this. */
+  cost?: number;
+  /** Energy it costs to choose this. */
+  energy?: number;
+}
+
+export type MomentEffect =
+  | { k: 'money'; v: number }
+  | { k: 'fame'; v: number }
+  | { k: 'fans'; v: number }
+  | { k: 'momentum'; v: number }
+  | { k: 'reputation'; v: number }
+  | { k: 'energy'; v: number }
+  | { k: 'rel'; npcId: string; v: number }
+  | { k: 'heat'; npcId: string; v: number; win?: boolean }
+  | { k: 'startBeef'; npcId: string }
+  | { k: 'morale'; crewId: string; v: number }
+  | { k: 'wage'; crewId: string; v: number }
+  | { k: 'quit'; crewId: string }
+  | { k: 'stat'; stat: keyof ArtistStats; v: number }
+  | { k: 'post'; authorId: string; authorName: string; content: string; likes: number }
+  | { k: 'headline'; text: string; story: string; category: Headline['category'] }
+  | { k: 'followUp'; template: string; days: number; data: Record<string, unknown> }
+  | { k: 'inboundAsk'; npcId: string; free?: boolean }
+  | { k: 'addOpener'; npcId: string }
+  | { k: 'featureFree'; requestId: string }
+  | { k: 'featureCancel'; requestId: string }
+  | { k: 'featureNow'; requestId: string }
+  | { k: 'featureDelay'; requestId: string; days: number };
+
+export interface Moment {
+  id: string;
+  kind: string;
+  channel: 'dm' | 'team';
+  npcId?: string;
+  npcName?: string;
+  crewRole?: string;
+  title: string;
+  body: string;
+  options: MomentOption[];
+  createdSerial: number;
+  expiresSerial: number;
+  /** Scheduled follow-ups wait here until their day comes. */
+  status: 'scheduled' | 'open' | 'resolved' | 'expired';
+  dueSerial?: number;
+  data?: Record<string, unknown>;
+  resolution?: { optionId?: string; label?: string; text: string };
+}
+
 // ─── YOUR OWN RECORD LABEL ───────────────────────────────────────────────
 //
 // The player's label is a company with its own bank account. The player puts
 // money in and takes dividends out; everything else (advances, recording,
-// marketing, staff, office) is paid from the label's cash, and the label is
-// paid by its artists' records actually streaming. See `sim/label.ts`.
+// marketing, staff, studio, office) is paid from the label's cash, and the
+// label is paid by its artists' records actually streaming. Signed artists
+// work on their own: they write, pitch demos to the label, and release what
+// is approved. See `sim/label.ts`.
 
 export type LabelDealType = 'standard' | 'three_sixty' | 'distribution' | 'joint_venture';
-export type LabelStaffRole = 'ar' | 'marketing' | 'radio' | 'legal';
+export type LabelStaffRole = 'ar' | 'marketing' | 'radio' | 'legal' | 'producer' | 'engineer';
 export type LabelReleaseTier = 'demo' | 'standard' | 'major';
+export type LabelGear = 'booth' | 'console' | 'mics' | 'live_room' | 'mastering';
+export type LabelTactic = 'vision' | 'personal' | 'ask' | 'hardball' | 'deadline';
 
 export interface LabelTerms {
   dealType: LabelDealType;
   /** Recoupable money paid to the artist on signing. */
   advance: number;
-  /** The artist's share of gross master revenue, in percent. */
+  /** The artist's share of net master revenue, in percent. */
   royalty: number;
-  /** How many releases the artist owes the label. */
+  /** How many singles the artist owes the label. */
   releasesOwed: number;
+  /** How many albums the artist owes the label. */
+  albumsOwed: number;
   /** Length of the deal in months. */
   termMonths: number;
+  /** One-year extensions the LABEL may take at the end of the term. */
+  optionYears: number;
   /** Marketing the label promises to spend on each release. */
   marketingCommit: number;
+  /** Video money the label promises for each single (label-funded deals). */
+  videoBudget: number;
   /** The artist has the final say on what comes out. */
   creativeControl: boolean;
+  /**
+   * All-in deal: the artist is handed a recording fund and pays for their own
+   * recording, videos, features and marketing out of it. Recoupable.
+   */
+  allIn: boolean;
+  recordingFund: number;
+  /** Non-recoupable sweetener paid on signing. */
+  signingBonus: number;
+  /** Share of the artist's publishing the label takes, percent. */
+  publishingShare: number;
+  /** 360 only: share of touring and merch, percent. */
+  touringShare: number;
 }
 
 export interface LabelDemand {
@@ -1461,6 +1577,43 @@ export interface LabelRivalOffer {
   expiresSerial: number;
 }
 
+export interface LabelSubmission {
+  id: string;
+  npcId: string;
+  name: string;
+  kind: 'single' | 'album';
+  title: string;
+  trackCount: number;
+  /** The real quality of the demo. Hidden; the A&R estimate is what is shown. */
+  quality: number;
+  /** What the office thinks of it. Better A&R, closer guess. */
+  estimate: number;
+  /** The budget the artist is asking for. */
+  askTier: LabelReleaseTier;
+  pitch: string;
+  submittedSerial: number;
+  reworks: number;
+  status: 'pending' | 'reworking' | 'approved' | 'rejected' | 'leaked' | 'released';
+  /** When a rework comes back. */
+  dueSerial?: number;
+  /** Released straight away because the artist has creative control. */
+  auto?: boolean;
+}
+
+export interface LabelSession {
+  submissionId?: string;
+  kind: 'single' | 'album';
+  title: string;
+  trackCount: number;
+  until: number;
+  tier: LabelReleaseTier;
+  cost: number;
+  quality: number;
+  marketing: number;
+  /** Paid out of the artist's own all-in fund. */
+  selfFunded?: boolean;
+}
+
 export interface LabelSignee {
   npcId: string;
   name: string;
@@ -1477,16 +1630,27 @@ export interface LabelSignee {
   potential: number;
   /** Unrecouped balance. The artist's royalty pays this down first. */
   recoupBalance: number;
+  /** All-in deals: what is left of the artist's recording fund. */
+  fund: number;
   /** 0-100. How they feel about the label right now. */
   mood: number;
   /** 0-100. How hard they are to take off you. */
   loyalty: number;
   releases: string[];
+  albums: string[];
   releasesDelivered: number;
+  albumsDelivered: number;
+  /** Singles out since their last album — they want a project after three. */
+  singlesSinceAlbum: number;
   lastReleaseSerial?: number;
-  /** A record in the studio, landing on `until`. */
-  inStudio?: { until: number; tier: LabelReleaseTier; cost: number; quality: number; marketing: number };
-  /** The day they handed in new music and asked for it to come out. */
+  /** When their next demo will be ready. */
+  workSerial: number;
+  /** A record in the studio. */
+  inStudio?: LabelSession;
+  /** A video being shot, landing on `until`. */
+  videoShoot?: { songId: string; until: number; budget: number; quality: number };
+  optionsUsed: number;
+  /** Legacy (v1): new music handed in and waiting. Superseded by submissions. */
   requestSerial?: number;
   demand?: LabelDemand;
   rivalOffer?: LabelRivalOffer;
@@ -1522,6 +1686,11 @@ export interface LabelPitch {
   lastReply?: string;
   /** Terms they have said yes to — their own counter, or an offer they accepted. */
   agreedTerms?: LabelTerms;
+  /** Goodwill earned at the table with tactics. Shifts what they will accept. */
+  warmth?: number;
+  usedTactics?: LabelTactic[];
+  /** What they have told you they want, line by line. */
+  revealed?: string[];
 }
 
 export interface LabelProspect {
@@ -1554,6 +1723,25 @@ export interface LabelEvent {
   tone: 'good' | 'bad' | 'neutral';
 }
 
+export interface LabelStudio {
+  /** 0 = no studio (rent rooms), 1 home setup … 4 flagship. */
+  tier: number;
+  gear: Record<LabelGear, number>;
+  /** Days the rooms were in use this month — rent only comes from idle time. */
+  busyDays: number;
+}
+
+export interface LabelPolicy {
+  /** What happens to a demo nobody answers. */
+  approve: 'manual' | 'good' | 'all';
+  /** "Good" means the office estimate is at least this. */
+  threshold: number;
+  /** Budget for auto-approved releases: the artist's ask, or a fixed tier. */
+  tier: 'ask' | LabelReleaseTier;
+  /** Videos for label-funded singles. */
+  videos: 'manual' | 'hits' | 'all';
+}
+
 export interface PlayerLabel {
   id: string;
   name: string;
@@ -1572,6 +1760,9 @@ export interface PlayerLabel {
   staff: LabelStaff[];
   history: LabelMonth[];
   events: LabelEvent[];
+  submissions: LabelSubmission[];
+  policy: LabelPolicy;
+  studio: LabelStudio;
   /** Running totals for the month in progress. */
   monthRevenue: number;
   monthCosts: number;
@@ -1972,6 +2163,8 @@ export interface GameState {
   businesses: Business[];
   /** The player's own record label. Null until they found one. */
   label?: PlayerLabel | null;
+  /** Texts and team decisions waiting on the player, and recent outcomes. */
+  moments?: Moment[];
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

@@ -142,6 +142,7 @@ export function SongScreen() {
             <div className="text-[12px] text-ink3 mt-1">
               {genreLabel(track.genre)} · {track.artistCountry}
               {song.releaseDate ? ` · released ${song.releaseDate}` : ''}
+              {song.labelName ? ` · ${song.labelName}` : ''}
             </div>
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-[12px] text-ink3 num">

@@ -215,6 +215,8 @@ export interface Song {
   ownerCountry?: string;     // home market, drives regional chart strength
   weeksOut?: number;         // weeks since release, drives the trajectory curve
   peakWeeklyStreams?: number;
+  /** Set on records released through the player's own label. */
+  labelName?: string;
 }
 
 /** Where a record sits in its life cycle. */
@@ -1413,6 +1415,174 @@ export interface Business {
   purchaseDate: string;
 }
 
+// ─── YOUR OWN RECORD LABEL ───────────────────────────────────────────────
+//
+// The player's label is a company with its own bank account. The player puts
+// money in and takes dividends out; everything else (advances, recording,
+// marketing, staff, office) is paid from the label's cash, and the label is
+// paid by its artists' records actually streaming. See `sim/label.ts`.
+
+export type LabelDealType = 'standard' | 'three_sixty' | 'distribution' | 'joint_venture';
+export type LabelStaffRole = 'ar' | 'marketing' | 'radio' | 'legal';
+export type LabelReleaseTier = 'demo' | 'standard' | 'major';
+
+export interface LabelTerms {
+  dealType: LabelDealType;
+  /** Recoupable money paid to the artist on signing. */
+  advance: number;
+  /** The artist's share of gross master revenue, in percent. */
+  royalty: number;
+  /** How many releases the artist owes the label. */
+  releasesOwed: number;
+  /** Length of the deal in months. */
+  termMonths: number;
+  /** Marketing the label promises to spend on each release. */
+  marketingCommit: number;
+  /** The artist has the final say on what comes out. */
+  creativeControl: boolean;
+}
+
+export interface LabelDemand {
+  kind: 'raise' | 'release';
+  openedSerial: number;
+  /** For a raise: the royalty they want. */
+  royalty?: number;
+  /** For a raise: a one-off bonus that would also settle it. */
+  bonus?: number;
+  text: string;
+}
+
+export interface LabelRivalOffer {
+  labelName: string;
+  royalty: number;
+  /** What the rival will pay YOUR label to release the artist. */
+  buyout: number;
+  openedSerial: number;
+  expiresSerial: number;
+}
+
+export interface LabelSignee {
+  npcId: string;
+  name: string;
+  genre: Genre;
+  country: string;
+  tier: NPCTier;
+  signedSerial: number;
+  endsSerial: number;
+  terms: LabelTerms;
+  fameAtSigning: number;
+  /** Carried here because the roster is rebuilt from its seed on load. */
+  fame: number;
+  /** Hidden ceiling 0-100. An A&R narrows the estimate. */
+  potential: number;
+  /** Unrecouped balance. The artist's royalty pays this down first. */
+  recoupBalance: number;
+  /** 0-100. How they feel about the label right now. */
+  mood: number;
+  /** 0-100. How hard they are to take off you. */
+  loyalty: number;
+  releases: string[];
+  releasesDelivered: number;
+  lastReleaseSerial?: number;
+  /** A record in the studio, landing on `until`. */
+  inStudio?: { until: number; tier: LabelReleaseTier; cost: number; quality: number; marketing: number };
+  /** The day they handed in new music and asked for it to come out. */
+  requestSerial?: number;
+  demand?: LabelDemand;
+  rivalOffer?: LabelRivalOffer;
+  /** When the last rival came knocking — they do not call every week. */
+  lastRivalSerial?: number;
+  status: 'active' | 'dispute' | 'expiring' | 'expired' | 'dropped' | 'sold' | 'left';
+  /** Lifetime money. */
+  grossEarned: number;
+  labelEarned: number;
+  artistPaid: number;
+  /** This month's figures, rolled into the statement on the 1st. */
+  monthGross: number;
+  notes: string[];
+}
+
+export interface LabelPitch {
+  id: string;
+  npcId: string;
+  name: string;
+  openedSerial: number;
+  expiresSerial: number;
+  /** What is on the table now. */
+  terms: LabelTerms;
+  /** What they will actually take. Hidden; a lawyer reads some of it. */
+  wants: LabelTerms;
+  patience: number;
+  rounds: number;
+  status: 'open' | 'signed' | 'walked' | 'withdrawn' | 'expired';
+  /** Another label also chasing them. */
+  competing?: string;
+  /** A re-sign at the end of a deal, rather than a new signing. */
+  renewal?: boolean;
+  lastReply?: string;
+  /** Terms they have said yes to — their own counter, or an offer they accepted. */
+  agreedTerms?: LabelTerms;
+}
+
+export interface LabelProspect {
+  npcId: string;
+  /** What the scouting report says. */
+  note: string;
+  /** The A&R's estimate of their ceiling, or undefined with no A&R. */
+  potentialEstimate?: number;
+}
+
+export interface LabelStaff {
+  role: LabelStaffRole;
+  npcId: string;
+  name: string;
+  skill: number;
+  salary: number;
+  hiredSerial: number;
+}
+
+export interface LabelMonth {
+  key: string;
+  revenue: number;
+  costs: number;
+  profit: number;
+}
+
+export interface LabelEvent {
+  serial: number;
+  text: string;
+  tone: 'good' | 'bad' | 'neutral';
+}
+
+export interface PlayerLabel {
+  id: string;
+  name: string;
+  color: string;
+  country: string;
+  genreFocus: Genre | 'any';
+  foundedSerial: number;
+  reputation: number;
+  cash: number;
+  roster: LabelSignee[];
+  /** Everyone who has ever left, newest first (kept short). */
+  alumni: LabelSignee[];
+  pitches: LabelPitch[];
+  prospects: LabelProspect[];
+  prospectsSerial: number;
+  staff: LabelStaff[];
+  history: LabelMonth[];
+  events: LabelEvent[];
+  /** Running totals for the month in progress. */
+  monthRevenue: number;
+  monthCosts: number;
+  /** `YYYY-MM` of the month in progress. */
+  monthKey: string;
+  /** Consecutive month-ends with negative cash. */
+  debtMonths: number;
+  totalInvested: number;
+  totalWithdrawn: number;
+}
+
 // ─── LUXURY ITEMS ─────────────────────────────────────────────────────────
 
 export interface LuxuryItem {
@@ -1559,7 +1729,8 @@ export type GameScreen =
   | 'team'
   | 'tax'
   | 'careers'
-  | 'retirement';
+  | 'retirement'
+  | 'label';
 
 export interface GameDate {
   day: number;
@@ -1799,6 +1970,8 @@ export interface GameState {
   tagQuota?: { serial: number; count: number };
   investments: Investment[];
   businesses: Business[];
+  /** The player's own record label. Null until they found one. */
+  label?: PlayerLabel | null;
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

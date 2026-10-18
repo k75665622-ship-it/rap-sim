@@ -1,6 +1,8 @@
 // ─── CORE GAME TYPES ───────────────────────────────────────────────────────
 
 import type { BeatsState } from '../sim/beats';
+import type { LiveTarget, Story, LiveSession } from '../sim/socialLive';
+import type { IvQuestion, IvEffect } from '../sim/interviews';
 
 export type Background = 'broke_hustler' | 'middle_class' | 'industry_connect';
 export type Gender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say';
@@ -927,6 +929,14 @@ export interface SocialPost {
   viral?: boolean;
   /** Engagement still to arrive over the next days (player posts). */
   growth?: { likes: number; shares: number; comments: number; views: number; follows: number; days: number };
+  /** Absolute game minute it went up. With `target`, the numbers are live — read them through `liveCounts`. */
+  postedMinute?: number;
+  /** Where the numbers end up once the post has run its course. */
+  target?: LiveTarget;
+  /** The highest like milestone already announced (player posts). */
+  milestone?: number;
+  /** The song used as the sound, on Clip. */
+  soundSongId?: string;
   /**
    * The game day this was posted.
    *
@@ -1478,6 +1488,75 @@ export interface Business {
 }
 
 // ─── FAN WARS ────────────────────────────────────────────────────────────
+
+export interface InterviewInvite {
+  id: string;
+  outletId: string;
+  outletName: string;
+  format: string;
+  reason: string;
+  fee: number;
+  receivedSerial: number;
+  expiresSerial: number;
+  status: 'open' | 'accepted' | 'declined' | 'expired' | 'done';
+}
+
+export interface ActiveInterview {
+  id: string;
+  inviteId?: string;
+  outletId: string;
+  outletName: string;
+  host: string;
+  format: string;
+  questions: IvQuestion[];
+  idx: number;
+  transcript: { q: string; a: string; reaction: string; tag: string; surprise?: string; passed?: boolean }[];
+  effects: IvEffect[];
+  fee: number;
+  startedSerial: number;
+  walked?: boolean;
+}
+
+export interface InterviewRecord {
+  id: string;
+  outletId: string;
+  outletName: string;
+  format: string;
+  headline: string;
+  serial: number;
+  highlights: string[];
+  deltas: { fame: number; rep: number; momentum: number; fans: number; money: number };
+  viral: boolean;
+  walked: boolean;
+}
+
+/** One thing on the manager's desk: what it is, the details, and their advice. */
+export interface ManagerBrief {
+  id: string;
+  kind: 'show' | 'feature' | 'interview' | 'fyi';
+  refId?: string;
+  title: string;
+  details: string[];
+  advice: 'take' | 'pass' | 'counter' | 'your call';
+  reason: string;
+  /** The number they would counter at, when they would. */
+  counterAt?: number;
+  createdSerial: number;
+  status: 'new' | 'seen' | 'done';
+  outcome?: string;
+}
+
+export interface SocialActivity {
+  id: string;
+  kind: 'like' | 'comment' | 'follow' | 'mention' | 'repost' | 'milestone' | 'unfollow' | 'story' | 'verified';
+  text: string;
+  actorId?: string;
+  actorName?: string;
+  postId?: string;
+  /** Shown once the clock reaches it. */
+  minute: number;
+  read?: boolean;
+}
 
 export interface FanWar {
   id: string;
@@ -2221,6 +2300,34 @@ export interface GameState {
   fanWars?: FanWar[];
   /** Beats you own, beats on order, and this week's beat store. */
   beats?: BeatsState;
+  /** Accounts the player follows. */
+  following?: string[];
+  /** Accounts that follow the player back. */
+  followedBy?: string[];
+  /** Accounts the player has blocked: no posts, comments, DMs or tags from them. */
+  blocked?: string[];
+  /** Follow-backs that will (or will not) happen. */
+  pendingFollows?: { npcId: string; dueMinute: number; yes: boolean }[];
+  /** Likes, comments, follows and mentions — the notifications tab. */
+  socialActivity?: SocialActivity[];
+  /** Stories, 24 hours each. */
+  stories?: Story[];
+  /** The last time the player went live, and how it went. */
+  lastLive?: LiveSession & { serial: number };
+  /** The blue tick. */
+  verified?: boolean;
+  /** Stations, shows and podcasts asking for you. */
+  interviewInvites?: InterviewInvite[];
+  /** The sit-down in progress. */
+  activeInterview?: ActiveInterview | null;
+  /** Every interview you have done, newest first. */
+  interviewLog?: InterviewRecord[];
+  /** How each outlet feels about you. Walk out on one and it remembers. */
+  outletRel?: Record<string, number>;
+  /** The day you last pitched yourself to an outlet. */
+  lastPitchSerial?: number;
+  /** What your manager has on their desk for you. */
+  managerDesk?: ManagerBrief[];
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

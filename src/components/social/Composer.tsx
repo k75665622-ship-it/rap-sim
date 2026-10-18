@@ -25,7 +25,7 @@ function relTone(r: number): string {
   return 'text-ink3';
 }
 
-export function Composer({ open, onClose, app, onPosted }: { open: boolean; onClose: () => void; app: SocialApp; onPosted: (msg: { ok: boolean; message: string; viral?: boolean }) => void }) {
+export function Composer({ open, onClose, app, onPosted, preset }: { open: boolean; onClose: () => void; app: SocialApp; onPosted: (msg: { ok: boolean; message: string; viral?: boolean }) => void; preset?: { kind?: PostKind; soundSongId?: string; soundTitle?: string; soundMine?: boolean } }) {
   const player = useGameStore((s) => s.player);
   const songs = useGameStore((s) => s.songs);
   const npcs = useGameStore((s) => s.npcs);
@@ -35,9 +35,10 @@ export function Composer({ open, onClose, app, onPosted }: { open: boolean; onCl
   const publishPost = useGameStore((s) => s.publishPost);
 
   const [apps, setApps] = useState<SocialApp[]>([app]);
-  const [kind, setKind] = useState<PostKind>(kindsFor(app)[0].id);
+  const [kind, setKind] = useState<PostKind>(preset?.kind ?? kindsFor(app)[0].id);
+  const [sound, setSound] = useState(preset?.soundSongId ? { id: preset.soundSongId, title: preset.soundTitle ?? 'Sound', mine: !!preset.soundMine } : null);
   const [text, setText] = useState('');
-  const [songId, setSongId] = useState<string>('');
+  const [songId, setSongId] = useState<string>(preset?.soundMine && preset.soundSongId ? preset.soundSongId : '');
   const [tags, setTags] = useState<string[]>([]);
   const [q, setQ] = useState('');
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -98,7 +99,7 @@ export function Composer({ open, onClose, app, onPosted }: { open: boolean; onCl
   }
 
   function post() {
-    const r = publishPost({ apps, kind, content: text, tags, songId: songId || undefined });
+    const r = publishPost({ apps, kind, content: text, tags, songId: songId || undefined, soundSongId: sound && !sound.mine ? sound.id : undefined });
     setResult(r);
     if (r.ok) {
       onPosted(r);
@@ -122,7 +123,7 @@ export function Composer({ open, onClose, app, onPosted }: { open: boolean; onCl
             ⚡ {energy} energy{apps.length > 1 ? ` · ${apps.length} apps` : ''}{controversial ? ' · 🔥 controversial: more reach, more heat' : ''}
             {result && !result.ok && <div className="text-fall mt-0.5">{result.message}</div>}
           </div>
-          <Button onClick={post} disabled={(!text.trim() && !songId) || (k.needsSong && !songId) || (player?.energy ?? 0) < energy} accent={APP_META[app].color} variant="accent">
+          <Button onClick={post} disabled={(!text.trim() && !songId && !sound) || (k.needsSong && !songId && !sound) || (player?.energy ?? 0) < energy} accent={APP_META[app].color} variant="accent">
             Post
           </Button>
         </div>
@@ -170,8 +171,16 @@ export function Composer({ open, onClose, app, onPosted }: { open: boolean; onCl
           <div className="flex items-center justify-between text-[11px] text-ink3 mt-1"><span>Use @ to mention. Insults and rivals get reach — and consequences.</span><span className="num">{text.length}/{limit}</span></div>
         </section>
 
+        {sound && (
+          <div className="flex items-center gap-2 rounded-[12px] border border-[#12A594]/50 bg-[#12A594]/10 px-3 py-2">
+            <span className="text-[16px]">♫</span>
+            <div className="min-w-0 flex-1 text-[12px] text-ink"><b>Sound:</b> {sound.title}{sound.mine ? ' (yours)' : ' — riding the trend'}</div>
+            <button onClick={() => setSound(null)} className="text-ink3 hover:text-ink text-[12px]">Remove</button>
+          </div>
+        )}
+
         <section>
-          <div className="text-[11px] font-semibold text-ink3 uppercase tracking-wider mb-2">Attach a song {k.needsSong && <span className="text-amber normal-case tracking-normal">· required</span>}</div>
+          <div className="text-[11px] font-semibold text-ink3 uppercase tracking-wider mb-2">Attach a song {k.needsSong && !sound && <span className="text-amber normal-case tracking-normal">· required</span>}</div>
           <select value={songId} onChange={(e) => setSongId(e.target.value)} className="w-full h-10 rounded-[10px] bg-card border border-line px-3 text-[13px] text-ink outline-none">
             <option value="">No song</option>
             {released.map((s) => <option key={s.id} value={s.id}>{s.title} · Q{Math.round(s.quality)}</option>)}

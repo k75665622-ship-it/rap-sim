@@ -1,4 +1,5 @@
 import { MomentCard } from '../moments/MomentCard';
+import { ManagerDesk } from '../moments/ManagerDesk';
 // ─── TEAM & MANAGEMENT ─────────────────────────────────────────────────────
 //
 // One page for the people who work for you and the people who work you.
@@ -234,6 +235,8 @@ export function TeamScreen() {
       >
         Team &amp; Management
       </PageTitle>
+
+      <ManagerDesk />
 
       {(openTeam.length > 0 || pastTeam.length > 0) && (
         <div className="space-y-2">

@@ -57,18 +57,45 @@ export function MomentCard({ moment, compact }: { moment: Moment; compact?: bool
   );
 }
 
-/** Everything waiting on the player, for the dashboard. */
+/** Everything waiting on the player, for the dashboard: decisions, the manager's desk, interviews. */
 export function MomentsInbox() {
-  const { moments, setScreen, selectNPC } = useGameStore();
+  const moments = useGameStore((s) => s.moments);
+  const desk = useGameStore((s) => s.managerDesk);
+  const invites = useGameStore((s) => s.interviewInvites);
+  const live = useGameStore((s) => s.activeInterview);
+  const setScreen = useGameStore((s) => s.setScreen);
+  const selectNPC = useGameStore((s) => s.selectNPC);
   const open = (moments ?? []).filter((m) => m.status === 'open');
-  if (open.length === 0) return null;
+  const briefs = (desk ?? []).filter((b) => b.status !== 'done');
+  const inv = (invites ?? []).filter((i) => i.status === 'open');
+  const total = open.length + briefs.length + inv.length + (live ? 1 : 0);
+  if (total === 0) return null;
+  const tile = 'text-left rounded-xl border border-gray-800 bg-gray-900 hover:border-yellow-500/50 px-3 py-2';
   return (
     <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/[0.04] p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-bold text-white">⚡ Waiting on you ({open.length})</div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-sm font-bold text-white">⚡ Waiting on you ({total})</div>
         <div className="text-[11px] text-gray-500">Every choice has a consequence. Ignoring one is a choice too.</div>
       </div>
       <div className="grid md:grid-cols-2 gap-2">
+        {live && (
+          <button onClick={() => setScreen('interviews')} className={tile}>
+            <div className="text-[10px] uppercase tracking-wider text-red-400">🔴 On air</div>
+            <div className="text-xs text-white font-semibold truncate">You're mid-interview on {live.outletName}</div>
+          </button>
+        )}
+        {briefs.slice(0, 4).map((b) => (
+          <button key={b.id} onClick={() => setScreen('pingchat')} className={tile}>
+            <div className="text-[10px] uppercase tracking-wider text-gray-500">📋 Manager · {b.advice === 'take' ? 'take it' : b.advice === 'pass' ? 'pass' : b.advice === 'counter' ? 'counter' : 'your call'}</div>
+            <div className="text-xs text-white font-semibold truncate">{b.title}</div>
+          </button>
+        ))}
+        {inv.slice(0, 3).map((i) => (
+          <button key={i.id} onClick={() => setScreen('interviews')} className={tile}>
+            <div className="text-[10px] uppercase tracking-wider text-gray-500">🎙️ Interview</div>
+            <div className="text-xs text-white font-semibold truncate">{i.outletName} wants you on</div>
+          </button>
+        ))}
         {open.slice(0, 6).map((m) => (
           <button
             key={m.id}
@@ -76,7 +103,7 @@ export function MomentsInbox() {
               if (m.channel === 'dm' && m.npcId) { selectNPC(m.npcId); setScreen('pingchat'); }
               else setScreen('team');
             }}
-            className="text-left rounded-xl border border-gray-800 bg-gray-900 hover:border-yellow-500/50 px-3 py-2"
+            className={tile}
           >
             <div className="text-[10px] uppercase tracking-wider text-gray-500">{m.channel === 'dm' ? '💬 PingChat' : '👥 Your team'}</div>
             <div className="text-xs text-white font-semibold truncate">{m.title}</div>

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { REACH_OUT_COOLDOWN_DAYS, useGameStore } from '../../store/gameStore';
 import { Card, Button, Badge, StatBar } from '../ui/Card';
 import { cn } from '@/utils/cn';
+import { compact } from '@/utils/format';
+import { audienceOf } from '../../sim/socialLive';
 import { getCountryNameList } from '../../data/locations';
 import { ENERGY_COSTS } from '../../sim/energy';
 import { dateToSerial } from '../../sim/gameClock';
@@ -93,6 +95,13 @@ export function NPCProfileScreen() {
   const fireCrew = useGameStore((s) => s.fireCrew);
   const reachOutToNpc = useGameStore((s) => s.reachOutToNpc);
   const sendGift = useGameStore((s) => s.sendGift);
+  const followingIds = useGameStore((s) => s.following);
+  const followedByIds = useGameStore((s) => s.followedBy);
+  const blockedIds = useGameStore((s) => s.blocked);
+  const followAccount = useGameStore((s) => s.followAccount);
+  const unfollowAccount = useGameStore((s) => s.unfollowAccount);
+  const blockAccount = useGameStore((s) => s.blockAccount);
+  const unblockAccount = useGameStore((s) => s.unblockAccount);
 
   const [hireFlash, setHireFlash] = useState<TeamActionResult | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
@@ -895,6 +904,30 @@ export function NPCProfileScreen() {
                         it simply does not land.
                       */}
                       <div className="flex flex-col gap-2">
+                        {/* Socials: follow, unfollow, block — each with consequences. */}
+                        {(() => {
+                          const isF = (followingIds ?? []).includes(selected.id);
+                          const isB = (blockedIds ?? []).includes(selected.id);
+                          const followsYou = (followedByIds ?? []).includes(selected.id);
+                          return (
+                            <div className="rounded-xl border border-line bg-black/20 p-2.5 mb-1">
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <span className="text-[12px] text-ink2"><b className="text-ink">{compact(audienceOf(selected))}</b> followers{followsYou ? ' · follows you' : ''}</span>
+                                {isB && <span className="text-[11px] text-fall">Blocked</span>}
+                              </div>
+                              <div className="flex gap-1.5">
+                                {!isB && (
+                                  <button onClick={() => setReachFlash(isF ? unfollowAccount(selected.id) : followAccount(selected.id))} className={cn('flex-1 h-8 rounded-lg text-[12px] font-semibold', isF ? 'border border-line text-ink' : 'bg-white text-black')}>
+                                    {isF ? 'Following' : followsYou ? 'Follow back' : 'Follow'}
+                                  </button>
+                                )}
+                                <button onClick={() => { if (isB) { unblockAccount(selected.id); setReachFlash({ ok: true, message: `Unblocked ${selected.name}.` }); } else setReachFlash(blockAccount(selected.id)); }} className={cn('h-8 px-3 rounded-lg text-[12px] font-semibold border', isB ? 'border-line text-ink' : 'border-fall/40 text-fall')}>
+                                  {isB ? 'Unblock' : 'Block'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         <Button
                           variant="secondary"
                           size="sm"

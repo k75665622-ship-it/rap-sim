@@ -20,7 +20,7 @@ import type {
   PlayerLabel, LabelSignee, LabelPitch, LabelEvent, LabelTerms, LabelDealType,
   LabelStaffRole, LabelReleaseTier, LabelGear, LabelTactic, LabelPolicy, LabelSubmission,
   LabelSession, Genre as LabelGenre, LineupAct, ShowGuest, Moment, MomentEffect,
-  FanWar, SocialComment,
+  FanWar, SocialComment, SocialActivity, ManagerBrief, InterviewInvite, InterviewRecord,
 } from '../types/game';
 import { rollMoment, resolveMoment, expireMoment, buildFollowUp, buildFeatureTwist, type MomentWorld } from '../sim/moments';
 import { chatReply, detectIntent } from '../sim/chat';
@@ -29,6 +29,11 @@ import {
   fanWarDay, fanWarMove, fanbaseNameFor, FANWAR_ACTIONS,
   type SocialApp, type PostKind, type CommentContext as SocialCommentContext, type FanWarAction,
 } from '../sim/social';
+import { audienceOf, postTarget, liveCounts, npcStory, liveSession, STORY_KINDS, type LiveSession, type StoryKind } from '../sim/socialLive';
+import {
+  outletsFor, buildInterview, resolveAnswer, mergeEffects, headlineFor, pickInvite, pitchAccepted, FORMAT_INFO, KIND_EMOJI,
+  type Outlet, type InterviewFormat, type IvContext,
+} from '../sim/interviews';
 import {
   buildLineup,
   clashOutcome,
@@ -509,7 +514,7 @@ function bestPenQuality(state: GameState): number {
 const TAGS_PER_DAY = 12;
 
 /** Game minutes between feed pulls. Six hours: twice a day is the intended pace. */
-const FEED_REFRESH_MINUTES = 360;
+const FEED_REFRESH_MINUTES = 15;
 
 /**
  * How long until the feed can be pulled again, on the GAME clock.
@@ -994,6 +999,19 @@ function getInitialState(): GameState {
     moments: [],
     fanWars: [],
     beats: emptyBeats(),
+    following: undefined,
+    followedBy: undefined,
+    blocked: [],
+    socialActivity: [],
+    stories: [],
+    lastLive: undefined,
+    verified: false,
+    interviewInvites: [],
+    activeInterview: null,
+    interviewLog: [],
+    outletRel: {},
+    lastPitchSerial: undefined,
+    managerDesk: [],
     socialStats: {},
     fanbaseName: undefined,
     postsToday: undefined,
@@ -1731,6 +1749,13 @@ function openInboundAsk(
     negotiationRound: 0,
   };
   state.inboundRequests.push(req);
+
+  // With a manager, the ask goes to their desk and they brief you.
+  if (managerOf(state)) {
+    fileBrief(state, featureBrief(state, req, npc));
+    pushNotification(state, { kind: 'feature', title: `${npc.name} wants you on a record`, body: 'Your manager has the details and a recommendation.', artSeed: `npc|${npc.id}`, action: { type: 'inbound', id: req.id } });
+    return req;
+  }
 
   // It arrives as a DM, because that is what it is — somebody in your messages
   // asking for something.
@@ -2642,7 +2667,7 @@ interface GameActions {
    * running — stamps the GAME clock, and refuses out loud until the cooldown is
    * up rather than silently doing nothing.
    */
-  refreshFeed: () => FeedRefreshResult;
+  refreshFeed: (app?: string) => FeedRefreshResult;
   /**
    * Tag somebody in a post.
    *
@@ -2671,7 +2696,7 @@ interface GameActions {
    * it supports, reaches that app's followers, and keeps collecting for three
    * days. Tagged people see it and decide what to do about it.
    */
-  publishPost: (opts: { apps: string[]; kind: string; content: string; tags?: string[]; songId?: string }) => { ok: boolean; message: string; viral?: boolean };
+  publishPost: (opts: { apps: string[]; kind: string; content: string; tags?: string[]; songId?: string; soundSongId?: string }) => { ok: boolean; message: string; viral?: boolean };
   repostPost: (postId: string) => FeatureActionResult;
   quotePost: (postId: string, text: string) => FeatureActionResult;
   /** Comment on a post, or reply to a comment on it. People answer. */
@@ -2691,6 +2716,35 @@ interface GameActions {
   discardBeat: (beatId: string) => void;
   upgradeStudioBuilding: () => FeatureActionResult;
   setStudioRentOut: (on: boolean) => void;
+
+  // Live social
+  followAccount: (npcId: string) => FeatureActionResult;
+  unfollowAccount: (npcId: string) => FeatureActionResult;
+  /** No posts, comments, tags or messages from them. They may find out. */
+  blockAccount: (npcId: string) => FeatureActionResult;
+  unblockAccount: (npcId: string) => void;
+  /** Open more of a comment section. */
+  loadMoreComments: (postId: string) => void;
+  markActivityRead: () => void;
+  postStory: (kind: StoryKind, songId?: string) => FeatureActionResult;
+  viewStory: (storyId: string) => void;
+  /** An hour live on Clip or Snapgram. Once a day. */
+  goLive: (app: 'clip' | 'snapgram') => { ok: boolean; message: string; session?: LiveSession };
+
+  // Interviews v2
+  acceptInterview: (inviteId: string) => FeatureActionResult;
+  declineInterview: (inviteId: string) => void;
+  /** Ask an outlet to have you on. Once a day; a manager helps. */
+  pitchInterview: (outletId: string, format: string) => FeatureActionResult;
+  /** Answer the current question. The last answer finishes the interview. */
+  answerInterview: (optionId: string) => { ok: boolean; reaction: string; done: boolean; record?: InterviewRecord; passed?: boolean };
+
+  // The manager's desk & PingChat housekeeping
+  /** Act on something the manager briefed you about: take it, pass, or counter at their number. */
+  actOnBrief: (briefId: string, action: 'accept' | 'decline' | 'counter') => { ok: boolean; message: string };
+  markDeskSeen: () => void;
+  deleteThread: (npcId: string) => void;
+  clearReadThreads: () => void;
 
   // Shows
   /**
@@ -5085,6 +5139,8 @@ function momentWorld(state: GameState, npcs: NPC[], serial: number): MomentWorld
 
 /** Put a moment into the world: a text in PingChat, or a knock on the door. */
 function deliverMoment(state: GameState, draft: Omit<Moment, 'id' | 'createdSerial' | 'status'>, serial: number, status: Moment['status'] = 'open', dueSerial?: number): Moment {
+  // Somebody you blocked cannot reach you.
+  if (draft.npcId && isBlocked(state, draft.npcId) && status === 'open') status = 'expired';
   const m: Moment = { ...draft, id: uuidv4(), createdSerial: serial, status, dueSerial };
   const list = state.moments ?? (state.moments = []);
   list.unshift(m);
@@ -5364,36 +5420,136 @@ function kindOnApp(kind: PostKind, app: SocialApp, hasSong: boolean): PostKind {
 }
 
 /** The daily social life of the scene. */
+// ─── LIVE SOCIAL HELPERS ───────────────────────────────────────────────────
+
+const npcIndexCache = new WeakMap<NPC[], Map<string, NPC>>();
+/** id → NPC over a plain roster, built once per roster array. */
+function npcIndex(list: NPC[]): Map<string, NPC> {
+  let m = npcIndexCache.get(list);
+  if (!m) {
+    m = new Map(list.map((n) => [n.id, n]));
+    npcIndexCache.set(list, m);
+  }
+  return m;
+}
+
+/** The absolute game minute, for screens that show live numbers. */
+export function nowMinuteOf(state: Pick<GameState, 'gameDate' | 'clockMinute'>): number {
+  return dateToSerial(state.gameDate) * MINUTES_PER_DAY + (state.clockMinute ?? 0);
+}
+
+function pushActivity(state: GameState, a: Omit<SocialActivity, 'id'>): void {
+  const list = state.socialActivity ?? (state.socialActivity = []);
+  list.unshift({ id: uuidv4(), ...a });
+  if (list.length > 90) list.length = 90;
+}
+
+function isBlocked(state: GameState, id: string | undefined): boolean {
+  return !!id && (state.blocked ?? []).includes(id);
+}
+
+/** Who the player follows. Seeded the first time from the home scene. */
+function followingOf(state: GameState, npcs: NPC[]): string[] {
+  if (state.following) return state.following;
+  const p = state.player;
+  const out: string[] = [];
+  if (p) {
+    const home = npcs.filter((n) => n.role === 'artist' && n.country === p.country).sort((a, b) => b.fame - a.fame);
+    for (const n of home.slice(0, 8)) out.push(n.id);
+    for (const n of npcs) if (n.relationshipScore >= 40 && n.role === 'artist' && !out.includes(n.id) && out.length < 14) out.push(n.id);
+    const global = npcs.filter((n) => n.id.endsWith('_real') && n.fame >= 92).slice(0, 3);
+    for (const n of global) if (!out.includes(n.id)) out.push(n.id);
+  }
+  state.following = out;
+  if (!state.followedBy) state.followedBy = npcs.filter((n) => n.relationshipScore >= 45 && n.role === 'artist').slice(0, 6).map((n) => n.id);
+  return out;
+}
+
+/**
+ * Give a post live numbers: where it ends up (from who posted it) and the
+ * minute it went up, plus a comment section to match its size.
+ */
+function livenPost(state: GameState, post: SocialPost, opts: { npcs?: NPC[]; at?: number; heat?: number; viral?: boolean; minComments?: number } = {}): void {
+  if (post.target && post.postedMinute !== undefined) return;
+  const at = opts.at ?? gameMinute(state);
+  const list = opts.npcs ?? (raw(state.npcs) as NPC[]);
+  const npc = npcIndex(list).get(post.authorId);
+  const audience = npc ? audienceOf(npc) : Math.max(800, post.likes * 40);
+  const app = (SOCIAL_APPS.includes(post.platform as SocialApp) ? post.platform : 'chirp') as SocialApp;
+  const t = postTarget({ audience, app, heat: opts.heat ?? (post.trendingScore >= 60 ? 1 : 0), roll: Math.random(), viral: opts.viral });
+  post.target = t;
+  post.postedMinute = at;
+  post.likes = t.likes;
+  post.shares = t.shares;
+  if (t.views) post.views = t.views;
+  post.daySerial = Math.floor(at / MINUTES_PER_DAY);
+  const want = opts.minComments ?? Math.min(10, 3 + Math.floor(Math.log10(Math.max(10, t.comments)) * 1.5));
+  if (post.comments.length < want) {
+    post.comments.push(...socialComments(post, want - post.comments.length, {
+      fame: npc?.fame ?? 30, reputation: 60, controversy: post.trendingScore >= 60,
+      artistFriends: [], seed: `${at}|${post.id}`,
+    }, new Date().toISOString()));
+  }
+}
+
+const STAR_CAPTIONS = ['📸', '🎥', '🌍', '✈️', '🏟️', '🖤', '🔥', '🌙', '🙏🏾', '💿', '🎤', '⚡️'];
+
+/**
+ * A star posts. Real-named artists post a picture or a clip with an emoji, or
+ * a sticker for one of their records — never words in their mouth.
+ */
+function starPost(state: GameState, star: NPC, app: SocialApp, at: number, npcs: NPC[]): SocialPost {
+  const real = star.id.endsWith('_real');
+  const song = Math.random() < 0.35 ? state.npcSongs.find((x) => x.ownerId === star.id) : undefined;
+  const lines = ['Thank you for everything this year.', 'Back in the studio. You know what that means.', 'Tour mode 🌍', 'New era loading…', 'Different energy tonight.', 'Grateful 🙏'];
+  const content = real
+    ? song ? `🎵 "${song.title}"` : STAR_CAPTIONS[Math.floor(Math.random() * STAR_CAPTIONS.length)]
+    : song ? `"${song.title}" — out now. Run it.` : lines[Math.floor(Math.random() * lines.length)];
+  const post: SocialPost = {
+    id: uuidv4(), platform: app, authorId: star.id, authorName: star.name, content,
+    likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(),
+    isPlayerPost: false, trendingScore: 50 + star.fame / 3, kind: app === 'clip' ? 'bts' : app === 'snapgram' ? (song ? 'cover' : 'photo') : app === 'circle' ? 'community' : 'thought',
+    relatedSongId: song?.id,
+  };
+  livenPost(state, post, { npcs, at, heat: 1 });
+  return post;
+}
+
 function socialTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
   const p = state.player;
   if (!p) return;
   const stats = socialStatsOf(state);
   const fame = blendedFame(p);
   const now = new Date().toISOString();
+  const minute = gameMinute(state);
+  followingOf(state, npcs);
 
-  // 1. Posts keep collecting for a few days.
+  // 1. Posts keep collecting: followers from what you posted, and the
+  //    comment section fills in. Milestones get announced.
   for (const post of state.socialPosts) {
-    if (!post.isPlayerPost || !post.growth || post.growth.days <= 0) continue;
-    const steps = Math.min(days, post.growth.days);
-    const share = steps / post.growth.days;
-    const add = (n: number) => Math.round(n * share);
-    post.likes += add(post.growth.likes);
-    post.shares += add(post.growth.shares);
-    post.views = (post.views ?? 0) + add(post.growth.views);
-    const follows = add(post.growth.follows);
-    if (stats[post.platform]) stats[post.platform].followers += follows;
-    const newComments = Math.min(add(post.growth.comments), 4);
-    if (newComments > 0 && post.comments.length < 24) {
-      post.comments.push(...socialComments(post, newComments, commentContext(state, post.content.includes('@') && post.trendingScore > 50, `${serial}|${post.id}`), now));
+    if (!post.isPlayerPost) continue;
+    if (post.growth && post.growth.days > 0) {
+      const steps = Math.min(days, post.growth.days);
+      const share = steps / post.growth.days;
+      const add = (n: number) => Math.round(n * share);
+      if (!post.target) {
+        post.likes += add(post.growth.likes);
+        post.shares += add(post.growth.shares);
+        post.views = (post.views ?? 0) + add(post.growth.views);
+      }
+      const follows = add(post.growth.follows);
+      if (stats[post.platform]) stats[post.platform].followers += follows;
+      const newComments = Math.min(add(post.growth.comments), 5);
+      if (newComments > 0 && post.comments.length < 30) {
+        post.comments.push(...socialComments(post, newComments, commentContext(state, post.content.includes('@') && post.trendingScore > 50, `${serial}|${post.id}`), now));
+      }
+      post.growth = {
+        likes: post.growth.likes - add(post.growth.likes), shares: post.growth.shares - add(post.growth.shares),
+        comments: post.growth.comments - add(post.growth.comments), views: post.growth.views - add(post.growth.views),
+        follows: post.growth.follows - follows, days: post.growth.days - steps,
+      };
     }
-    post.growth = {
-      likes: post.growth.likes - add(post.growth.likes),
-      shares: post.growth.shares - add(post.growth.shares),
-      comments: post.growth.comments - add(post.growth.comments),
-      views: post.growth.views - add(post.growth.views),
-      follows: post.growth.follows - follows,
-      days: post.growth.days - steps,
-    };
+    announceMilestones(state, post, minute);
   }
 
   // 2. Followers follow the fanbase; a silent account slowly bleeds.
@@ -5404,10 +5560,32 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
     if (st.lastPostSerial !== undefined && serial - st.lastPostSerial > 21) st.followers = Math.round(st.followers * Math.pow(0.998, days));
   }
 
-  // 3. The scene posts on every app, and sometimes about you.
+  // 3. The scene posts on every app and puts up stories; some of it is about you.
   scenePosts(state, npcs, serial, Math.min(days, 3));
 
-  // 4. Fan wars: spark, burn, cool.
+  // 4. People who rate you follow you. A star following you is news.
+  if (Math.random() < 1 - Math.pow(0.7, Math.min(days, 5))) {
+    const by = state.followedBy ?? (state.followedBy = []);
+    const bySet = new Set(by);
+    const blockedSet = new Set(state.blocked ?? []);
+    const candidates = npcs.filter((n) => n.role === 'artist' && !bySet.has(n.id) && !blockedSet.has(n.id) && (n.relationshipScore >= 30 || (n.fame <= fame + 15 && n.country === p.country && Math.random() < 0.02)));
+    const who = candidates[Math.floor(Math.random() * candidates.length)];
+    if (who && (!who.id.endsWith('_real') || (who.relationshipScore >= 40 && fame >= who.fame - 35))) {
+      by.push(who.id);
+      pushActivity(state, { kind: 'follow', text: `${who.name} followed you`, actorId: who.id, actorName: who.name, minute: minute + Math.floor(Math.random() * 600) });
+      if (who.fame >= 70) state.lastEventLog.unshift(`👀 ${who.name} followed you. People noticed.`);
+    }
+  }
+
+  // 5. The blue tick.
+  const total = SOCIAL_APPS.reduce((a, x) => a + stats[x].followers, 0);
+  if (!state.verified && (total >= 60_000 || fame >= 45)) {
+    state.verified = true;
+    pushActivity(state, { kind: 'verified', text: 'Your accounts are verified ✓', minute });
+    pushNotification(state, { kind: 'milestone', title: 'You\'re verified ✓', body: 'The blue tick is on every app. Your posts reach a little further.', artSeed: 'verified' });
+  }
+
+  // 6. Fan wars: spark, burn, cool.
   const wars = state.fanWars ?? (state.fanWars = []);
   for (const war of wars) {
     if (war.status !== 'active') continue;
@@ -5420,9 +5598,7 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
       if (t.momentum) addMomentum(state, t.momentum);
       if (t.reputation) p.career.reputation = Math.max(0, p.career.reputation + t.reputation);
       if (t.line) war.log = [t.line, ...war.log].slice(0, 12);
-      if (t.spillsIntoBeef && rival && !beef) {
-        npcStartsBeef(state, rival, serial, `the fan war with ${war.theirFans} spilled over.`);
-      }
+      if (t.spillsIntoBeef && rival && !beef) npcStartsBeef(state, rival, serial, `the fan war with ${war.theirFans} spilled over.`);
     }
     war.lastSerial = serial;
     if (war.intensity < 6) {
@@ -5430,7 +5606,6 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
       war.log = [`It's over. ${war.edge >= 0 ? `${fanbaseNameOf(state)} are calling it a win.` : `${war.theirFans} are calling it a win.`}`, ...war.log].slice(0, 12);
     }
   }
-  // New wars: from hot beefs, and from chart neighbours. Two at a time at most.
   const activeWars = wars.filter((w) => w.status === 'active').length;
   if (activeWars < 2 && Math.random() < 1 - Math.pow(0.96, Math.min(days, 7))) {
     const hot = state.beefs.find((b) => !b.resolution && settleHeat(b, serial) >= 30 && !wars.some((w) => w.npcId === b.npcId && w.status === 'active'));
@@ -5451,7 +5626,7 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
     }
   }
 
-  // 5. Organic beef: people who can't stand you, and rivals hitting back.
+  // 7. Organic beef: people who can't stand you, and rivals hitting back.
   if (Math.random() < 1 - Math.pow(0.95, Math.min(days, 7))) {
     const enemy = npcs.find((n) => n.role === 'artist' && n.relationshipScore <= -35 && Math.abs(n.fame - fame) <= 30 && !state.beefs.some((b) => b.npcId === n.id && !b.resolution));
     if (enemy) npcStartsBeef(state, enemy, serial, 'they never liked you, and now they said it out loud.');
@@ -5459,8 +5634,6 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
   for (const beef of state.beefs) {
     if (beef.resolution) continue;
     const heat = settleHeat(beef, serial);
-    // They answer while you keep it going. Two quiet weeks from you and they
-    // have made their point.
     const lastYours = beef.moves.find((m) => m.by === 'player')?.serial ?? beef.startedSerial;
     if (heat < 35 || serial - lastYours > 14) continue;
     if (Math.random() > 1 - Math.pow(0.88, Math.min(days, 7))) continue;
@@ -5470,26 +5643,29 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
     beef.heat = Math.min(100, heat + (landed ? 10 : 5));
     beef.heatSerial = serial;
     if (landed) { beef.losses += 1; addMomentum(state, -2); } else { beef.wins += 1; addMomentum(state, 1); }
-    const content = rival.id.endsWith('_real') ? `[Reported] ${rival.name} responded to ${p.artistName}.` : pick3([
-      `Keep my name out your mouth. Last warning.`,
-      `I heard the song. I laughed. That's the review.`,
-      `You want smoke? Check the charts first 📉`,
-      `Y'all really think they wrote that themselves? 😂`,
-      `Imagine dissing me and I still outsold you this week.`,
-    ], `${rival.id}|${serial}|${beef.wins + beef.losses}`);
+    const real = rival.id.endsWith('_real');
     beef.moves.unshift({ serial, by: 'npc', rung: beef.rung, line: `${rival.name} hit back online${landed ? ' and it landed' : ', and it fell flat'}.`, landed, score: landed ? 65 : 35, heatDelta: landed ? 10 : 5 });
     beef.lastMoveSerial = serial;
-    state.socialPosts.unshift({
-      id: uuidv4(), platform: Math.random() < 0.5 ? 'chirp' : 'clip', authorId: rival.id, authorName: rival.name,
-      content,
-      likes: Math.round(500 + rival.fame * 200), shares: Math.round(60 + rival.fame * 25), comments: [], timestamp: now,
-      isPlayerPost: false, trendingScore: 70, daySerial: serial, tags: [{ id: 'player', name: p.artistName }],
-    });
+    const post: SocialPost = real
+      ? { id: uuidv4(), platform: 'chirp', authorId: 'scene_watch', authorName: 'Scene Watch', content: `${rival.name} and ${p.artistName}: the back-and-forth continues. The timeline has picked sides.`, likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 70, tags: [{ id: 'player', name: p.artistName }] }
+      : {
+          id: uuidv4(), platform: Math.random() < 0.5 ? 'chirp' : 'clip', authorId: rival.id, authorName: rival.name,
+          content: pick3([
+            `Keep my name out your mouth. Last warning.`,
+            `I heard the song. I laughed. That's the review.`,
+            `You want smoke? Check the charts first 📉`,
+            `Y'all really think they wrote that themselves? 😂`,
+            `Imagine dissing me and I still outsold you this week.`,
+          ], `${rival.id}|${serial}|${beef.wins + beef.losses}`),
+          likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 75, tags: [{ id: 'player', name: p.artistName }],
+        };
+    livenPost(state, post, { npcs, at: minute + Math.floor(Math.random() * 900), heat: 2 });
+    state.socialPosts.unshift(post);
+    pushActivity(state, { kind: 'mention', text: `${rival.name} came at you${real ? ' (reported)' : ''}`, actorId: rival.id, actorName: rival.name, postId: post.id, minute: post.postedMinute! });
     state.lastEventLog.unshift(`⚔️ ${rival.name} hit back${landed ? ' — and it landed.' : ', and missed.'}`);
   }
 
-  // 6. Relationships drift when nobody tends them. Once a month: friends you
-  // have not made time for cool a little, grudges soften a little.
+  // 8. Relationships drift when nobody tends them.
   if (Math.floor(serial / 30) !== Math.floor((serial - days) / 30)) {
     for (let i = 0; i < npcs.length; i++) {
       const n = npcs[i];
@@ -5501,35 +5677,35 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
     }
   }
 
+  // Stories last a day.
+  if (state.stories) state.stories = state.stories.filter((s) => minute - s.postedMinute < MINUTES_PER_DAY);
   if (state.socialPosts.length > 320) trimFeed(state);
 }
 
-/** Posts from the older generators: stamp the game day and give them a comment section. */
-function settleScenePosts(posts: SocialPost[], serial: number): void {
-  const now = new Date().toISOString();
-  for (const post of posts) {
-    if (typeof post.daySerial !== 'number') post.daySerial = serial;
-    if (!post.comments || post.comments.length === 0) {
-      post.comments = socialComments(post, 1 + Math.floor(Math.random() * 4), { fame: Math.min(100, post.likes / 40), reputation: 55, controversy: post.trendingScore >= 60, artistFriends: [], seed: `${serial}|${post.id}` }, now);
-    }
-  }
+const MILESTONES = [100, 1_000, 10_000, 100_000, 1_000_000];
+function announceMilestones(state: GameState, post: SocialPost, minute: number): void {
+  if (!post.target || post.postedMinute === undefined) return;
+  const live = liveCounts(post, minute).likes;
+  const hit = MILESTONES.filter((m) => live >= m && m > (post.milestone ?? 0)).pop();
+  if (!hit) return;
+  post.milestone = hit;
+  const app = APP_META[post.platform as SocialApp]?.name ?? 'Chirp';
+  pushActivity(state, { kind: 'milestone', text: `Your ${app} post hit ${hit >= 1_000_000 ? '1M' : hit >= 1000 ? `${hit / 1000}K` : hit} likes`, postId: post.id, minute });
 }
 
-/**
- * Keep the feed bounded without throwing away the player's own posts — the
- * scene posts a lot, and a flat slice would push your own history out first.
- */
+/** Posts from the older generators: live numbers and a comment section. */
+function settleScenePosts(state: GameState, posts: SocialPost[], npcs?: NPC[]): void {
+  const minute = gameMinute(state);
+  for (const post of posts) livenPost(state, post, { npcs, at: minute - Math.floor(Math.random() * 120) });
+}
+
 function trimFeed(state: GameState): void {
   if (state.socialPosts.length <= 150) return;
   state.socialPosts = feedSlice(state.socialPosts, 80, 220);
 }
 
-/**
- * The newest posts, with a share for every app — the timeline posts far more
- * than the photo and video apps, and a flat cut would empty them.
- */
 function feedSlice(posts: SocialPost[], mineMax: number, othersMax: number): SocialPost[] {
-  const share: Record<string, number> = { chirp: 0.45, snapgram: 0.2, clip: 0.22, circle: 0.13 };
+  const share: Record<string, number> = { chirp: 0.4, snapgram: 0.24, clip: 0.24, circle: 0.12 };
   let mine = 0;
   const per: Record<string, number> = {};
   const out: SocialPost[] = [];
@@ -5542,128 +5718,147 @@ function feedSlice(posts: SocialPost[], mineMax: number, othersMax: number): Soc
   return out;
 }
 
-/** What goes into the save: your last 60 posts and the freshest 140 others. */
+/** What goes into the save: your last 60 posts and the freshest others, with their top comments. */
 function feedForSave(posts: SocialPost[]): SocialPost[] {
-  return feedSlice(posts, 60, 140);
+  return feedSlice(posts, 60, 140).map((p) => (p.comments.length > 8 ? { ...p, comments: p.comments.slice(0, 8) } : p));
 }
 
 /**
- * The rest of the scene living its life on every app: generated artists post
- * photos, clips and community updates; fan pages post edits; blogs report on
- * the real stars (never in their own words). One to three a day.
+ * The scene living its life on every app. Daily it puts up a day's worth of
+ * posts spread across the coming hours (they "arrive" as the clock runs) and a
+ * handful of stories; a refresh puts up a few right now.
  */
-function scenePosts(state: GameState, npcs: NPC[], serial: number, days: number): void {
+function scenePosts(state: GameState, npcs: NPC[], _serial: number, days: number, opts: { app?: SocialApp; live?: boolean } = {}): number {
   const p = state.player;
-  if (!p) return;
+  if (!p) return 0;
   const now = new Date().toISOString();
+  const minute = gameMinute(state);
   const home = p.country;
+  const following = new Set(followingOf(state, npcs));
   const pool: NPC[] = [];
   const stars: NPC[] = [];
   const pages: NPC[] = [];
+  const followed: NPC[] = [];
+  const blockedSet = new Set(state.blocked ?? []);
   for (const n of npcs) {
+    if (blockedSet.size && blockedSet.has(n.id)) continue;
+    if (following.has(n.id)) followed.push(n);
     if (n.role === 'artist') {
-      if (n.id.endsWith('_real')) { if (n.country === home && n.fame >= 40) stars.push(n); }
-      else if (n.country === home || n.relationshipScore >= 20) pool.push(n);
+      if ((n.id.endsWith('_real') && (n.country === home || n.fame >= 90)) || (n.country === home && n.fame >= 55)) stars.push(n);
+      if (!n.id.endsWith('_real') && (n.country === home || n.relationshipScore >= 20)) pool.push(n);
     } else if ((n.role === 'fan_account' || n.role === 'media' || n.role === 'blogger') && (n.country === home || !n.country)) pages.push(n);
   }
-  if (!pool.length) return;
+  if (!pool.length) return 0;
+  const starSet = new Set(stars.map((x) => x.id));
+  const followedStars = followed.filter((f) => starSet.has(f.id));
+  const when = () => opts.live ? minute - 5 - Math.floor(Math.random() * 85) : minute + Math.floor(Math.random() * 1300) - 60;
   const city = p.city || 'the city';
   const bank: Record<SocialApp, string[]> = {
-    chirp: ['Industry is a movie. I\'m just watching.', 'Who\'s the best in the country right now? Wrong answers only.', 'Album 80% done. 👀', 'If you know, you know.', 'Some of y\'all need to listen more and talk less.', `${city} we outside this weekend?`],
-    snapgram: ['Studio flow 📸', 'New fit, new energy.', `${city} nights 🌃`, 'Grateful for the journey 🙏', 'Rehearsals. You\'re not ready.', 'Photo dump from the week 🗂️', 'Mood: unbothered.'],
-    clip: ['POV: you just finished the hook at 4am', 'Freestyle Friday 🎤', 'Tried the challenge. Rate it 1-10 😂', 'Tour diaries ep. 3', 'Studio session — guess the sample 👂', 'My producer when the beat drops 😭'],
+    chirp: ['Industry is a movie. I\'m just watching.', 'Who\'s the best in the country right now? Wrong answers only.', 'Album 80% done. 👀', 'If you know, you know.', 'Some of y\'all need to listen more and talk less.', `${city} we outside this weekend?`, 'Rate my last 3 songs. Be honest.', 'Studio till sunrise again. Worth it.', 'Never let them tell you your dream is too big.'],
+    snapgram: ['Studio flow 📸', 'New fit, new energy.', `${city} nights 🌃`, 'Grateful for the journey 🙏', 'Rehearsals. You\'re not ready.', 'Photo dump from the week 🗂️', 'Mood: unbothered.', 'Sunday reset ☀️', 'Back on stage soon 🎤'],
+    clip: ['POV: you just finished the hook at 4am', 'Freestyle Friday 🎤', 'Tried the challenge. Rate it 1-10 😂', 'Tour diaries ep. 3', 'Studio session — guess the sample 👂', 'My producer when the beat drops 😭', 'Teaching my mum the dance 😂', 'Unreleased snippet. Should I drop it? 👀'],
     circle: ['Day ones — new music Friday. You heard it here first.', 'Thank you for the love this month. Real talk. 🫂', 'Ask me anything for the next hour.', 'Voting on the next single — reply 1 or 2.', 'Members-only listening session Sunday.'],
   };
   const kindFor: Record<SocialApp, string> = { chirp: 'thought', snapgram: 'photo', clip: 'bts', circle: 'community' };
-  const apps: SocialApp[] = ['snapgram', 'clip', 'circle', 'chirp', 'snapgram', 'clip'];
-  const count = Math.min(6, Math.round(days * (1 + Math.random() * 2)));
+  const weights: SocialApp[] = opts.app ? [opts.app, opts.app, opts.app, 'chirp', 'snapgram', 'clip'] : ['chirp', 'snapgram', 'snapgram', 'snapgram', 'clip', 'clip', 'clip', 'circle'];
+  const count = opts.live ? 3 + Math.floor(Math.random() * 4) : Math.min(16, Math.round(days * (8 + Math.random() * 6)));
+  let made = 0;
   for (let i = 0; i < count; i++) {
-    const app = apps[Math.floor(Math.random() * apps.length)];
+    const app = weights[Math.floor(Math.random() * weights.length)];
     const r = Math.random();
-    // A blog reporting on a real star, or a fan page edit.
-    if (r < 0.18 && stars.length && pages.length) {
-      const star = stars[Math.floor(Math.random() * stars.length)];
-      const page = pages[Math.floor(Math.random() * pages.length)];
-      const content = pick3([
-        `${star.name} spotted in the studio again 👀 something is coming`,
-        `${star.name} just posted a new photo and the comments are a mess 😭`,
-        `Rumour: ${star.name} has a big feature on the way.`,
-        `${star.name} live at the weekend — the crowd went crazy 🎥`,
-      ], `${page.id}|${star.id}|${serial}|${i}`);
-      state.socialPosts.unshift({
-        id: uuidv4(), platform: app === 'circle' ? 'chirp' : app, authorId: page.id, authorName: page.name, content,
-        likes: Math.round(300 + star.fame * 60 * Math.random()), shares: Math.round(20 + star.fame * 3), comments: [], timestamp: now,
-        isPlayerPost: false, trendingScore: 30 + star.fame / 3, daySerial: serial, kind: app === 'clip' ? 'bts' : 'thought',
-        views: app === 'clip' ? Math.round(3000 + star.fame * 800 * Math.random()) : undefined,
-      });
+    const at = when();
+    // A star posts — the big numbers.
+    if (r < 0.2 && stars.length) {
+      const star = followedStars.length && Math.random() < 0.5 ? followedStars[Math.floor(Math.random() * followedStars.length)] : stars[Math.floor(Math.random() * stars.length)];
+      state.socialPosts.unshift(starPost(state, star, app === 'circle' ? 'snapgram' : app, at, npcs));
+      made += 1;
       continue;
     }
-    // A fan page posting about YOU, once you are somebody.
-    if (r < 0.26 && pages.length && blendedFame(p) >= 20) {
+    // A blog reporting on a star, or a fan page about you.
+    if (r < 0.32 && pages.length) {
       const page = pages[Math.floor(Math.random() * pages.length)];
+      const aboutYou = blendedFame(p) >= 15 && Math.random() < 0.45;
       const hit = state.songs.filter((x) => isSongReleased(x)).sort((a, b) => (b.weeklyStreams ?? 0) - (a.weeklyStreams ?? 0))[0];
-      const content = pick3(hit ? [
-        `${p.artistName} — "${hit.title}" on repeat all week 🔁`,
-        `Edit: ${p.artistName} x "${hit.title}" 🎬🔥`,
-        `Underrated: ${p.artistName}. That's the tweet.`,
-      ] : [`Keep an eye on ${p.artistName}. Trust me.`, `${p.artistName} is next up. Bookmark this.`], `${page.id}|${serial}|${i}`);
-      state.socialPosts.unshift({
-        id: uuidv4(), platform: app, authorId: page.id, authorName: page.name, content,
-        likes: Math.round(200 + blendedFame(p) * 40 * Math.random()), shares: Math.round(10 + blendedFame(p) * 2), comments: [], timestamp: now,
-        isPlayerPost: false, trendingScore: 30, daySerial: serial, relatedSongId: hit?.id, kind: kindFor[app],
-        views: app === 'clip' ? Math.round(2000 + blendedFame(p) * 400 * Math.random()) : undefined,
-        tags: [{ id: 'player', name: p.artistName }],
-      });
+      const star = stars[Math.floor(Math.random() * Math.max(1, stars.length))];
+      const content = aboutYou
+        ? pick3(hit ? [`${p.artistName} — "${hit.title}" on repeat all week 🔁`, `Edit: ${p.artistName} x "${hit.title}" 🎬🔥`, `Underrated: ${p.artistName}. That's the tweet.`, `${p.artistName} different this year. Agree?`] : [`Keep an eye on ${p.artistName}. Trust me.`, `${p.artistName} is next up. Bookmark this.`], `${page.id}|${at}`)
+        : star ? pick3([`${star.name} spotted in the studio again 👀 something is coming`, `${star.name} just posted and the comments are a mess 😭`, `Rumour: ${star.name} has a big feature on the way.`, `${star.name} live at the weekend — the crowd went crazy 🎥`], `${page.id}|${star.id}|${at}`) : 'The scene is busy this week.';
+      const post: SocialPost = {
+        id: uuidv4(), platform: app === 'circle' ? 'chirp' : app, authorId: page.id, authorName: page.name, content,
+        likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 35, kind: app === 'clip' ? 'bts' : kindFor[app === 'circle' ? 'chirp' : app],
+        relatedSongId: aboutYou ? hit?.id : undefined, tags: aboutYou ? [{ id: 'player', name: p.artistName }] : undefined,
+      };
+      livenPost(state, post, { npcs, at });
+      state.socialPosts.unshift(post);
+      if (aboutYou) pushActivity(state, { kind: 'mention', text: `${page.name} posted about you`, actorId: page.id, actorName: page.name, postId: post.id, minute: at });
+      made += 1;
       continue;
     }
-    const who = pool[Math.floor(Math.random() * pool.length)];
-    const friendShout = who.relationshipScore >= 40 && Math.random() < 0.15;
+    // Somebody in the scene. People you follow post more.
+    const who = following.size && Math.random() < 0.45 && followed.length ? followed[Math.floor(Math.random() * followed.length)] : pool[Math.floor(Math.random() * pool.length)];
+    if (who.id.endsWith('_real') || who.role !== 'artist') {
+      if (who.role === 'artist') { state.socialPosts.unshift(starPost(state, who, app === 'circle' ? 'snapgram' : app, at, npcs)); made += 1; }
+      continue;
+    }
+    const friendShout = who.relationshipScore >= 40 && Math.random() < 0.12;
     const song = Math.random() < 0.3 ? state.npcSongs.find((x) => x.ownerId === who.id) : undefined;
     const content = friendShout
       ? `Shout out @${p.artistName.replace(/\s+/g, '')} — one of the realest in the game right now 🙌`
       : song && app !== 'circle'
-        ? pick3([`"${song.title}" out now 🔥 run it up`, `Y'all slept on "${song.title}" 😴 wake up`, `"${song.title}" challenge — show me what you got 💃`], `${who.id}|${song.id}|${serial}`)
+        ? pick3([`"${song.title}" out now 🔥 run it up`, `Y'all slept on "${song.title}" 😴 wake up`, `"${song.title}" challenge — show me what you got 💃`], `${who.id}|${song.id}|${at}`)
         : bank[app][Math.floor(Math.random() * bank[app].length)];
     const post: SocialPost = {
       id: uuidv4(), platform: app, authorId: who.id, authorName: who.name, content,
-      likes: Math.round(150 + who.fame * 110 * (0.4 + Math.random())), shares: Math.round(10 + who.fame * 4), comments: [], timestamp: now,
-      isPlayerPost: false, trendingScore: 20 + who.fame / 3, daySerial: serial, kind: song && app === 'clip' ? 'challenge' : kindFor[app],
-      relatedSongId: song?.id,
-      views: app === 'clip' ? Math.round(2000 + who.fame * 900 * (0.3 + Math.random())) : undefined,
+      likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 20 + who.fame / 3,
+      kind: song && app === 'clip' ? 'challenge' : kindFor[app], relatedSongId: song?.id, soundSongId: song && app === 'clip' ? song.id : undefined,
       tags: friendShout ? [{ id: 'player', name: p.artistName }] : undefined,
     };
-    post.comments = socialComments(post, 2 + Math.floor(Math.random() * 4), { fame: who.fame, reputation: 55, controversy: false, artistFriends: [], seed: `${serial}|${post.id}` }, now);
+    livenPost(state, post, { npcs, at });
     state.socialPosts.unshift(post);
+    made += 1;
     if (friendShout) {
       addMomentum(state, 1);
-      const stats = socialStatsOf(state);
-      stats.chirp.followers += Math.round(20 + who.fame * 8);
-      state.lastEventLog.unshift(`📣 ${who.name} gave you a shout-out.`);
+      socialStatsOf(state).chirp.followers += Math.round(20 + who.fame * 8);
+      pushActivity(state, { kind: 'mention', text: `${who.name} gave you a shout-out`, actorId: who.id, actorName: who.name, postId: post.id, minute: at });
     }
   }
+
+  // Stories: people you follow first.
+  const stories = state.stories ?? (state.stories = []);
+  const storyCount = opts.live ? 1 + Math.floor(Math.random() * 2) : 4 + Math.floor(Math.random() * 5);
+  for (let i = 0; i < storyCount; i++) {
+    const src = followed.length && Math.random() < 0.7 ? followed : pool;
+    const who = src[Math.floor(Math.random() * src.length)];
+    if (!who || who.role !== 'artist' || stories.some((s) => s.authorId === who.id && minute - s.postedMinute < 600)) continue;
+    stories.unshift(npcStory(who, when(), Math.random()));
+  }
+  if (stories.length > 40) stories.length = 40;
+  return made;
 }
 
 /**
  * An artist posts about a record you are both on, on every app, and tags you.
- * Their audience finds you. Real-named artists get a reported line instead.
+ * Their audience finds you. Real-named artists: a blog reports it instead.
  */
 function promoPosts(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'fame'>, title: string, songId: string, serial: number, theirs: boolean): void {
   const p = state.player;
   if (!p) return;
   const tag = [{ id: 'player', name: p.artistName }];
   const now = new Date().toISOString();
+  const minute = gameMinute(state);
+  const made: SocialPost[] = [];
   if (npc.id.endsWith('_real')) {
-    state.socialPosts.unshift({
+    made.push({
       id: uuidv4(), platform: 'chirp', authorId: 'scene_watch', authorName: 'Scene Watch',
       content: `${npc.name} and ${p.artistName} link up on "${title}" — out now.`,
-      likes: Math.round(1000 + npc.fame * 300), shares: Math.round(100 + npc.fame * 30), comments: [], timestamp: now,
-      isPlayerPost: false, trendingScore: 60, daySerial: serial, relatedSongId: songId, tags: tag, kind: 'announce',
+      likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 60, relatedSongId: songId, tags: tag, kind: 'announce',
     });
+    made.push({ id: uuidv4(), platform: 'snapgram', authorId: npc.id, authorName: npc.name, content: `🎵 "${title}"`, likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 70, relatedSongId: songId, tags: tag, kind: 'cover' });
   } else {
     const handle = p.artistName.replace(/\s+/g, '');
     const posts: [SocialApp, string, PostKind][] = theirs
       ? [
-          ['chirp', `My new one "${title}" ft. @${handle} is OUT 🔥 he snapped on his verse`, 'announce'],
+          ['chirp', `My new one "${title}" ft. @${handle} is OUT 🔥 that verse is crazy`, 'announce'],
           ['snapgram', `"${title}" ft. @${handle} 🖤 out now, link in bio`, 'cover'],
           ['clip', `When @${handle}'s verse comes in on "${title}" 😮‍💨`, 'bts'],
         ]
@@ -5673,13 +5868,13 @@ function promoPosts(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'fame'>, ti
           ['clip', `Doing the "${title}" challenge with @${handle} 💃 your turn`, 'challenge'],
         ];
     for (const [app, content, kind] of posts) {
-      state.socialPosts.unshift({
-        id: uuidv4(), platform: app, authorId: npc.id, authorName: npc.name, content,
-        likes: Math.round(300 + npc.fame * 180), shares: Math.round(30 + npc.fame * 15), comments: [], timestamp: now,
-        isPlayerPost: false, trendingScore: 40 + npc.fame / 2, daySerial: serial, relatedSongId: songId, tags: tag, kind,
-        views: app === 'clip' ? Math.round(5000 + npc.fame * 1500) : undefined,
-      });
+      made.push({ id: uuidv4(), platform: app, authorId: npc.id, authorName: npc.name, content, likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 60, daySerial: serial, relatedSongId: songId, soundSongId: app === 'clip' ? songId : undefined, tags: tag, kind });
     }
+  }
+  for (const post of made) {
+    livenPost(state, post, { at: minute + Math.floor(Math.random() * 90), heat: 1.5 });
+    state.socialPosts.unshift(post);
+    if (post.authorId === npc.id) pushActivity(state, { kind: 'mention', text: `${npc.name} tagged you on ${APP_META[post.platform as SocialApp].name}`, actorId: npc.id, actorName: npc.name, postId: post.id, minute: post.postedMinute! });
   }
   const stats = socialStatsOf(state);
   stats.chirp.followers += Math.round(npc.fame * 10);
@@ -5694,6 +5889,299 @@ function featureCrossPosts(state: GameState, song: Song, serial: number): void {
     const npc = state.npcs.find((n) => n.id === id);
     if (npc) promoPosts(state, npc, song.title, song.id, serial, false);
   }
+}
+
+// ─── THE MANAGER'S DESK ────────────────────────────────────────────────────
+// With a manager, the business does not land in your DMs. Show offers,
+// feature asks and interview requests go to them; they read the small print,
+// work out what it is worth, and brief you with a recommendation — once a day,
+// in one message. Without a manager, every promoter, artist and station
+// messages you directly.
+
+function managerOf(state: GameState, npcs?: NPC[]): NPC | undefined {
+  const c = state.contracts.find((x) => x.type === 'management' && x.active);
+  if (!c) return undefined;
+  // The roster is big; look it up by id on a plain copy rather than scanning the draft.
+  return npcIndex(npcs ?? (raw(state.npcs) as NPC[])).get(c.npcId);
+}
+
+function fileBrief(state: GameState, b: Omit<ManagerBrief, 'id' | 'status' | 'createdSerial'>): ManagerBrief {
+  const desk = state.managerDesk ?? (state.managerDesk = []);
+  const brief: ManagerBrief = { ...b, id: uuidv4(), status: 'new', createdSerial: dateToSerial(state.gameDate) };
+  desk.unshift(brief);
+  if (desk.length > 40) state.managerDesk = desk.filter((x, i) => x.status !== 'done' || i < 25);
+  return brief;
+}
+
+/** Once a day the manager sends one message about everything new. */
+function managerDigest(state: GameState, serial: number, npcs?: NPC[]): void {
+  const fresh = (state.managerDesk ?? []).filter((b) => b.status === 'new' && b.createdSerial === serial);
+  if (!fresh.length) return;
+  const mgr = managerOf(state, npcs);
+  if (!mgr) return;
+  const takes = fresh.filter((b) => b.advice === 'take').length;
+  const lines = fresh.slice(0, 4).map((b) => `• ${b.title} — ${b.advice === 'take' ? 'I\'d take it' : b.advice === 'pass' ? 'I\'d pass' : b.advice === 'counter' ? `I'd counter${b.counterAt ? ` at $${b.counterAt.toLocaleString()}` : ''}` : 'your call'}`);
+  const thread = state.dmThreads[mgr.id] ?? { npcId: mgr.id, messages: [], unread: 0 };
+  thread.messages.push({
+    id: uuidv4(), npcId: mgr.id, fromPlayer: false,
+    content: `📋 ${fresh.length} new thing${fresh.length > 1 ? 's' : ''} on my desk${takes ? ` — ${takes} worth taking` : ''}:\n${lines.join('\n')}\nDetails on the desk. Tell me what you want to do.`,
+    timestamp: new Date().toISOString(), read: false,
+  });
+  thread.unread += 1;
+  state.dmThreads[mgr.id] = thread;
+}
+
+function showBrief(state: GameState, o: ShowOffer): Omit<ManagerBrief, 'id' | 'status' | 'createdSerial'> {
+  const busy = playerBusyOn(state, o.serial);
+  const beefAct = (o.lineup ?? []).find((a) => a.beef);
+  const friends = (o.lineup ?? []).filter((a) => a.friend).map((a) => a.name);
+  const counter = Math.round(Math.min(o.ceiling * 0.95, o.fair * 1.1) / 50) * 50;
+  const details = [
+    `${o.venueName}, ${o.city} · ${formatGameDate(serialToDate(o.serial))}`,
+    `${BILLING_LABEL[o.terms.billing]} · ${o.terms.slotMins} min · $${o.terms.fee.toLocaleString()} guaranteed`,
+    `Room holds ${o.capacity.toLocaleString()}. Fair money for the slot is about $${o.fair.toLocaleString()}.`,
+  ];
+  if (o.lineup?.length) details.push(`On the bill: ${o.lineup.map((a) => a.name).join(', ')}`);
+  if (o.hidden.includes('cancel')) details.push('Small print: they can cancel late without paying. I\'d get that removed.');
+  if (o.hidden.includes('exclusivity')) details.push('Small print: no other shows in that city for a while.');
+  let advice: ManagerBrief['advice'] = 'take';
+  let reason = 'Good money for that room.';
+  if (busy) { advice = 'pass'; reason = 'You\'re already booked that night.'; }
+  else if (beefAct) { advice = 'your call'; reason = `${beefAct.name} is on the bill. Could be a moment, could be a mess.`; }
+  else if (o.terms.fee < o.fair * 0.82) { advice = 'counter'; reason = `They're lowballing. I know they can do around $${counter.toLocaleString()}.`; }
+  else if (friends.length) reason = `Fair money, and ${friends[0]} is on it — good night for the network.`;
+  return { kind: 'show', refId: o.id, title: `${o.hostName}: ${o.venueName}, ${o.city}`, details, advice, reason, counterAt: advice === 'counter' ? counter : undefined };
+}
+
+function featureBrief(state: GameState, req: InboundRequest, npc: NPC): Omit<ManagerBrief, 'id' | 'status' | 'createdSerial'> {
+  const p = state.player!;
+  const beef = activeBeefIds(state).has(npc.id);
+  const counter = Math.round((req.ceiling * 0.9) / 50) * 50;
+  const details = [
+    `"${req.npcSongTitle}" by ${npc.name} — the record reads ${gradeLabel(req.songQuality)}`,
+    `${npc.name}: fame ${Math.round(npc.fame)}, relationship ${npc.relationshipScore > 0 ? '+' : ''}${Math.round(npc.relationshipScore)}`,
+    req.offer > 0 ? `Opening at $${req.offer.toLocaleString()} for a verse. They keep the publishing.` : 'No money — they want you on it as a favour.',
+  ];
+  let advice: ManagerBrief['advice'] = 'take';
+  let reason = 'Fair, and it keeps your name moving.';
+  if (beef) { advice = 'pass'; reason = 'You two are at war. Not a good look.'; }
+  else if (npc.fame > blendedFame(p) + 15) { advice = 'take'; reason = 'Their audience is bigger than yours. Take it for the exposure.'; }
+  else if (req.offer > 0 && req.offer < req.ceiling * 0.75) { advice = 'counter'; reason = `They have more room. I'd ask for $${counter.toLocaleString()}.`; }
+  else if (req.songQuality < 45) { advice = 'your call'; reason = 'The record is weak. Money is money, but your name goes on it.'; }
+  return { kind: 'feature', refId: req.id, title: `${npc.name} wants a verse on "${req.npcSongTitle}"`, details, advice, reason, counterAt: advice === 'counter' ? counter : undefined };
+}
+
+function interviewBrief(state: GameState, inv: InterviewInvite, outlet: Outlet): Omit<ManagerBrief, 'id' | 'status' | 'createdSerial'> {
+  const p = state.player!;
+  const f = FORMAT_INFO[inv.format as InterviewFormat];
+  const rel = state.outletRel?.[outlet.id] ?? 0;
+  const details = [
+    `${KIND_EMOJI[outlet.kind]} ${outlet.name} with ${outlet.host} · about ${compactNum(outlet.reach)} listeners`,
+    `${f.emoji} ${f.label} — risk: ${f.risk}`,
+    inv.fee ? `They pay $${inv.fee.toLocaleString()} to appear.` : 'No fee — it\'s promo.',
+    inv.reason,
+  ];
+  let advice: ManagerBrief['advice'] = 'take';
+  let reason = outlet.reach >= 1_000_000 ? 'Huge audience. Do it.' : 'Good platform for you right now.';
+  if (rel < -10) { advice = 'pass'; reason = 'Last time there went badly. Let it cool.'; }
+  else if (f.risk === 'High' && p.career.reputation < 30) { advice = 'your call'; reason = 'Messy show and your reputation is fragile. Know what you\'ll say.'; }
+  return { kind: 'interview', refId: inv.id, title: `${outlet.name} wants you on`, details, advice, reason };
+}
+
+function compactNum(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
+}
+
+// ─── INTERVIEWS: STORE SIDE ────────────────────────────────────────────────
+
+function outletsNow(state: GameState): Outlet[] {
+  const p = state.player;
+  return p ? outletsFor(p.country, p.city || p.country) : [];
+}
+
+function interviewContext(state: GameState, roster?: NPC[]): IvContext {
+  const p = state.player!;
+  const npcs = roster ?? (raw(state.npcs) as NPC[]);
+  const idx = npcIndex(npcs);
+  const fame = blendedFame(p);
+  const released = state.songs.filter((s) => isSongReleased(s));
+  const latest = released[released.length - 1];
+  const unreleased = state.songs.find((s) => s.masterStatus !== undefined && s.masterStatus !== 'released' && !s.archivedAt);
+  const serial = dateToSerial(state.gameDate);
+  const beef = [...state.beefs].filter((b) => !b.resolution).sort((a, b) => settleHeat(b, serial) - settleHeat(a, serial))[0];
+  const war = (state.fanWars ?? []).find((w) => w.status === 'active');
+  const rivalId = beef?.npcId ?? war?.npcId;
+  const rivalNpc = rivalId ? idx.get(rivalId) : undefined;
+  const person = (n: NPC) => ({ id: n.id, name: n.name, real: n.id.endsWith('_real'), fame: n.fame });
+  const friends = npcs.filter((n) => n.role === 'artist' && n.relationshipScore >= 35 && !isBlocked(state, n.id)).sort((a, b) => b.relationshipScore - a.relationshipScore).slice(0, 4).map(person);
+  const homeArtists = npcs.filter((n) => n.role === 'artist' && n.country === p.country);
+  const stars = [...homeArtists].sort((a, b) => b.fame - a.fame).slice(0, 6).map(person);
+  const friendIds = new Set(friends.map((f) => f.id));
+  const peers = homeArtists.filter((n) => Math.abs(n.fame - fame) <= 12 && n.relationshipScore < 25 && !friendIds.has(n.id)).sort((a, b) => Number(a.id.endsWith('_real')) - Number(b.id.endsWith('_real'))).slice(0, 4).map(person);
+  const prodCrew = (state.crew ?? []).find((c) => c.role === 'producer');
+  const prodNpc = prodCrew ? idx.get(prodCrew.npcId) : npcs.find((n) => n.role === 'producer' && n.relationshipScore >= 25);
+  const latestProducer = latest?.producerId ? idx.get(latest.producerId) : undefined;
+  const label = state.contracts.find((c) => c.active && c.type === 'label');
+  return {
+    name: p.artistName, city: p.city || p.country, country: p.country, genre: p.genre,
+    fame, reputation: p.career.reputation, momentum: p.career.momentum,
+    charisma: p.stats.charisma, freestyle: p.stats.freestyle, lyricism: p.stats.lyricism, performance: p.stats.performance,
+    latestSong: latest ? { id: latest.id, title: latest.title, quality: latest.quality, producer: latestProducer ? person(latestProducer) : undefined, hasVideo: !!latest.hasVideo, chartPos: latest.chartPositions?.[p.country] } : undefined,
+    unreleased: unreleased?.title,
+    rival: rivalNpc ? { ...person(rivalNpc), heat: beef ? settleHeat(beef, serial) : 30 } : undefined,
+    friends, stars, peers,
+    producerFriend: prodNpc ? person(prodNpc) : undefined,
+    label: label?.npcName, ownLabel: state.label?.name,
+    manager: managerOf(state, npcs)?.name,
+    money: p.career.money,
+    hasAlbum: (state.albums ?? []).length > 0,
+  };
+}
+
+function startInterviewSession(state: GameState, outlet: Outlet, format: InterviewFormat, fee: number, inviteId?: string): void {
+  const ctx = interviewContext(state);
+  state.activeInterview = {
+    id: uuidv4(), inviteId, outletId: outlet.id, outletName: outlet.name, host: outlet.host, format,
+    questions: buildInterview(format, ctx, Math.random), idx: 0, transcript: [], effects: [], fee,
+    startedSerial: dateToSerial(state.gameDate),
+  };
+}
+
+/** Daily: invitations arrive (more when you're hot) and old ones lapse. */
+function interviewTick(state: GameState, serial: number, days: number, npcs?: NPC[]): void {
+  const p = state.player;
+  if (!p) return;
+  const invites = state.interviewInvites ?? (state.interviewInvites = []);
+  for (const inv of invites) {
+    if (inv.status === 'open' && serial > inv.expiresSerial) {
+      inv.status = 'expired';
+      const rel = state.outletRel ?? (state.outletRel = {});
+      rel[inv.outletId] = (rel[inv.outletId] ?? 0) - 2;
+      for (const b of state.managerDesk ?? []) if (b.refId === inv.id && b.status !== 'done') { b.status = 'done'; b.outcome = 'Expired — nobody answered.'; }
+    }
+  }
+  if (invites.length > 20) state.interviewInvites = invites.filter((x, i) => x.status === 'open' || i < 12);
+  const open = invites.filter((x) => x.status === 'open').length;
+  if (open >= 3) return;
+  const fame = blendedFame(p);
+  const released = state.songs.filter((s) => isSongReleased(s));
+  const latest = released[released.length - 1];
+  const st = latest ? state.platformStats?.[latest.id] : undefined;
+  const recent = !!st && serial - st.release <= 21;
+  const hotBeef = state.beefs.some((b) => !b.resolution && settleHeat(b, serial) >= 35);
+  const chance = 1 - Math.pow(1 - Math.min(0.5, 0.05 + fame / 350 + p.career.momentum / 700 + (recent ? 0.1 : 0) + (hotBeef ? 0.08 : 0)), Math.min(days, 7));
+  if (Math.random() > chance) return;
+  const ctx = { ...interviewContext(state, npcs), hasRecentRelease: recent, hotBeef };
+  const pickd = pickInvite(outletsNow(state), ctx, state.outletRel ?? {}, Math.random);
+  if (!pickd || invites.some((x) => x.status === 'open' && x.outletId === pickd.outlet.id)) return;
+  const inv: InterviewInvite = {
+    id: uuidv4(), outletId: pickd.outlet.id, outletName: pickd.outlet.name, format: pickd.format, reason: pickd.reason, fee: pickd.fee,
+    receivedSerial: serial, expiresSerial: serial + 4, status: 'open',
+  };
+  invites.unshift(inv);
+  if (managerOf(state, npcs)) {
+    fileBrief(state, interviewBrief(state, inv, pickd.outlet));
+  } else {
+    state.mailbox.unshift({
+      id: uuidv4(), from: pickd.outlet.id, fromName: pickd.outlet.name,
+      subject: `${KIND_EMOJI[pickd.outlet.kind]} ${pickd.outlet.name} wants you on`,
+      body: `${pickd.reason}\n\nFormat: ${FORMAT_INFO[pickd.format].label}.${pickd.fee ? ` Appearance fee $${pickd.fee.toLocaleString()}.` : ''}\nAnswer within 4 days — Interviews.`,
+      timestamp: new Date().toISOString(), read: false, type: 'general',
+    });
+  }
+  pushNotification(state, { kind: 'feature', title: `${pickd.outlet.name} wants you on`, body: `${FORMAT_INFO[pickd.format].emoji} ${FORMAT_INFO[pickd.format].label}${pickd.fee ? ` · $${pickd.fee.toLocaleString()}` : ''}`, artSeed: `outlet|${pickd.outlet.id}` });
+}
+
+/** The interview is over: apply everything it did. */
+function finishInterview(state: GameState): InterviewRecord | null {
+  const p = state.player;
+  const ai = state.activeInterview;
+  if (!p || !ai) return null;
+  const outlet = outletsNow(state).find((o) => o.id === ai.outletId);
+  if (!outlet) { state.activeInterview = null; return null; }
+  const serial = dateToSerial(state.gameDate);
+  const total = mergeEffects(ai.effects);
+  const reach = Math.max(0.6, Math.min(1.4, Math.log10(outlet.reach) / 5.5));
+  const clampN = (n: number) => Math.max(0, Math.min(100, n));
+  const fame = (total.fame ?? 0) * reach;
+  p.career.localFame = clampN(p.career.localFame + fame * 0.7);
+  p.career.nationalFame = clampN(p.career.nationalFame + fame * 0.35);
+  if (outlet.international) p.career.internationalFame = clampN(p.career.internationalFame + fame * 0.3);
+  const crew = crewBonuses(raw(state.crew) as CrewMember[]);
+  const rep = (total.rep ?? 0) < 0 ? (total.rep ?? 0) * crew.controversyMult : (total.rep ?? 0);
+  p.career.reputation = clampN(p.career.reputation + rep);
+  if (total.momentum) addMomentum(state, total.momentum);
+  const fans = Math.round((total.fans ?? 0) * reach);
+  p.career.fanbase = Math.max(0, p.career.fanbase + fans);
+  const money = ai.walked ? 0 : ai.fee + (total.money ?? 0);
+  p.career.money += money;
+  if (money > 0) p.career.totalEarnings += money;
+  p.stats.charisma = Math.min(100, p.stats.charisma + 0.6);
+  p.stats.networking = Math.min(100, p.stats.networking + 0.3);
+  const ctx = interviewContext(state);
+  // The record you talked up gets a push.
+  if ((total.song ?? 0) > 0 && ctx.latestSong) {
+    const st = state.platformStats?.[ctx.latestSong.id];
+    const age = st ? Math.max(0, serial - st.release) : 0;
+    plantRevival(state, ctx.latestSong.id, { power: Math.min(0.9, (total.song ?? 0) * 0.45 * reach), width: 6, reason: `Talked up on ${outlet.name}` }, age);
+  }
+  // People you named.
+  const reactions: string[] = [];
+  for (const r of total.rel ?? []) {
+    const n = state.npcs.find((x) => x.id === r.npcId);
+    if (!n) continue;
+    n.relationshipScore = Math.max(-100, Math.min(100, n.relationshipScore + r.v));
+    n.memoryLog = [...(n.memoryLog ?? []).slice(-9), `${r.v > 0 ? 'You praised them' : 'You took a shot at them'} on ${outlet.name}.`];
+    if (Math.abs(r.v) >= 5 && !n.id.endsWith('_real') && n.role === 'artist' && !reactions.includes(n.id)) {
+      reactions.push(n.id);
+      const post: SocialPost = {
+        id: uuidv4(), platform: 'chirp', authorId: n.id, authorName: n.name,
+        content: r.v > 0 ? pick3([`Heard what @${p.artistName.replace(/\s+/g, '')} said on ${outlet.name} 🙏 love is love`, `Appreciate the flowers @${p.artistName.replace(/\s+/g, '')} 🫡`], n.id + serial) : pick3([`Heard what @${p.artistName.replace(/\s+/g, '')} said on ${outlet.name}. Okay. 👀`, `Some people get on a podcast and forget who they are.`], n.id + serial),
+        likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: r.v > 0 ? 40 : 70,
+        tags: [{ id: 'player', name: p.artistName }],
+      };
+      livenPost(state, post, { at: gameMinute(state) + 60 + Math.floor(Math.random() * 300), heat: r.v > 0 ? 0.5 : 1.5 });
+      state.socialPosts.unshift(post);
+      pushActivity(state, { kind: 'mention', text: `${n.name} reacted to your interview`, actorId: n.id, actorName: n.name, postId: post.id, minute: post.postedMinute! });
+    }
+  }
+  if (total.heat) nudgeBeef(state, total.heat.npcId, total.heat.v, serial);
+  if (total.beefStart && !state.beefs.some((b) => b.npcId === total.beefStart!.npcId && !b.resolution)) {
+    const n = state.npcs.find((x) => x.id === total.beefStart!.npcId);
+    if (n && !n.id.endsWith('_real')) npcStartsBeef(state, n as NPC, serial, `you called them out on ${outlet.name}.`);
+  }
+  // The clip.
+  const viral = !ai.walked ? Math.random() < (total.viral ?? 0) * reach : Math.random() < 0.6;
+  const best = [...ai.transcript].reverse().find((t) => t.passed || t.tag === 'Savage' || t.tag === 'Walk out' || t.surprise) ?? ai.transcript[0];
+  if (viral) { addMomentum(state, 3); p.career.localFame = clampN(p.career.localFame + 1); }
+  const outletAuthor = `outlet_${outlet.id}`;
+  const clip: SocialPost = {
+    id: uuidv4(), platform: 'clip', authorId: outletAuthor, authorName: outlet.name,
+    content: best ? `"${best.a}" — ${p.artistName} on ${outlet.name} 🎙️` : `${p.artistName} on ${outlet.name}`,
+    likes: Math.round(outlet.reach / 60), shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: viral ? 85 : 40, kind: 'bts', viral: viral || undefined,
+    tags: [{ id: 'player', name: p.artistName }],
+  };
+  livenPost(state, clip, { at: gameMinute(state) + 30, heat: viral ? 2 : 0.6, viral });
+  state.socialPosts.unshift(clip);
+  pushActivity(state, { kind: 'mention', text: `${outlet.name} posted your interview${viral ? ' — it\'s blowing up' : ''}`, actorName: outlet.name, postId: clip.id, minute: clip.postedMinute! });
+  const top = best?.surprise ? 'moment' : best?.tag === 'Savage' ? 'comments' : 'interview';
+  const headline = headlineFor(p.artistName, outlet, total, !!ai.walked, viral, top);
+  state.headlines.unshift({ id: uuidv4(), text: headline, fullStory: ai.transcript.slice(-3).map((t) => `"${t.a}"`).join(' · '), date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: viral ? 7 : 5, category: total.beefStart ? 'beef' : 'general' });
+  const orel = state.outletRel ?? (state.outletRel = {});
+  orel[outlet.id] = Math.max(-50, Math.min(50, (orel[outlet.id] ?? 0) + (total.outlet ?? 0) + (ai.walked ? 0 : 3)));
+  const rec: InterviewRecord = {
+    id: ai.id, outletId: outlet.id, outletName: outlet.name, format: ai.format, headline, serial,
+    highlights: ai.transcript.map((t) => t.a).slice(0, 6),
+    deltas: { fame: Math.round(fame * 10) / 10, rep: Math.round(rep * 10) / 10, momentum: Math.round((total.momentum ?? 0) * 10) / 10, fans, money },
+    viral, walked: !!ai.walked,
+  };
+  state.interviewLog = [rec, ...(state.interviewLog ?? [])].slice(0, 30);
+  if (ai.inviteId) {
+    const inv = (state.interviewInvites ?? []).find((x) => x.id === ai.inviteId);
+    if (inv) inv.status = 'done';
+  }
+  state.activeInterview = null;
+  return rec;
 }
 
 // ─── BEATS & THE BUILDING: STORE SIDE ──────────────────────────────────────
@@ -8514,6 +9002,7 @@ export const useGameStore = create<GameState & GameActions>()(
     // ─── DMs ────────────────────────────────────────────────────────────
     sendDM: (npcId, message, attachedSongId) =>
       set((state) => {
+        if (isBlocked(state, npcId)) return;
         if (!state.dmThreads[npcId]) {
           state.dmThreads[npcId] = { npcId, messages: [], unread: 0 };
         }
@@ -8789,8 +9278,12 @@ export const useGameStore = create<GameState & GameActions>()(
         const apps = (opts.apps.length ? opts.apps : ['chirp']) as SocialApp[];
         const serial = dateToSerial(state.gameDate);
         const k0 = kindDef(opts.kind as PostKind);
-        const song = opts.songId ? state.songs.find((s) => s.id === opts.songId && isSongReleased(s)) : undefined;
-        if (k0.needsSong && !song) { result.message = `A ${k0.label.toLowerCase()} needs one of your released songs attached.`; return; }
+        let song = opts.songId ? state.songs.find((s) => s.id === opts.songId && isSongReleased(s)) : undefined;
+        // A sound: one of yours, or somebody else's record that is trending.
+        const sound = opts.soundSongId ? (state.songs.find((s) => s.id === opts.soundSongId && isSongReleased(s)) ?? state.npcSongs.find((s) => s.id === opts.soundSongId)) : undefined;
+        const soundIsTheirs = !!sound && !state.songs.some((s) => s.id === sound.id);
+        if (sound && !soundIsTheirs && !song) song = sound;
+        if (k0.needsSong && !song && !sound) { result.message = `A ${k0.label.toLowerCase()} needs a song — one of yours, or a trending sound.`; return; }
         const energy = k0.energy + (apps.length - 1);
         if (!spendEnergy(state, energy, { admin: true })) { result.message = energyShortfallMessage(energy, p.energy); return; }
 
@@ -8811,22 +9304,29 @@ export const useGameStore = create<GameState & GameActions>()(
         for (const app of apps) {
           const kind = kindOnApp(k0.id, app, !!song);
           const craft = kind === 'freestyle' ? p.stats.freestyle : kind === 'skit' ? p.stats.charisma : kind === 'challenge' ? p.stats.stagePresence : p.stats.marketing;
+          // The blue tick and a trending sound both carry a post further.
+          const lift = (state.verified ? 1.15 : 1) * (soundIsTheirs && app === 'clip' ? 1.35 : 1);
           const r = postReach({
-            app, kind, followers: stats[app].followers, fame: blendedFame(p), momentum: p.career.momentum,
-            songQuality: song?.quality, postsToday: today, taggedFame: tagged.map((n) => n.fame), controversy, craft, roll: Math.random(),
+            app, kind, followers: Math.round(stats[app].followers * lift), fame: blendedFame(p), momentum: p.career.momentum,
+            songQuality: (song ?? sound)?.quality, postsToday: today, taggedFame: tagged.map((n) => n.fame), controversy, craft, roll: Math.random(),
           });
-          const first = 0.35;
           const post: SocialPost = {
             id: uuidv4(), platform: app as SocialPost['platform'], authorId: 'player', authorName: p.artistName,
             content: content || (song ? `"${song.title}" out now 🎧` : ''),
-            likes: Math.round(r.likes * first), shares: Math.round(r.shares * first), comments: [],
-            timestamp: now, relatedSongId: song?.id, isPlayerPost: true,
+            likes: r.likes, shares: r.shares, comments: [],
+            timestamp: now, relatedSongId: (app === 'clip' && sound ? sound.id : song?.id), isPlayerPost: true,
+            soundSongId: app === 'clip' ? (sound ?? song)?.id : undefined,
             trendingScore: Math.round(10 + (r.viral ? 80 : 0) + (controversy ? 30 : 0)),
             daySerial: serial, kind, tags: tagList.length ? tagList : undefined,
-            views: r.views ? Math.round(r.views * first) : undefined, viral: r.viral || undefined,
-            growth: { likes: Math.round(r.likes * (1 - first)), shares: Math.round(r.shares * (1 - first)), comments: Math.round(r.comments * 0.6), views: Math.round(r.views * (1 - first)), follows: Math.round(r.follows * 0.6), days: 3 },
+            views: r.views || undefined, viral: r.viral || undefined,
+            // Live: the numbers arrive over the next hours, read through `liveCounts`.
+            target: { likes: r.likes, shares: r.shares, comments: r.comments, views: r.views },
+            postedMinute: gameMinute(state),
+            growth: { likes: 0, shares: 0, comments: Math.min(15, Math.round(r.comments * 0.3)), views: 0, follows: Math.round(r.follows * 0.6), days: 3 },
           };
-          post.comments = socialComments(post, Math.min(6, Math.ceil(r.comments * 0.4)), commentContext(state, controversy, `${serial}|${post.id}`), now);
+          post.comments = socialComments(post, Math.min(8, Math.max(2, Math.ceil(Math.log10(Math.max(10, r.comments)) * 2.5))), commentContext(state, controversy, `${serial}|${post.id}`), now);
+          const firstFan = post.comments.find((c) => c.authorId.startsWith('fan:'));
+          if (firstFan && !lead) pushActivity(state, { kind: 'comment', text: `${firstFan.authorName} commented: "${firstFan.content}"`, actorName: firstFan.authorName, postId: post.id, minute: post.postedMinute! + 2 + Math.floor(Math.random() * 40) });
           stats[app].followers += Math.round(r.follows * 0.4);
           stats[app].lastPostSerial = serial;
           state.socialPosts.unshift(post);
@@ -8851,6 +9351,20 @@ export const useGameStore = create<GameState & GameActions>()(
           }
         }
 
+        // Friends like it — and you see who.
+        if (lead) {
+          const friends = (raw(state.npcs) as NPC[]).filter((n) => n.relationshipScore >= 30 && n.role === 'artist' && !isBlocked(state, n.id));
+          for (let i = 0; i < Math.min(3, friends.length); i++) {
+            const f = friends[Math.floor(Math.random() * friends.length)];
+            if (Math.random() < 0.55) pushActivity(state, { kind: 'like', text: `${f.name} liked your post`, actorId: f.id, actorName: f.name, postId: lead.id, minute: lead.postedMinute! + 3 + Math.floor(Math.random() * 300) });
+          }
+          if (sound && soundIsTheirs) {
+            const owner = state.npcs.find((n) => n.id === sound.ownerId);
+            if (owner) bumpRel(state, owner.id, 2, serial, `You used "${sound.title}" as a sound.`);
+            notes.push(`Riding "${sound.title}" — a trending sound carries further.`);
+          }
+        }
+
         // The people you tagged see it.
         for (const npc of tagged) {
           const tr = tagResponse({ npc: npc as NPC, playerFame: blendedFame(p), beef: beefs.has(npc.id), insulting, roll: Math.random() });
@@ -8858,9 +9372,15 @@ export const useGameStore = create<GameState & GameActions>()(
           if (tr.heat) nudgeBeef(state, npc.id, tr.heat, serial);
           if (lead && tr.text) {
             lead.comments.unshift({ id: uuidv4(), authorId: npc.id, authorName: npc.name, content: tr.text, likes: Math.round(100 + npc.fame * 40), timestamp: now, tone: tr.action === 'clapback' ? 'hater' : 'artist' });
+            pushActivity(state, { kind: 'comment', text: `${npc.name} ${tr.action === 'clapback' ? 'clapped back' : 'replied'}: "${tr.text}"`, actorId: npc.id, actorName: npc.name, postId: lead.id, minute: lead.postedMinute! + 10 + Math.floor(Math.random() * 120) });
+          }
+          if (lead && (tr.action === 'like' || tr.action === 'repost')) {
+            pushActivity(state, { kind: tr.action === 'like' ? 'like' : 'repost', text: `${npc.name} ${tr.action === 'like' ? 'liked' : 'reposted'} your post`, actorId: npc.id, actorName: npc.name, postId: lead.id, minute: lead.postedMinute! + 5 + Math.floor(Math.random() * 200) });
           }
           if (lead && tr.action === 'repost') {
-            state.socialPosts.unshift({ ...lead, id: uuidv4(), authorId: npc.id, authorName: npc.name, isPlayerPost: false, repostOf: lead.id, comments: [], growth: undefined, likes: Math.round(lead.likes * 0.6 + npc.fame * 30), shares: lead.shares, trendingScore: 30 });
+            const rp: SocialPost = { ...lead, id: uuidv4(), authorId: npc.id, authorName: npc.name, isPlayerPost: false, repostOf: lead.id, comments: [], growth: undefined, target: undefined, postedMinute: undefined, liked: false, reposted: false, trendingScore: 30 };
+            livenPost(state, rp, { at: lead.postedMinute! + 30 });
+            state.socialPosts.unshift(rp);
             stats[lead.platform].followers += Math.round(20 + npc.fame * 12);
           }
           if (tr.action !== 'ignore') notes.push(`${npc.name} ${tr.action === 'clapback' ? 'clapped back' : tr.action === 'repost' ? 'reposted it' : tr.action === 'reply' ? 'replied' : 'liked it'}.`);
@@ -8887,7 +9407,7 @@ export const useGameStore = create<GameState & GameActions>()(
         post.reposted = true;
         post.shares += 1;
         const serial = dateToSerial(state.gameDate);
-        state.socialPosts.unshift({ ...post, id: uuidv4(), authorId: 'player', authorName: p.artistName, isPlayerPost: true, repostOf: post.id, comments: [], liked: false, reposted: false, growth: undefined, daySerial: serial, timestamp: new Date().toISOString(), likes: 0, shares: 0 });
+        state.socialPosts.unshift({ ...post, id: uuidv4(), authorId: 'player', authorName: p.artistName, isPlayerPost: true, repostOf: post.id, comments: [], liked: false, reposted: false, growth: undefined, daySerial: serial, timestamp: new Date().toISOString(), likes: 0, shares: 0, target: undefined, postedMinute: gameMinute(state) });
         if (!post.isPlayerPost && !post.authorId.startsWith('fan:')) {
           bumpRel(state, post.authorId, post.relatedSongId ? 3 : 2, serial, 'You reposted them.');
           if (activeBeefIds(state).has(post.authorId)) { result = { ok: true, message: 'You reposted your rival. The timeline is confused.' }; return; }
@@ -8911,9 +9431,10 @@ export const useGameStore = create<GameState & GameActions>()(
         const r = postReach({ app: 'chirp', kind: 'thought', followers: stats.chirp.followers, fame: blendedFame(p), momentum: p.career.momentum, postsToday: 0, taggedFame: [], controversy: insulting, craft: p.stats.charisma, roll: Math.random() });
         const quote: SocialPost = {
           id: uuidv4(), platform: 'chirp', authorId: 'player', authorName: p.artistName, content: text.trim(),
-          likes: Math.round(r.likes * 0.4), shares: Math.round(r.shares * 0.4), comments: [], timestamp: new Date().toISOString(),
+          likes: r.likes, shares: r.shares, comments: [], timestamp: new Date().toISOString(),
           isPlayerPost: true, trendingScore: insulting ? 60 : 15, daySerial: serial, quoteOf: post.id, kind: 'thought',
-          growth: { likes: Math.round(r.likes * 0.6), shares: Math.round(r.shares * 0.6), comments: Math.round(r.comments * 0.6), views: 0, follows: Math.round(r.follows * 0.5), days: 3 },
+          target: { likes: r.likes, shares: r.shares, comments: r.comments, views: r.views }, postedMinute: gameMinute(state),
+          growth: { likes: 0, shares: 0, comments: Math.min(10, Math.round(r.comments * 0.3)), views: 0, follows: Math.round(r.follows * 0.5), days: 3 },
         };
         quote.comments = socialComments(quote, 3, commentContext(state, insulting, `${serial}|${quote.id}`), quote.timestamp);
         state.socialPosts.unshift(quote);
@@ -9035,6 +9556,343 @@ export const useGameStore = create<GameState & GameActions>()(
           isPlayerPost: true, trendingScore: 50, daySerial: serial, kind: 'thought',
         });
         result = { ok: true, message: m.text };
+      });
+      return result;
+    },
+
+    acceptInterview: (inviteId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That invitation is gone.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        if (state.activeInterview) { result.message = 'Finish the interview you\'re in first.'; return; }
+        const inv = (state.interviewInvites ?? []).find((x) => x.id === inviteId && x.status === 'open');
+        if (!inv) return;
+        const outlet = outletsNow(state).find((o) => o.id === inv.outletId);
+        if (!outlet) return;
+        if (!spendEnergy(state, ENERGY_COSTS.interview, { admin: true })) { result.message = energyShortfallMessage(ENERGY_COSTS.interview, p.energy); return; }
+        inv.status = 'accepted';
+        startInterviewSession(state, outlet, inv.format as InterviewFormat, inv.fee, inv.id);
+        for (const b of state.managerDesk ?? []) if (b.refId === inv.id) { b.status = 'done'; b.outcome = 'Accepted — you did the interview.'; }
+        result = { ok: true, message: `You're on ${outlet.name}. ${outlet.host} is ready.` };
+      });
+      return result;
+    },
+
+    declineInterview: (inviteId) =>
+      set((state) => {
+        const inv = (state.interviewInvites ?? []).find((x) => x.id === inviteId && x.status === 'open');
+        if (!inv) return;
+        inv.status = 'declined';
+        const rel = state.outletRel ?? (state.outletRel = {});
+        rel[inv.outletId] = (rel[inv.outletId] ?? 0) - 1;
+        for (const b of state.managerDesk ?? []) if (b.refId === inv.id) { b.status = 'done'; b.outcome = 'Declined.'; }
+      }),
+
+    pitchInterview: (outletId, format) => {
+      let result: FeatureActionResult = { ok: false, message: 'They didn\'t answer.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        if (state.activeInterview) { result.message = 'Finish the interview you\'re in first.'; return; }
+        const serial = dateToSerial(state.gameDate);
+        if (state.lastPitchSerial === serial) { result.message = 'You already pitched yourself today. Try again tomorrow.'; return; }
+        const outlet = outletsNow(state).find((o) => o.id === outletId);
+        if (!outlet) return;
+        const fame = blendedFame(p);
+        if (fame < outlet.minFame - 10) { result.message = `${outlet.name} books artists around fame ${outlet.minFame}. You're not there yet.`; return; }
+        state.lastPitchSerial = serial;
+        const rel = state.outletRel?.[outlet.id] ?? 0;
+        // A manager gets you through doors you can't open yourself.
+        const boost = managerOf(state) ? 8 : 0;
+        if (!pitchAccepted(outlet, fame + boost, rel, Math.random)) { result.message = `${outlet.name} passed — "schedule's full." Build your name or try another outlet.`; return; }
+        if (!spendEnergy(state, ENERGY_COSTS.interview, { admin: true })) { result.message = energyShortfallMessage(ENERGY_COSTS.interview, p.energy); return; }
+        const fmt = (outlet.formats.includes(format as InterviewFormat) ? format : outlet.formats[0]) as InterviewFormat;
+        startInterviewSession(state, outlet, fmt, 0);
+        result = { ok: true, message: `${outlet.name} said yes. You're on air.` };
+      });
+      return result;
+    },
+
+    answerInterview: (optionId) => {
+      let result: { ok: boolean; reaction: string; done: boolean; record?: InterviewRecord; passed?: boolean } = { ok: false, reaction: '', done: false };
+      set((state) => {
+        const p = state.player;
+        const ai = state.activeInterview;
+        if (!p || !ai) return;
+        const q = ai.questions[ai.idx];
+        const o = q?.options.find((x) => x.id === optionId);
+        if (!q || !o) return;
+        const r = resolveAnswer(o, { charisma: p.stats.charisma, freestyle: p.stats.freestyle, lyricism: p.stats.lyricism, performance: p.stats.performance }, Math.random);
+        ai.effects.push(r.effect);
+        ai.transcript.push({ q: q.host, a: o.text, reaction: r.text, tag: o.tag, surprise: q.surprise, passed: r.passed });
+        if (o.ends) ai.walked = true;
+        ai.idx += 1;
+        const done = !!o.ends || ai.idx >= ai.questions.length;
+        result = { ok: true, reaction: r.text, done, passed: r.passed };
+        if (done) {
+          const rec = finishInterview(state);
+          if (rec) result.record = rec;
+        }
+      });
+      return result;
+    },
+
+    actOnBrief: (briefId, action) => {
+      const st = get();
+      const b = (st.managerDesk ?? []).find((x) => x.id === briefId);
+      if (!b || b.status === 'done' || !b.refId) return { ok: false, message: 'That\'s already handled.' };
+      let r: { ok: boolean; message: string } = { ok: false, message: 'Nothing happened.' };
+      if (b.kind === 'show') {
+        const offer = st.showOffers.find((o) => o.id === b.refId);
+        if (!offer || offer.status !== 'open') r = { ok: false, message: 'That offer is gone.' };
+        else if (action === 'accept') r = st.acceptShowOffer(b.refId);
+        else if (action === 'decline') r = st.declineShowOffer(b.refId, 'none', true);
+        else r = st.counterShowOffer(b.refId, { ...offer.terms, fee: b.counterAt ?? Math.round(offer.fair) });
+      } else if (b.kind === 'feature') {
+        if (action === 'accept') r = st.acceptInboundOffer(b.refId);
+        else if (action === 'decline') r = st.declineInboundRequest(b.refId);
+        else r = st.quoteInboundVerse(b.refId, b.counterAt ?? 0);
+      } else if (b.kind === 'interview') {
+        if (action === 'accept') r = st.acceptInterview(b.refId);
+        else { st.declineInterview(b.refId); r = { ok: true, message: 'Declined.' }; }
+      }
+      set((state) => {
+        const brief = (state.managerDesk ?? []).find((x) => x.id === briefId);
+        if (!brief) return;
+        // A counter keeps it open — the other side still has to answer.
+        if (action === 'counter' && r.ok) { brief.status = 'seen'; brief.outcome = r.message; return; }
+        if (r.ok) { brief.status = 'done'; brief.outcome = r.message; }
+      });
+      return r;
+    },
+
+    markDeskSeen: () =>
+      set((state) => {
+        for (const b of state.managerDesk ?? []) if (b.status === 'new') b.status = 'seen';
+      }),
+
+    deleteThread: (npcId) =>
+      set((state) => {
+        // A thread with a question still waiting keeps the question — it just loses the history.
+        delete state.dmThreads[npcId];
+        for (const m of state.moments ?? []) if (m.npcId === npcId && m.channel === 'dm' && m.status === 'open') m.status = 'expired';
+      }),
+
+    clearReadThreads: () =>
+      set((state) => {
+        for (const [id, t] of Object.entries(state.dmThreads)) {
+          const waiting = (state.moments ?? []).some((m) => m.npcId === id && m.channel === 'dm' && m.status === 'open');
+          if (t.unread === 0 && !waiting) delete state.dmThreads[id];
+        }
+      }),
+
+    followAccount: (npcId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Account not found.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const list = raw(state.npcs) as NPC[];
+        const npc = npcIndex(list).get(npcId);
+        if (!npc) return;
+        const following = followingOf(state, list);
+        if (following.includes(npcId)) { result.message = `You already follow ${npc.name}.`; return; }
+        if (isBlocked(state, npcId)) state.blocked = (state.blocked ?? []).filter((x) => x !== npcId);
+        state.following = [...following, npcId];
+        const minute = gameMinute(state);
+        const fame = blendedFame(p);
+        const by = state.followedBy ?? (state.followedBy = []);
+        const beef = activeBeefIds(state).has(npcId);
+        // Will they follow back? Friends do; much bigger names mostly don't.
+        const odds = Math.max(0.02, Math.min(0.9, 0.25 + npc.relationshipScore / 120 - Math.max(0, npc.fame - fame) / 60 - (beef ? 0.5 : 0)));
+        const back = !by.includes(npcId) && Math.random() < odds;
+        if (back) {
+          by.push(npcId);
+          pushActivity(state, { kind: 'follow', text: `${npc.name} followed you back`, actorId: npc.id, actorName: npc.name, minute: minute + 20 + Math.floor(Math.random() * 400) });
+          bumpRel(state, npcId, 2, dateToSerial(state.gameDate));
+        }
+        if (beef) {
+          nudgeBeef(state, npcId, -6, dateToSerial(state.gameDate));
+          result = { ok: true, message: `You followed ${npc.name} — mid-beef. Fans are reading it as an olive branch.` };
+          return;
+        }
+        result = { ok: true, message: `Following ${npc.name}. Their posts show in your Following feed.` };
+      });
+      return result;
+    },
+
+    unfollowAccount: (npcId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Account not found.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const list = raw(state.npcs) as NPC[];
+        const npc = npcIndex(list).get(npcId);
+        if (!npc) return;
+        const following = followingOf(state, list);
+        if (!following.includes(npcId)) { result.message = `You don't follow ${npc.name}.`; return; }
+        state.following = following.filter((x) => x !== npcId);
+        const serial = dateToSerial(state.gameDate);
+        const minute = gameMinute(state);
+        const followsYou = (state.followedBy ?? []).includes(npcId);
+        // People notice an unfollow — the closer they were, the more it stings.
+        const noticed = followsYou && Math.random() < 0.35 + npc.relationshipScore / 200;
+        if (!noticed) { result = { ok: true, message: `Unfollowed ${npc.name}. Nobody seems to have noticed. Yet.` }; return; }
+        bumpRel(state, npcId, -(npc.relationshipScore >= 40 ? 8 : 4), serial, 'You unfollowed them.');
+        const unfollowBack = Math.random() < 0.55;
+        if (unfollowBack) {
+          state.followedBy = (state.followedBy ?? []).filter((x) => x !== npcId);
+          pushActivity(state, { kind: 'unfollow', text: `${npc.name} unfollowed you back`, actorId: npcId, actorName: npc.name, minute: minute + 30 + Math.floor(Math.random() * 300) });
+        }
+        if (npc.fame >= 35 && blendedFame(p) >= 15 && Math.random() < 0.5) {
+          const post: SocialPost = { id: uuidv4(), platform: 'chirp', authorId: 'scene_watch', authorName: 'Scene Watch', content: `👀 ${p.artistName} and ${npc.name} ${unfollowBack ? 'have unfollowed each other' : `— ${p.artistName} just unfollowed`}. Something happened.`, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 65, tags: [{ id: 'player', name: p.artistName }] };
+          livenPost(state, post, { at: minute + 60, heat: 1.5 });
+          state.socialPosts.unshift(post);
+          addMomentum(state, 1);
+          if (activeBeefIds(state).has(npcId)) nudgeBeef(state, npcId, 5, serial);
+          else if (npc.relationshipScore < 0 && npc.role === 'artist') sparkFanWar(state, npc as NPC, `${p.artistName} unfollowed ${npc.name} and the fans are picking sides.`, serial, 14);
+          result = { ok: true, message: `${npc.name} noticed${unfollowBack ? ' and unfollowed you back' : ''}. A blog picked it up.` };
+          return;
+        }
+        result = { ok: true, message: `${npc.name} noticed${unfollowBack ? ' and unfollowed you back' : ''}.` };
+      });
+      return result;
+    },
+
+    blockAccount: (npcId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Account not found.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const list = raw(state.npcs) as NPC[];
+        const npc = npcIndex(list).get(npcId);
+        if (!npc) return;
+        if (isBlocked(state, npcId)) { result.message = `${npc.name} is already blocked.`; return; }
+        state.blocked = [...(state.blocked ?? []), npcId];
+        state.following = followingOf(state, list).filter((x) => x !== npcId);
+        state.followedBy = (state.followedBy ?? []).filter((x) => x !== npcId);
+        const serial = dateToSerial(state.gameDate);
+        bumpRel(state, npcId, -15, serial, 'You blocked them.');
+        // Their pending moments go quiet.
+        for (const m of state.moments ?? []) if (m.npcId === npcId && (m.status === 'open' || m.status === 'scheduled')) m.status = 'expired';
+        // A public figure finds out sooner or later.
+        if (npc.fame >= 30 && Math.random() < 0.4) {
+          const post: SocialPost = { id: uuidv4(), platform: 'chirp', authorId: 'scene_watch', authorName: 'Scene Watch', content: `${npc.name} says ${p.artistName} blocked them 😳 The screenshots are everywhere.`, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 70, tags: [{ id: 'player', name: p.artistName }] };
+          livenPost(state, post, { at: gameMinute(state) + 120, heat: 2 });
+          state.socialPosts.unshift(post);
+          addMomentum(state, 2);
+          if (activeBeefIds(state).has(npcId)) nudgeBeef(state, npcId, 10, serial);
+          else if (npc.relationshipScore <= -35 && npc.role === 'artist') npcStartsBeef(state, npc as NPC, serial, 'you blocked them and they made it public.');
+          result = { ok: true, message: `Blocked ${npc.name}. They found out and posted the screenshot.` };
+          return;
+        }
+        result = { ok: true, message: `Blocked ${npc.name}. Their posts, comments, tags and messages won't reach you.` };
+      });
+      return result;
+    },
+
+    unblockAccount: (npcId) =>
+      set((state) => {
+        state.blocked = (state.blocked ?? []).filter((x) => x !== npcId);
+      }),
+
+    loadMoreComments: (postId) =>
+      set((state) => {
+        const post = state.socialPosts.find((x) => x.id === postId);
+        if (!post) return;
+        const live = liveCounts(post, gameMinute(state)).comments;
+        const room = Math.min(80, live) - post.comments.length;
+        if (room <= 0) return;
+        const npc = npcIndex(raw(state.npcs) as NPC[]).get(post.authorId);
+        const ctx = post.isPlayerPost
+          ? commentContext(state, post.trendingScore >= 60, `${gameMinute(state)}|${post.id}|more`)
+          : { fame: npc?.fame ?? 30, reputation: 60, controversy: post.trendingScore >= 60, artistFriends: [], seed: `${gameMinute(state)}|${post.id}|more` };
+        post.comments.push(...socialComments(post, Math.min(10, room), ctx, new Date().toISOString()).map((c, i) => ({ ...c, id: `${c.id}-m${post.comments.length + i}` })));
+      }),
+
+    markActivityRead: () =>
+      set((state) => {
+        const minute = gameMinute(state);
+        for (const a of state.socialActivity ?? []) if (a.minute <= minute) a.read = true;
+      }),
+
+    postStory: (kind, songId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to post.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const k = STORY_KINDS.find((x) => x.id === kind);
+        if (!k) return;
+        const song = songId ? state.songs.find((s) => s.id === songId && isSongReleased(s)) : undefined;
+        if ('needsSong' in k && k.needsSong && !song) { result.message = 'A teaser needs one of your released songs.'; return; }
+        if (!spendEnergy(state, k.energy, { admin: true })) { result.message = energyShortfallMessage(k.energy, p.energy); return; }
+        const minute = gameMinute(state);
+        const serial = dateToSerial(state.gameDate);
+        const stats = socialStatsOf(state);
+        const reach = Math.round(stats.snapgram.followers * (0.15 + Math.random() * 0.2) * (1 + p.career.momentum / 200));
+        const stories = state.stories ?? (state.stories = []);
+        stories.unshift({
+          id: uuidv4(), authorId: 'player', authorName: p.artistName, postedMinute: minute, views: reach, reach, kind,
+          frames: k.frames.map((emoji, i) => ({ emoji, bg: `${kind}|${minute}|${i}`, songTitle: i === 0 && song ? song.title : undefined, text: i === 0 ? k.label : undefined })),
+        });
+        const notes: string[] = [`${reach.toLocaleString()} people will see it.`];
+        stats.snapgram.followers += Math.round(reach * 0.01);
+        switch (kind) {
+          case 'studio': addMomentum(state, 1); notes.push('Fans love a peek at the process.'); break;
+          case 'teaser':
+            if (song) {
+              addMomentum(state, 2);
+              song.weeklyStreams += Math.round(reach * 0.05);
+              notes.push(`A few thousand went and played "${song.title}".`);
+            }
+            break;
+          case 'night': {
+            const friend = (raw(state.npcs) as NPC[]).find((n) => n.role === 'artist' && n.relationshipScore >= 35 && !isBlocked(state, n.id) && Math.random() < 0.05);
+            if (friend) { bumpRel(state, friend.id, 3, serial, 'You tagged them in your story.'); notes.push(`You tagged ${friend.name} — they reposted it.`); }
+            break;
+          }
+          case 'bts': addMomentum(state, 1); break;
+          case 'qa': p.career.reputation = Math.min(100, p.career.reputation + 0.8); notes.push('Hundreds of questions. Answering a few built real loyalty.'); break;
+          case 'flex':
+            if (Math.random() < 0.55) { p.career.localFame = Math.min(100, p.career.localFame + 0.3); notes.push('The flex landed.'); }
+            else { p.career.reputation = Math.max(0, p.career.reputation - 1); notes.push('Some of the replies called it tone-deaf.'); }
+            break;
+        }
+        pushActivity(state, { kind: 'story', text: `Your story reached ${reach.toLocaleString()} people`, minute: minute + 180 });
+        result = { ok: true, message: `Story is up. ${notes.join(' ')}` };
+      });
+      return result;
+    },
+
+    viewStory: (storyId) =>
+      set((state) => {
+        const s = (state.stories ?? []).find((x) => x.id === storyId);
+        if (s) s.seen = true;
+      }),
+
+    goLive: (app) => {
+      let result: { ok: boolean; message: string; session?: LiveSession } = { ok: false, message: 'You can\'t go live right now.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const serial = dateToSerial(state.gameDate);
+        if (state.lastLive && state.lastLive.serial === serial) { result.message = 'You already went live today. Leave them wanting more.'; return; }
+        if (!spendEnergy(state, 12, { admin: true })) { result.message = energyShortfallMessage(12, p.energy); return; }
+        const stats = socialStatsOf(state);
+        const list = raw(state.npcs) as NPC[];
+        const friends = list.filter((n) => n.role === 'artist' && n.relationshipScore >= 40 && !isBlocked(state, n.id) && (!n.id.endsWith('_real') || n.relationshipScore >= 60));
+        const guest = friends.length && Math.random() < 0.35 ? friends[Math.floor(Math.random() * friends.length)] : undefined;
+        const loyalty = fanbaseOf(state).loyalty;
+        const s = liveSession({ app, followers: stats[app].followers, momentum: p.career.momentum, charisma: p.stats.charisma, loyalty, guest: guest ? { id: guest.id, name: guest.name, fame: guest.fame } : undefined, roll: Math.random(), minute: gameMinute(state) });
+        p.career.money += s.gifts;
+        if (s.gifts > 0) p.career.totalEarnings += s.gifts;
+        stats[app].followers += s.follows;
+        addMomentum(state, s.trolls ? -1 : 3);
+        if (s.trolls) p.career.reputation = Math.max(0, p.career.reputation - 1);
+        p.stats.charisma = Math.min(100, p.stats.charisma + 0.4);
+        if (guest) bumpRel(state, guest.id, 4, serial, 'They joined your live.');
+        state.lastLive = { ...s, serial };
+        result = { ok: true, message: s.lines.join(' '), session: s };
       });
       return result;
     },
@@ -9208,7 +10066,7 @@ export const useGameStore = create<GameState & GameActions>()(
     // It is an ACTION and not a render, which is the only way this can work:
     // a feed that re-rolls itself every time the screen opens is a feed that
     // shows the player a different world every time they look at it.
-    refreshFeed: () => {
+    refreshFeed: (app) => {
       let outcome: FeedRefreshResult = { ok: false, message: '', added: 0, waitMinutes: 0 };
 
       set((state) => {
@@ -9316,18 +10174,19 @@ export const useGameStore = create<GameState & GameActions>()(
           return;
         }
 
-        settleScenePosts(fresh, today);
+        settleScenePosts(state, fresh, npcs);
         state.socialPosts.unshift(...fresh);
-        // And the other apps move too.
-        scenePosts(state, raw(state.npcs) as NPC[], today, 1);
+        // And the apps move: a few people post right now.
+        const live = scenePosts(state, npcs, today, 1, { app: SOCIAL_APPS.includes(app as SocialApp) ? (app as SocialApp) : undefined, live: true });
+        for (const post of state.socialPosts) if (post.isPlayerPost) announceMilestones(state, post, now);
         trimFeed(state);
         state.trending = buildTrending(charts, state.player) as typeof state.trending;
         state.feedRefreshedAt = now;
 
         outcome = {
           ok: true,
-          message: `Pulled ${fresh.length} new post${fresh.length === 1 ? '' : 's'}. There will be more in ${FEED_REFRESH_MINUTES} game minutes.`,
-          added: fresh.length,
+          message: `${fresh.length + live} new post${fresh.length + live === 1 ? '' : 's'}.`,
+          added: fresh.length + live,
           waitMinutes: FEED_REFRESH_MINUTES,
         };
       });
@@ -12882,9 +13741,23 @@ export const useGameStore = create<GameState & GameActions>()(
           state.showOffers = [...open, ...done];
 
           const fresh = rollShowOffers(state, rawNPCs, targetSerial, days, hasManagerNow, crew.promoterCut > 0, rawSongs);
+          const mgrNow = managerOf(state, rawNPCs);
           for (const o of fresh) {
             state.showOffers.push(o);
+            // With a manager it goes to their desk; they brief you.
+            if (mgrNow) {
+              fileBrief(state, showBrief(state, o));
+              tourLines.push(`📋 ${mgrNow.name} has a show offer for you: ${o.venueName}, ${o.city}.`);
+              continue;
+            }
             tourLines.push(`📩 New offer: ${o.hostName} — ${o.venueName}, ${o.city}. See Shows → Offers.`);
+            // Without one, the host is in your DMs.
+            if (state.npcs.some((n) => n.id === o.hostId) && !isBlocked(state, o.hostId)) {
+              const thread = state.dmThreads[o.hostId] ?? { npcId: o.hostId, messages: [], unread: 0 };
+              thread.messages.push({ id: uuidv4(), npcId: o.hostId, fromPlayer: false, content: `Yo! ${o.reason} ${o.venueName}, ${formatGameDate(serialToDate(o.serial))} — $${o.terms.fee.toLocaleString()}, ${BILLING_LABEL[o.terms.billing].toLowerCase()}. You in? (Shows → Offers)`, timestamp: new Date().toISOString(), read: false });
+              thread.unread += 1;
+              state.dmThreads[o.hostId] = thread;
+            }
             state.mailbox.unshift({
               id: uuidv4(), from: o.hostId, fromName: o.hostName,
               subject: `📩 ${o.hostRole === 'artist' ? 'Invitation' : 'Offer'}: ${o.venueName}, ${o.city} — ${formatGameDate(serialToDate(o.serial))}`,
@@ -13601,7 +14474,7 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         if (newSocial.length > 0) {
-          settleScenePosts(newSocial, dateToSerial(state.gameDate));
+          settleScenePosts(state, newSocial, rawNPCs);
           state.socialPosts.unshift(...newSocial);
           // Keep the feed bounded.
           if (state.socialPosts.length > 320) {
@@ -13889,6 +14762,9 @@ export const useGameStore = create<GameState & GameActions>()(
         // Posts keep collecting, the scene posts, fan wars burn, rivals
         // hit back.
         socialTick(state, rawNPCs, targetSerial, days);
+
+        // ─── INTERVIEWS ───────────────────────────────────────────────
+        interviewTick(state, targetSerial, days, rawNPCs);
 
         // ─── BEATS & THE BUILDING ─────────────────────────────────────
         // The team's beat drops, commissioned beats arriving, the weekly
@@ -14180,7 +15056,7 @@ export const useGameStore = create<GameState & GameActions>()(
             const npc = rawNPCs.find((n) => n.id === ask.npc!.id);
             // A record to be asked onto. Without one there is no ask, however
             // much they rate the player.
-            if (host && npc) {
+            if (host && npc && !isBlocked(state, npc.id)) {
               openInboundAsk(state, npc, host, ask.reason);
               // Deliberately NOT pushed into `log`.
               //
@@ -14335,6 +15211,9 @@ export const useGameStore = create<GameState & GameActions>()(
           }) as TurnReport;
         }
 
+        // The manager's one message a day about everything new on the desk.
+        managerDigest(state, targetSerial, rawNPCs);
+
         // ─── SAVE ────────────────────────────────────────────────────
         const stateSnapshot = {
           initialized: state.initialized,
@@ -14366,6 +15245,19 @@ export const useGameStore = create<GameState & GameActions>()(
           fanWars: (state.fanWars ?? []).slice(0, 10),
           postsToday: state.postsToday,
           beats: state.beats,
+          following: state.following,
+          followedBy: state.followedBy,
+          blocked: state.blocked,
+          socialActivity: (state.socialActivity ?? []).slice(0, 60),
+          stories: (state.stories ?? []).slice(0, 30),
+          lastLive: state.lastLive,
+          verified: state.verified,
+          interviewInvites: (state.interviewInvites ?? []).slice(0, 12),
+          activeInterview: state.activeInterview ?? null,
+          interviewLog: (state.interviewLog ?? []).slice(0, 30),
+          outletRel: state.outletRel,
+          lastPitchSerial: state.lastPitchSerial,
+          managerDesk: (state.managerDesk ?? []).slice(0, 30),
           investments: state.investments,
           businesses: state.businesses,
           label: state.label ?? null,
@@ -14698,6 +15590,19 @@ export const useGameStore = create<GameState & GameActions>()(
         fanWars: (state.fanWars ?? []).slice(0, 10),
         postsToday: state.postsToday,
         beats: state.beats,
+        following: state.following,
+        followedBy: state.followedBy,
+        blocked: state.blocked,
+        socialActivity: (state.socialActivity ?? []).slice(0, 60),
+        stories: (state.stories ?? []).slice(0, 30),
+        lastLive: state.lastLive,
+        verified: state.verified,
+        interviewInvites: (state.interviewInvites ?? []).slice(0, 12),
+        activeInterview: state.activeInterview ?? null,
+        interviewLog: (state.interviewLog ?? []).slice(0, 30),
+        outletRel: state.outletRel,
+        lastPitchSerial: state.lastPitchSerial,
+        managerDesk: (state.managerDesk ?? []).slice(0, 30),
         investments: state.investments,
         businesses: state.businesses,
         label: state.label ?? null,

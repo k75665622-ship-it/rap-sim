@@ -128,6 +128,31 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - **Beats you own**: your in-house **producer** sends a beat every few days and your **sound engineer** about once a week — free. The **beat store** restocks weekly (lease cheap, or own it exclusive). **Order a beat** to a brief — genre, tempo, mood, the song it's for — from your team (free) or anyone (a fee); don't like it, **ask for a redo**. Pick a library beat in the session and it sets genre/tempo/mood to match, with no producer fee.
 - **Build your own studio**: bedroom corner → home studio → project studio → pro studio → flagship complex. Each costs a lot once and has monthly upkeep, takes better gear, adds production and makes the team's beats faster. From project studio up you can **rent it out** to cover part of the bills.
 
+## 2026-10-18 (d) — Live social, interviews, the manager's desk, studio on mobile
+
+### Social media that's alive
+- **Live numbers**: every post has a minute it went up, and its likes, reposts, comments and views keep arriving while the clock runs — fast in the first half hour, then settling over a few days. Size depends on who posted: a global superstar's photo collects millions of likes and thousands of comments within the hour; a local artist gets hundreds. Real artists post pictures and clips with emoji captions — the game never puts words in a real person's mouth.
+- **Refresh** (every 15 game minutes) pulls what just landed; new posts that arrive while you scroll wait behind a "↑ N new posts" pill. **For You** is algorithmic (what's doing numbers, who you follow, your own new posts); **Following** is chronological.
+- **Comments are real**: comment counts match the size of the post, and you can keep loading more as they come in.
+- **Follow, unfollow, block** — on any post or profile. People follow back (or don't, if they're much bigger); unfollowing someone who follows you can be noticed, reported by blogs and start a fan war; blocking hides their posts, comments, tags and DMs, ends their pending messages — and they may post the screenshot.
+- **Activity tab**: who liked, commented, reposted, followed, tagged you, and like milestones. The **blue tick** arrives when you're big enough.
+- **Snapgram**: stories bar (tap through, reply or react — it lands in their DMs), post your own story (studio, teaser, night out, behind the scenes, Q&A, the flex — each does something), full-width photo posts with double-tap likes and "liked by".
+- **Clip**: a vertical For You player with the action rail, **Sounds** (what everybody is making videos to — use one and your clip rides the trend, and the artist notices) and **Go Live** (viewers, gifts in real money, followers, sometimes a friend drops in, sometimes trolls).
+- **Chirp**: views on every post, live trends from your own country's chart.
+
+### Interviews
+- Twelve outlets per country (radio, TV, podcasts, YouTube shows, magazines) plus four abroad, each with a host, an audience size, a vibe and the fame they want. They **invite you** — more when you've just released, when you're in a beef, when you're hot — or you **pitch yourself** once a day.
+- Six formats: release talk, the hot seat, life story, live freestyle, business talk, the debate chair. Questions are built from your world (your latest song and its producer, your rival, your friends, your country's biggest stars, your label) and shuffled every time. About half the interviews have a **surprise**: the host plays your rival's diss live, your rival calls in, a fan breaks down, the DJ drops your song, a leak, a friend walks in.
+- Every answer moves something: fame, reputation, momentum, fans, streams for the song you talked up, relationships with anyone you name, beef heat, the outlet's opinion of you. Freestyles and jokes roll against your stats. Walk out and it's a headline. The outlet posts the clip — it can go viral — and the people you named react.
+
+### Your manager handles the business
+- With a manager, **show offers, feature asks and interview requests go to their desk**, not your DMs. Each comes with the details (fair money, the small print, who's on the bill, your calendar) and their advice — take it, pass, counter (at their number) or your call. One message a day sums up what's new. Act from the desk in PingChat, the Team page or the dashboard.
+- Without a manager, promoters and artists message you directly and the letters pile up in the mailbox.
+- **PingChat**: delete a chat, clear everything you've read, blocked accounts can't message you; works on a phone (list, then chat).
+
+### Studio on a phone
+- The record screen stacks into one column with a **live read** of the song at the top, a scrollable step rail, and a **sticky bar** with the cost and the Book button. Ghostwriters, moods, effort, the room, projects and the vault all reflow for small screens.
+
 ## How to run
 
 ```

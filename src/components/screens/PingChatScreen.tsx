@@ -3,6 +3,7 @@ import { useGameStore } from '../../store/gameStore';
 import { Card, Button, Badge } from '../ui/Card';
 import { cn } from '@/utils/cn';
 import { gradeLabel } from '../../sim/studio';
+import { MomentCard } from '../moments/MomentCard';
 
 function getRelLabel(score: number) {
   if (score >= 60) return { label: 'Close', color: 'green' };
@@ -27,7 +28,7 @@ function timeAgo(iso: string): string {
 }
 
 export function PingChatScreen() {
-  const { npcs, dmThreads, songs, sendDM, markDMRead, setScreen, selectedNPCId: focusedNPCId } = useGameStore();
+  const { npcs, dmThreads, songs, sendDM, markDMRead, setScreen, selectedNPCId: focusedNPCId, moments } = useGameStore();
   // Arriving here from an artist's profile should open that conversation, not
   // an empty panel. The store's selection is the seed; after that the screen
   // owns it.
@@ -257,7 +258,12 @@ export function PingChatScreen() {
                   </p>
                 </div>
               ) : (
-                thread.messages.map(msg => (
+                thread.messages.map(msg => {
+                  const moment = msg.momentId ? (moments ?? []).find((m) => m.id === msg.momentId) : undefined;
+                  if (!msg.fromPlayer && msg.content.startsWith('· ')) {
+                    return <div key={msg.id} className="text-center text-[11px] text-gray-600 italic">{msg.content.slice(2)}</div>;
+                  }
+                  return (
                   <div
                     key={msg.id}
                     className={cn('flex', msg.fromPlayer ? 'justify-end' : 'justify-start')}
@@ -274,9 +280,11 @@ export function PingChatScreen() {
                         </div>
                       )}
                       {msg.content}
+                      {moment && <div className="mt-2 -mx-1"><MomentCard moment={moment} compact /></div>}
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 

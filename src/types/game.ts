@@ -622,12 +622,16 @@ export interface DMMessage {
    */
   attachedTitle?: string;
   read: boolean;
+  /** A message that wants a decision — the options live on the moment. */
+  momentId?: string;
 }
 
 export interface DMThread {
   npcId: string;
   messages: DMMessage[];
   unread: number;
+  /** Messages the player sent today — double-texting has a cost. */
+  sentToday?: { serial: number; count: number };
 }
 
 // ─── FEATURE NEGOTIATION ──────────────────────────────────────────────────
@@ -1225,6 +1229,8 @@ export interface ScheduledShow {
   notes: string[];
   /** Highest sold-percentage milestone announced (25/50/75/100). */
   milestone: number;
+  /** Openers and special guests on your own bill. */
+  guests?: ShowGuest[];
 }
 
 // ─── SHOW OFFERS & INVITATIONS ───────────────────────────────────────────
@@ -1286,6 +1292,31 @@ export interface ShowOffer {
   agreed?: boolean;
   /** What was said, newest first. */
   log: string[];
+  /** Everybody else on the bill. Optional: offers made before lineups existed have none. */
+  lineup?: LineupAct[];
+}
+
+/** One act on a bill that is not the player. */
+export interface LineupAct {
+  npcId: string;
+  name: string;
+  fame: number;
+  slot: 'headliner' | 'co_headliner' | 'support' | 'opener' | 'dj' | 'guest';
+  /** You are at war with them. */
+  beef?: boolean;
+  /** You are cool with them. */
+  friend?: boolean;
+}
+
+/** An artist you asked onto YOUR show. */
+export interface ShowGuest {
+  npcId: string;
+  name: string;
+  fame: number;
+  role: 'opener' | 'special_guest';
+  fee: number;
+  status: 'confirmed' | 'declined' | 'no_show' | 'played';
+  askedSerial: number;
 }
 
 /** An accepted offer, waiting for its night. Played by the clock. */
@@ -1305,6 +1336,10 @@ export interface BookedGig {
   acceptedSerial: number;
   terms: OfferTerms;
   reminded: number[];
+  /** Who else is on the bill. */
+  lineup?: LineupAct[];
+  /** With a rival on the bill: stay out of their way, or not. */
+  avoidRival?: boolean;
 }
 
 // ─── THE STUDIO ──────────────────────────────────────────────────────────
@@ -1415,6 +1450,63 @@ export interface Business {
   monthlyCosts: number;
   reputation: number;
   purchaseDate: string;
+}
+
+// ─── MOMENTS ─────────────────────────────────────────────────────────────
+// People texting you, your team walking in with a problem. Small decisions
+// with consequences. See `sim/moments.ts`.
+
+export interface MomentOption {
+  id: string;
+  label: string;
+  hint?: string;
+  /** Money it costs to choose this. */
+  cost?: number;
+  /** Energy it costs to choose this. */
+  energy?: number;
+}
+
+export type MomentEffect =
+  | { k: 'money'; v: number }
+  | { k: 'fame'; v: number }
+  | { k: 'fans'; v: number }
+  | { k: 'momentum'; v: number }
+  | { k: 'reputation'; v: number }
+  | { k: 'energy'; v: number }
+  | { k: 'rel'; npcId: string; v: number }
+  | { k: 'heat'; npcId: string; v: number; win?: boolean }
+  | { k: 'startBeef'; npcId: string }
+  | { k: 'morale'; crewId: string; v: number }
+  | { k: 'wage'; crewId: string; v: number }
+  | { k: 'quit'; crewId: string }
+  | { k: 'stat'; stat: keyof ArtistStats; v: number }
+  | { k: 'post'; authorId: string; authorName: string; content: string; likes: number }
+  | { k: 'headline'; text: string; story: string; category: Headline['category'] }
+  | { k: 'followUp'; template: string; days: number; data: Record<string, unknown> }
+  | { k: 'inboundAsk'; npcId: string; free?: boolean }
+  | { k: 'addOpener'; npcId: string }
+  | { k: 'featureFree'; requestId: string }
+  | { k: 'featureCancel'; requestId: string }
+  | { k: 'featureNow'; requestId: string }
+  | { k: 'featureDelay'; requestId: string; days: number };
+
+export interface Moment {
+  id: string;
+  kind: string;
+  channel: 'dm' | 'team';
+  npcId?: string;
+  npcName?: string;
+  crewRole?: string;
+  title: string;
+  body: string;
+  options: MomentOption[];
+  createdSerial: number;
+  expiresSerial: number;
+  /** Scheduled follow-ups wait here until their day comes. */
+  status: 'scheduled' | 'open' | 'resolved' | 'expired';
+  dueSerial?: number;
+  data?: Record<string, unknown>;
+  resolution?: { optionId?: string; label?: string; text: string };
 }
 
 // ─── YOUR OWN RECORD LABEL ───────────────────────────────────────────────
@@ -2071,6 +2163,8 @@ export interface GameState {
   businesses: Business[];
   /** The player's own record label. Null until they found one. */
   label?: PlayerLabel | null;
+  /** Texts and team decisions waiting on the player, and recent outcomes. */
+  moments?: Moment[];
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

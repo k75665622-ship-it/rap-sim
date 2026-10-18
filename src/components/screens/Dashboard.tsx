@@ -1,3 +1,4 @@
+import { MomentsInbox } from '../moments/MomentCard';
 import { useGameStore } from '../../store/gameStore';
 import { Card, Badge, Button } from '../ui/Card';
 import { WorkInProgress } from '../ui/WorkInProgress';
@@ -49,6 +50,8 @@ export function Dashboard() {
           <Button variant="gold" size="sm" onClick={() => advanceTurn('month')}>+1 Month</Button>
         </div>
       </div>
+
+      <MomentsInbox />
 
       {/* Notifications */}
       {(totalUnread > 0 || unreadMail > 0) && (

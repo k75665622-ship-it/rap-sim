@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGameStore, blendedFame, liveShowTarget } from '../../store/gameStore';
 import { Card, Button, Badge } from '../ui/Card';
-import type { ScheduledShow } from '../../types/game';
+import type { ScheduledShow, ShowGuest } from '../../types/game';
 import { findVenue, perceivedTicketPrice, VENUE_CLASSES } from '../../sim/shows';
 import { diary as roomDiary } from '../../sim/booking';
 import { dateToSerial, serialToDate, formatMedium, formatWeekEnding } from '../../sim/gameClock';
@@ -24,7 +24,7 @@ const MOOD_STYLE: Record<SalesMood, string> = {
   at_risk: 'bg-red-500/15 text-red-300 border-red-500/40',
 };
 
-type Panel = 'price' | 'promote' | 'postpone' | 'cancel' | null;
+type Panel = 'price' | 'promote' | 'postpone' | 'cancel' | 'bill' | null;
 
 /** The ticket-sales line: cumulative tickets by day, with the room's ceiling. */
 function SalesChart({ show, target }: { show: ScheduledShow; target: number }) {
@@ -44,6 +44,61 @@ function SalesChart({ show, target }: { show: ScheduledShow; target: number }) {
       <polyline points={pts} fill="none" stroke="#facc15" strokeWidth="2" strokeLinejoin="round" />
       {last && <circle cx={px(last.serial)} cy={py(last.sold)} r="3" fill="#facc15" />}
     </svg>
+  );
+}
+
+/** Your own bill: openers and a special guest. They sell tickets — and they might not turn up. */
+function BillPanel({ show, run }: { show: ScheduledShow; run: (r: { ok: boolean; message: string }) => void }) {
+  const { showGuestCandidates, inviteShowGuest, removeShowGuest, player } = useGameStore();
+  const [role, setRole] = useState<ShowGuest['role']>('special_guest');
+  const [offers, setOffers] = useState<Record<string, number>>({});
+  const list = useMemo(() => showGuestCandidates(show.id, role), [show.id, role, show.guests?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const confirmed = (show.guests ?? []).filter((g) => g.status === 'confirmed');
+  const asked = new Set((show.guests ?? []).filter((g) => g.status === 'declined').map((g) => g.npcId));
+  return (
+    <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-3 space-y-3">
+      <div className="space-y-1.5">
+        <div className="text-xs text-gray-400">On the poster</div>
+        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 bg-yellow-500/10 border border-yellow-500/30 text-xs text-white font-semibold">⭐ {player?.artistName} — headliner</div>
+        {confirmed.map((g) => (
+          <div key={g.npcId} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 bg-gray-900 border border-gray-800">
+            <span className="text-xs text-white">{g.name} <span className="text-gray-500">· {g.role === 'special_guest' ? 'special guest' : 'opener'} · fame {g.fame} · ${g.fee.toLocaleString()}</span></span>
+            <button onClick={() => run(removeShowGuest(show.id, g.npcId))} className="text-[10px] text-gray-500 hover:text-red-300">remove</button>
+          </div>
+        ))}
+        {confirmed.length === 0 && <p className="text-[11px] text-gray-600">Just you. A name on the poster sells tickets — and builds a relationship.</p>}
+      </div>
+      <div className="flex gap-1.5">
+        {(['special_guest', 'opener'] as const).map((r) => (
+          <button key={r} onClick={() => setRole(r)} className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${role === r ? 'border-yellow-500 bg-yellow-500/15 text-white' : 'border-gray-800 text-gray-400'}`}>
+            {r === 'special_guest' ? '⭐ Special guest' : '🎤 Opener'}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+        {list.map(({ npc, fee, beef }) => {
+          const offer = offers[npc.id] ?? fee;
+          return (
+            <div key={npc.id} className={`rounded-lg p-2 border ${beef ? 'border-red-500/40 bg-red-500/5' : 'border-gray-800 bg-gray-900'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs text-white truncate">{npc.name} {beef && <span className="text-red-300">🔥 beef</span>}</div>
+                  <div className="text-[10px] text-gray-500">fame {Math.round(npc.fame)} · {npc.country} · relationship {npc.relationshipScore > 0 ? '+' : ''}{npc.relationshipScore}{asked.has(npc.id) ? ' · said no before' : ''}</div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => setOffers({ ...offers, [npc.id]: Math.max(0, offer - Math.max(50, Math.round(fee * 0.1 / 50) * 50)) })} className="w-6 h-6 rounded bg-gray-800 text-white text-xs">−</button>
+                  <span className="text-[11px] text-yellow-400 font-bold tabular-nums min-w-[64px] text-center">${offer.toLocaleString()}</span>
+                  <button onClick={() => setOffers({ ...offers, [npc.id]: offer + Math.max(50, Math.round(fee * 0.1 / 50) * 50) })} className="w-6 h-6 rounded bg-gray-800 text-white text-xs">+</button>
+                  <Button variant="secondary" onClick={() => run(inviteShowGuest(show.id, npc.id, role, offer))}>Ask</Button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {list.length === 0 && <p className="text-[11px] text-gray-600">Nobody available for that slot.</p>}
+      </div>
+      <p className="text-[10px] text-gray-600">Fees are paid on the night, only if they show. Flaky people are flaky. Friends cost less; lowballing someone stings.</p>
+    </div>
   );
 }
 
@@ -153,6 +208,7 @@ function ShowCard({ show }: { show: ScheduledShow }) {
       <SalesChart show={show} target={target} />
 
       <div className="flex flex-wrap gap-2">
+        {tab('bill', `🎤 Bill${(show.guests ?? []).some((g) => g.status === 'confirmed') ? ` (${(show.guests ?? []).filter((g) => g.status === 'confirmed').length})` : ''}`, daysOut < 2)}
         {tab('price', '🏷️ Price')}
         {tab('promote', '📣 Promote', daysOut < 2)}
         {tab('postpone', '📅 Postpone', show.postponements >= MAX_POSTPONEMENTS)}
@@ -164,6 +220,8 @@ function ShowCard({ show }: { show: ScheduledShow }) {
           {notice.message}
         </div>
       )}
+
+      {panel === 'bill' && <BillPanel show={show} run={run} />}
 
       {panel === 'price' && (
         <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-3 space-y-2">

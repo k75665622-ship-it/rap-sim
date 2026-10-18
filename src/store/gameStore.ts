@@ -19,8 +19,20 @@ import type {
   PostCareerRole, SampleClearance,
   PlayerLabel, LabelSignee, LabelPitch, LabelEvent, LabelTerms, LabelDealType,
   LabelStaffRole, LabelReleaseTier, LabelGear, LabelTactic, LabelPolicy, LabelSubmission,
-  LabelSession, Genre as LabelGenre,
+  LabelSession, Genre as LabelGenre, LineupAct, ShowGuest, Moment, MomentEffect,
 } from '../types/game';
+import { rollMoment, resolveMoment, expireMoment, buildFollowUp, buildFeatureTwist, type MomentWorld } from '../sim/moments';
+import { chatReply } from '../sim/chat';
+import {
+  buildLineup,
+  clashOutcome,
+  dropActDecision,
+  guestAnswer,
+  guestDemandBoost,
+  guestFee,
+  guestShowsUp,
+  networkingDelta,
+} from '../sim/scene';
 import {
   FOUNDING_COST,
   FOUNDING_MIN_FAME,
@@ -308,7 +320,6 @@ import {
   type ChartActor,
 } from '../sim/globalCharts';
 import {
-  generateDMReply,
   generatePostComment,
   generateSongReaction,
   generateRoyaltyFlavor,
@@ -732,6 +743,7 @@ function applySlotPayload(state: GameState, saved: Partial<GameState>): void {
   // from its seed, the label's artists get their grown fame and their label
   // name back from the label's own records.
   if (!state.label || typeof state.label !== 'object') state.label = null;
+  if (!Array.isArray(state.moments)) state.moments = [];
   if (state.label) {
     const label = state.label;
     normalizeLabel(label, dateToSerial(state.gameDate));
@@ -955,6 +967,7 @@ function getInitialState(): GameState {
     investments: [],
     businesses: [],
     label: null,
+    moments: [],
     ownedAssets: [],
     awards: [],
     certifications: [],
@@ -2686,6 +2699,16 @@ interface GameActions {
   declineShowOffer: (id: string, reason: DeclineReason, soften: boolean) => FeatureActionResult;
   quoteDecline: (id: string, reason: DeclineReason, soften: boolean) => import('../sim/offers').DeclineResult | null;
   backOutOfGig: (gigId: string) => FeatureActionResult;
+  /** Answer a text or a team decision. */
+  answerMoment: (momentId: string, optionId: string) => FeatureActionResult;
+  /** Ask a host to take somebody off the bill (usually a rival). */
+  askToDropAct: (offerId: string, npcId: string) => FeatureActionResult;
+  /** On a booked bill with a rival: keep your distance, or not. */
+  setGigAvoidRival: (gigId: string, avoid: boolean) => void;
+  /** Who you could put on your own show. */
+  showGuestCandidates: (showId: string, role: ShowGuest['role']) => { npc: NPC; fee: number; beef: boolean }[];
+  inviteShowGuest: (showId: string, npcId: string, role: ShowGuest['role'], fee: number) => FeatureActionResult;
+  removeShowGuest: (showId: string, npcId: string) => FeatureActionResult;
   scheduleShow: (venueId: string, type: ShowType, price: number, serial: number) => FeatureActionResult;
   repriceScheduledShow: (id: string, price: number) => FeatureActionResult;
   promoteScheduledShow: (id: string, tier: 'social' | 'radio' | 'blitz') => FeatureActionResult;
@@ -3337,9 +3360,17 @@ function rollShowOffers(
 
     // Sample the roster rather than sort it — 11k NPCs, one pass, cheap.
     let host: NPC | undefined;
-    for (let tries = 0; tries < 60 && !host; tries++) {
+    // Friends in the scene bring you out first. An artist who rates you is the
+    // most likely person in the world to put you on their show.
+    if (Math.random() < 0.45) {
+      const friends = npcs.filter((n) => n.role === 'artist' && n.relationshipScore >= 20 && !hostsOpen.has(n.id) && n.fame >= 8 && n.fame - fame <= 45);
+      host = pickFrom(friends);
+    }
+    for (let tries = 0; tries < 80 && !host; tries++) {
       const n = npcs[Math.floor(Math.random() * npcs.length)];
       if (!n || !HOST_ROLES.includes(n.role) || hostsOpen.has(n.id)) continue;
+      // Artists put on most of the nights in a scene.
+      if (n.role !== 'artist' && Math.random() < 0.5) continue;
       if (n.country !== player.country && Math.random() > 0.25) continue;
       if (n.role === 'artist') {
         if (n.fame < 8) continue;
@@ -3408,9 +3439,48 @@ function rollShowOffers(
         roll: Math.random(),
       }),
     );
+    // Who else is on the bill.
+    const made = out[out.length - 1];
+    made.lineup = buildLineup({
+      host,
+      kind,
+      capacity: venue.capacity,
+      playerFame: fame,
+      playerBilling: billing,
+      pool: npcs,
+      beefIds: activeBeefIds(state),
+      friendIds: friendIdsOf(npcs),
+      seed: made.id,
+    });
+    if (made.lineup.some((a) => a.beef)) {
+      const r = made.lineup.find((a) => a.beef)!;
+      made.log = [`Heads up: ${r.name} is on this bill too.`, ...made.log];
+    }
     hostsOpen.add(host.id);
   }
   return out;
+}
+
+/** Everyone the player is currently at war with. */
+function activeBeefIds(state: GameState): Set<string> {
+  return new Set((state.beefs ?? []).filter((b) => !b.resolution).map((b) => b.npcId));
+}
+
+/** The player's friends in the scene: artists who like them. */
+function friendIdsOf(npcs: NPC[]): Set<string> {
+  const out = new Set<string>();
+  for (const n of npcs) if (n.role === 'artist' && n.relationshipScore >= 30) out.add(n.id);
+  return out;
+}
+
+/** Turn up (or down) the heat on a live beef from something that happened in the world. */
+function nudgeBeef(state: GameState, npcId: string, heat: number, serial: number, win?: boolean): void {
+  const beef = (state.beefs ?? []).find((b) => b.npcId === npcId && !b.resolution);
+  if (!beef) return;
+  beef.heat = Math.max(0, Math.min(100, settleHeat(beef, serial) + heat));
+  beef.heatSerial = serial;
+  if (win === true) beef.wins += 1;
+  if (win === false) beef.losses += 1;
 }
 
 function pickFrom<T>(arr: T[]): T | undefined {
@@ -3533,6 +3603,61 @@ function playBookedGig(
     extra = ' A clip of the set is doing the rounds for the wrong reasons.';
   }
 
+  // ── The rest of the bill ──────────────────────────────────────────────
+  const billNotes: string[] = [];
+  for (const act of gig.lineup ?? []) {
+    if (act.npcId === gig.hostId) continue;
+    const npc = state.npcs.find((n) => n.id === act.npcId);
+    if (!npc) continue;
+    const beefLive = (state.beefs ?? []).some((b) => b.npcId === act.npcId && !b.resolution);
+    if (act.beef && beefLive) {
+      const beef = state.beefs.find((b) => b.npcId === act.npcId && !b.resolution)!;
+      const c = clashOutcome({
+        rivalName: act.name,
+        quality,
+        playerFame: blendedFame(player),
+        rivalFame: npc.fame,
+        heat: settleHeat(beef, gig.serial),
+        relationship: npc.relationshipScore,
+        avoided: !!gig.avoidRival,
+        roll: Math.random(),
+      });
+      player.career.localFame = Math.max(0, Math.min(100, player.career.localFame + c.fame));
+      player.career.reputation = Math.max(0, Math.min(100, player.career.reputation + c.reputation));
+      if (c.momentum) addMomentum(state, c.momentum);
+      if (c.money) { player.career.money += c.money; ledgerAdd('shows', c.money); }
+      npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + c.relationship));
+      nudgeBeef(state, act.npcId, c.heat, gig.serial, c.win);
+      if (c.kind === 'squashed') {
+        beef.resolution = { kind: 'truce', at: gig.serial, line: `Squashed backstage at ${gig.hostName}'s ${gig.city} show.` };
+      }
+      billNotes.push(c.text);
+      if (c.kind !== 'cold') {
+        const headline = c.kind === 'brawl' ? `Backstage chaos: ${player.artistName} and ${act.name} crews clash in ${gig.city}`
+          : c.kind === 'squashed' ? `${player.artistName} and ${act.name} squash it backstage`
+          : c.kind === 'bodied' ? `${player.artistName} steals the night from ${act.name} in ${gig.city}`
+          : `${act.name} upstages ${player.artistName} in ${gig.city}`;
+        state.headlines.unshift({
+          id: uuidv4(),
+          text: headline,
+          fullStory: c.text,
+          date: formatGameDate(serialToDate(gig.serial)),
+          relatedEntities: [player.id, act.npcId],
+          priority: c.kind === 'brawl' ? 7 : 5,
+          category: c.kind === 'brawl' ? 'scandal' : 'beef',
+        });
+      }
+      continue;
+    }
+    const d = networkingDelta(act, quality, Math.random());
+    npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + d));
+    if (act.slot === 'headliner' && quality >= 72 && Math.random() < 0.25) {
+      billNotes.push(`${act.name} watched your set from the side of the stage and asked for your number.`);
+      npc.relationshipScore = Math.min(100, npc.relationshipScore + 5);
+    }
+  }
+  if (billNotes.length) extra += ' ' + billNotes.join(' ');
+
   const feel = outshone
     ? ` You outshone the bill and their camp was not thrilled (${relDelta} relationship).`
     : ` ${relDelta >= 0 ? '+' : ''}${relDelta} with ${gig.hostName}.`;
@@ -3563,7 +3688,9 @@ export function liveShowTarget(state: GameState, show: ScheduledShow, venue: Ven
   const input = showInputFrom(state, venue, show.price, show.serial);
   const promo = input.promo * marketingMult(show.marketingSpend, show.capacity, show.price);
   const d = computeDemand({ ...input, promo });
-  return Math.min(venue.capacity, Math.max(0, d.draw * d.elasticity * d.saturation * show.luck));
+  // A special guest on the poster sells tickets.
+  const guests = guestDemandBoost(show.guests ?? [], state.player ? blendedFame(state.player) : 0);
+  return Math.min(venue.capacity, Math.max(0, d.draw * d.elasticity * d.saturation * show.luck * guests));
 }
 
 const VENUE_CLASS_LABEL: Record<string, string> = {
@@ -4837,6 +4964,249 @@ function labelMonthEnd(
   if (profit !== 0) log.push(`🏷️ ${label.name}: ${profit >= 0 ? '+' : '−'}${money(Math.abs(profit)).replace('−', '')} this month.`);
   label.monthRevenue = 0;
   label.monthCosts = 0;
+}
+
+// ─── MOMENTS: STORE SIDE ───────────────────────────────────────────────────
+// The engine is `sim/moments.ts`. This builds its picture of the world,
+// delivers moments into PingChat and the team room, and applies what the
+// player's choices do.
+
+/** Reservoir-pick up to `k` NPCs matching `match`, in one pass. */
+function sampleNpcs(npcs: NPC[], k: number, match: (n: NPC) => boolean): NPC[] {
+  const out: NPC[] = [];
+  let seen = 0;
+  for (const n of npcs) {
+    if (!match(n)) continue;
+    seen++;
+    if (out.length < k) out.push(n);
+    else {
+      const j = Math.floor(Math.random() * seen);
+      if (j < k) out[j] = n;
+    }
+  }
+  return out;
+}
+
+function momentWorld(state: GameState, npcs: NPC[], serial: number): MomentWorld | null {
+  const p = state.player;
+  if (!p) return null;
+  const fame = blendedFame(p);
+  const beefs = activeBeefIds(state);
+  const generated = (n: NPC) => !n.id.endsWith('_real') && n.isAvailable !== false;
+  const home = p.country;
+  return {
+    serial,
+    playerName: p.artistName,
+    playerFame: fame,
+    money: p.career.money,
+    energy: p.energy,
+    charisma: p.stats.charisma,
+    businessKnowledge: p.stats.businessKnowledge,
+    crew: raw(state.crew) as CrewMember[],
+    friends: sampleNpcs(npcs, 4, (n) => n.role === 'artist' && generated(n) && n.relationshipScore >= 15 && !beefs.has(n.id)),
+    strangers: sampleNpcs(npcs, 6, (n) => n.role === 'artist' && generated(n) && n.country === home && Math.abs(n.fame - fame) <= 25 && n.relationshipScore > -20 && n.relationshipScore < 15),
+    rivals: sampleNpcs(npcs, 3, (n) => n.role === 'artist' && generated(n) && (beefs.has(n.id) || n.relationshipScore <= -15)),
+    bloggers: sampleNpcs(npcs, 2, (n) => (n.role === 'blogger' || n.role === 'media') && generated(n) && n.country === home),
+    promoters: sampleNpcs(npcs, 2, (n) => (n.role === 'promoter' || n.role === 'venue_owner') && generated(n) && n.country === home),
+    producers: sampleNpcs(npcs, 2, (n) => n.role === 'producer' && generated(n) && n.country === home && n.fame <= fame + 30),
+    fans: sampleNpcs(npcs, 1, (n) => n.role === 'fan_account'),
+    stars: sampleNpcs(npcs, 3, (n) => n.role === 'artist' && generated(n) && n.fame >= fame + 8 && n.fame <= fame + 40 && n.relationshipScore >= 0),
+    unreleased: (state.songs ?? []).filter((s) => !isSongReleased(s) && !s.archivedAt).slice(0, 3),
+    hasUpcomingShow: state.scheduledShows.some((s) => s.serial - serial > 3),
+    activeBeefIds: beefs,
+  };
+}
+
+/** Put a moment into the world: a text in PingChat, or a knock on the door. */
+function deliverMoment(state: GameState, draft: Omit<Moment, 'id' | 'createdSerial' | 'status'>, serial: number, status: Moment['status'] = 'open', dueSerial?: number): Moment {
+  const m: Moment = { ...draft, id: uuidv4(), createdSerial: serial, status, dueSerial };
+  const list = state.moments ?? (state.moments = []);
+  list.unshift(m);
+  if (list.length > 60) state.moments = list.filter((x, i) => x.status === 'open' || x.status === 'scheduled' || i < 40);
+  if (status === 'open') announceMoment(state, m);
+  return m;
+}
+
+function announceMoment(state: GameState, m: Moment): void {
+  if (m.channel === 'dm' && m.npcId) {
+    const thread = state.dmThreads[m.npcId] ?? { npcId: m.npcId, messages: [], unread: 0 };
+    thread.messages.push({ id: uuidv4(), npcId: m.npcId, fromPlayer: false, content: m.body, timestamp: new Date().toISOString(), read: false, momentId: m.id });
+    thread.unread += 1;
+    state.dmThreads[m.npcId] = thread;
+  }
+  pushNotification(state, {
+    kind: 'feature',
+    title: m.title,
+    body: m.channel === 'dm' ? 'New message in PingChat — they want an answer.' : 'Your team needs a decision.',
+    artSeed: `moment|${m.id}`,
+    action: m.channel === 'dm' && m.npcId ? { type: 'artist', id: m.npcId } : undefined,
+  });
+}
+
+function applyMomentEffects(state: GameState, effects: MomentEffect[], serial: number): void {
+  const p = state.player;
+  if (!p) return;
+  const clampN = (n: number) => Math.max(0, Math.min(100, n));
+  for (const e of effects) {
+    switch (e.k) {
+      case 'money': p.career.money += e.v; if (e.v > 0) p.career.totalEarnings += e.v; break;
+      case 'fame':
+        p.career.localFame = clampN(p.career.localFame + e.v);
+        p.career.nationalFame = clampN(p.career.nationalFame + e.v * 0.3);
+        break;
+      case 'fans': p.career.fanbase = Math.max(0, p.career.fanbase + e.v); break;
+      case 'momentum': addMomentum(state, e.v); break;
+      case 'reputation': p.career.reputation = clampN(p.career.reputation + e.v); break;
+      case 'energy': p.energy = Math.max(0, Math.min(p.maxEnergy ?? MAX_ENERGY, p.energy + e.v)); break;
+      case 'rel': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        if (n) {
+          n.relationshipScore = Math.max(-100, Math.min(100, n.relationshipScore + e.v));
+          n.lastReachOut = serial;
+        }
+        break;
+      }
+      case 'heat': nudgeBeef(state, e.npcId, e.v, serial, e.win); break;
+      case 'startBeef': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        if (!n || n.role !== 'artist' || state.beefs.some((b) => b.npcId === e.npcId && !b.resolution)) break;
+        state.beefs.push({ id: uuidv4(), npcId: n.id, npcName: n.name, rung: 0, heat: 10, heatSerial: serial, startedSerial: serial, lastMoveSerial: serial, wins: 0, losses: 0, moves: [] });
+        break;
+      }
+      case 'morale': {
+        const c = state.crew.find((x) => x.id === e.crewId);
+        if (c) c.morale = clampN((c.morale ?? 70) + e.v);
+        break;
+      }
+      case 'wage': {
+        const c = state.crew.find((x) => x.id === e.crewId);
+        if (c) c.monthlyWage += e.v;
+        break;
+      }
+      case 'quit': {
+        const c = state.crew.find((x) => x.id === e.crewId);
+        if (c) {
+          state.crew = state.crew.filter((x) => x.id !== e.crewId);
+          state.lastEventLog.unshift(`👋 ${c.npcName} quit.`);
+        }
+        break;
+      }
+      case 'stat': {
+        const stats = p.stats as unknown as Record<string, number>;
+        stats[e.stat] = clampN((stats[e.stat] ?? 0) + e.v);
+        break;
+      }
+      case 'post':
+        state.socialPosts.unshift({
+          id: uuidv4(), platform: 'chirp', authorId: e.authorId, authorName: e.authorId === 'player' ? p.artistName : e.authorName,
+          content: e.content, likes: e.likes, shares: Math.round(e.likes * 0.12), comments: [], timestamp: new Date().toISOString(),
+          isPlayerPost: e.authorId === 'player', trendingScore: 30, daySerial: serial,
+        });
+        break;
+      case 'headline':
+        state.headlines.unshift({ id: uuidv4(), text: e.text, fullStory: e.story, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 5, category: e.category });
+        break;
+      case 'followUp': {
+        const draft = buildFollowUp(e.template, e.data, serial + e.days);
+        if (draft) deliverMoment(state, draft, serial, 'scheduled', serial + e.days);
+        break;
+      }
+      case 'inboundAsk': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        if (!n || n.role !== 'artist') break;
+        let song = [...state.npcSongs].reverse().find((s) => s.ownerId === n.id);
+        if (!song) {
+          song = createNPCSong(n as NPC, state.gameDate);
+          state.npcSongs.push(song);
+        }
+        if (state.inboundRequests.some((r) => r.npcId === n.id && (r.status === 'open' || r.status === 'agreed'))) break;
+        const req = openInboundAsk(state, n as NPC, song, e.free
+          ? `${n.name} sent you "${song.title}". No money talk — they just want you on it.`
+          : `${n.name} wants you on "${song.title}" and is ready to pay for it.`);
+        if (e.free) {
+          req.offer = 0;
+          req.openingOffer = 0;
+          req.ceiling = Math.round(req.ceiling * 0.3);
+        }
+        break;
+      }
+      case 'featureFree': {
+        const req = state.featureRequests.find((r) => r.id === e.requestId);
+        if (!req || req.status !== 'terms') break;
+        const n = state.npcs.find((x) => x.id === req.npcId);
+        const song = state.songs.find((x) => x.id === req.songId);
+        req.status = 'verse_ready';
+        req.freeVerse = true;
+        req.fee = 0;
+        req.verseQuality = n ? verseQualityFor(n as FeatureCandidate, song?.quality ?? 50) : 55;
+        req.reason = 'Verse for a verse — no fee.';
+        break;
+      }
+      case 'featureCancel': {
+        const req = state.featureRequests.find((r) => r.id === e.requestId);
+        if (req && (req.status === 'sent' || req.status === 'terms' || req.status === 'verse_ready')) {
+          req.status = 'declined';
+          req.reason = 'Called off.';
+        }
+        break;
+      }
+      case 'featureNow': {
+        const req = state.featureRequests.find((r) => r.id === e.requestId);
+        if (req && req.status === 'sent') req.dueDate = formatGameDate(state.gameDate);
+        break;
+      }
+      case 'featureDelay': {
+        const req = state.featureRequests.find((r) => r.id === e.requestId);
+        if (req && req.status === 'sent') req.dueDate = formatGameDate(advanceDate(state.gameDate, e.days) as GameDate);
+        break;
+      }
+      case 'addOpener': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        const show = [...state.scheduledShows].filter((s) => s.serial - serial > 2).sort((a, b) => a.serial - b.serial)[0];
+        if (!n || !show) break;
+        show.guests = show.guests ?? [];
+        if (show.guests.some((g) => g.npcId === n.id && g.status === 'confirmed')) break;
+        show.guests.push({ npcId: n.id, name: n.name, fame: Math.round(n.fame), role: 'opener', fee: 0, status: 'confirmed', askedSerial: serial });
+        show.notes.unshift(`${n.name} is opening — for free.`);
+        break;
+      }
+    }
+  }
+}
+
+/** Daily: expire, wake follow-ups, and maybe somebody new reaches out. */
+function momentsTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
+  if (!state.player) return;
+  const list = state.moments ?? (state.moments = []);
+  for (const m of list) {
+    if (m.status === 'scheduled' && (m.dueSerial ?? 0) <= serial) {
+      m.status = 'open';
+      m.createdSerial = serial;
+      m.expiresSerial = Math.max(m.expiresSerial, serial + 3);
+      announceMoment(state, m);
+    } else if (m.status === 'open' && m.expiresSerial < serial) {
+      const r = expireMoment(m);
+      m.status = 'expired';
+      m.resolution = { text: r.text };
+      applyMomentEffects(state, r.effects, serial);
+    }
+  }
+  const open = list.filter((m) => m.status === 'open');
+  const recent = list.slice(0, 8).map((m) => m.kind);
+  const fame = blendedFame(state.player);
+  let world: MomentWorld | null = null;
+  const chances: [Moment['channel'], number, number][] = [
+    ['dm', 0.13 + fame / 900, 3],
+    ['team', 0.07 + state.crew.length * 0.012, 2],
+  ];
+  for (const [channel, perDay, cap] of chances) {
+    if (open.filter((m) => m.channel === channel).length >= cap) continue;
+    if (Math.random() > 1 - Math.pow(1 - perDay, Math.min(days, 10))) continue;
+    world = world ?? momentWorld(state, npcs, serial);
+    if (!world) return;
+    const draft = rollMoment(channel, world, recent, `${serial}|${channel}`, Math.random());
+    if (draft) deliverMoment(state, draft, serial);
+  }
 }
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -7495,46 +7865,52 @@ export const useGameStore = create<GameState & GameActions>()(
 
         state.dmThreads[npcId].messages.push(playerMsg);
 
-        // Generate NPC reply
+        // Generate NPC reply — a person deciding whether you are worth answering.
         const npc = state.npcs.find(n => n.id === npcId);
         if (npc) {
-          let replyContent: string;
+          const serial = dateToSerial(state.gameDate);
+          const thread = state.dmThreads[npcId];
+          const today = thread.sentToday && thread.sentToday.serial === serial ? thread.sentToday.count : 0;
+          thread.sentToday = { serial, count: today + 1 };
+          let replyContent: string | null;
           let relChange: number;
+          let note: string | undefined;
 
-          if (attachedSongId) {
-            const song = state.songs.find(s => s.id === attachedSongId);
-            if (song) {
-              const reaction = generateSongReaction(npc, song.title, song.quality);
-              replyContent = reaction.text;
-              relChange = reaction.relationshipChange;
-            } else {
-              const reply = generateDMReply(npc, message);
-              replyContent = reply.text;
-              relChange = reply.relationshipChange;
-            }
+          const song = attachedSongId ? state.songs.find(s => s.id === attachedSongId) : undefined;
+          if (song && today < 3) {
+            const reaction = generateSongReaction(npc, song.title, song.quality);
+            replyContent = npc.id.endsWith('_real') ? null : reaction.text;
+            relChange = npc.id.endsWith('_real') ? 0 : reaction.relationshipChange;
+            if (replyContent === null) note = 'Delivered. Their team manages their messages.';
           } else {
-            const reply = generateDMReply(npc, message);
+            const reply = chatReply(npc as NPC, message, {
+              playerFame: state.player ? blendedFame(state.player) : 0,
+              sentToday: today,
+              beef: activeBeefIds(state).has(npcId),
+              seed: `${serial}|${today}`,
+            }, Math.random());
             replyContent = reply.text;
-            relChange = reply.relationshipChange;
+            relChange = reply.relationship;
+            note = reply.note;
           }
 
-          const npcMsg: DMMessage = {
-            id: uuidv4(),
-            npcId,
-            fromPlayer: false,
-            content: replyContent,
-            timestamp: new Date().toISOString(),
-            read: false,
-          };
+          if (replyContent) {
+            const npcMsg: DMMessage = {
+              id: uuidv4(),
+              npcId,
+              fromPlayer: false,
+              content: replyContent,
+              timestamp: new Date().toISOString(),
+              read: false,
+            };
+            thread.messages.push(npcMsg);
+            thread.unread += 1;
+          } else if (note) {
+            thread.messages.push({ id: uuidv4(), npcId, fromPlayer: false, content: `· ${note}`, timestamp: new Date().toISOString(), read: true });
+          }
 
-          state.dmThreads[npcId].messages.push(npcMsg);
-          state.dmThreads[npcId].unread += 1;
-
-          // Update relationship — one lookup, reused. The previous version ran
-          // the identical `find` twice and discarded the first result.
           npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + relChange));
-          // Add to memory log
-          const memEntry = `[DM] Player said: "${message.slice(0, 50)}..." Reply: "${replyContent.slice(0, 50)}..."`;
+          const memEntry = `[DM] You: "${message.slice(0, 40)}"${replyContent ? ` — they: "${replyContent.slice(0, 40)}"` : ' — no reply'}`;
           npc.memoryLog = [...npc.memoryLog.slice(-9), memEntry];
         }
       }),
@@ -8891,6 +9267,7 @@ export const useGameStore = create<GameState & GameActions>()(
           acceptedSerial: now,
           terms: { ...offer.terms },
           reminded: [],
+          lineup: offer.lineup ? offer.lineup.map((a) => ({ ...a })) : undefined,
         };
         state.bookedGigs.push(gig);
         offer.status = 'accepted';
@@ -8978,6 +9355,161 @@ export const useGameStore = create<GameState & GameActions>()(
         hostTier: npc.tier,
         roll: 0,
       });
+    },
+
+    answerMoment: (momentId, optionId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That moment has passed.' };
+      set((state) => {
+        if (!state.player) return;
+        const m = (state.moments ?? []).find((x) => x.id === momentId);
+        if (!m || m.status !== 'open') return;
+        const option = m.options.find((o) => o.id === optionId);
+        if (!option) return;
+        if (option.cost && state.player.career.money < option.cost) { result.message = `You need $${option.cost.toLocaleString()} for that.`; return; }
+        if (option.energy && state.player.energy < option.energy) { result.message = `You need ${option.energy} energy for that. Rest first.`; return; }
+        const serial = dateToSerial(state.gameDate);
+        const world = momentWorld(state, raw(state.npcs) as NPC[], serial);
+        if (!world) return;
+        const r = resolveMoment(m, optionId, world, Math.random());
+        m.status = 'resolved';
+        m.resolution = { optionId, label: option.label, text: r.text };
+        applyMomentEffects(state, r.effects, serial);
+        if (m.channel === 'dm' && m.npcId) {
+          const thread = state.dmThreads[m.npcId] ?? { npcId: m.npcId, messages: [], unread: 0 };
+          thread.messages.push({ id: uuidv4(), npcId: m.npcId, fromPlayer: true, content: option.label, timestamp: new Date().toISOString(), read: true });
+          state.dmThreads[m.npcId] = thread;
+        }
+        const npc = m.npcId ? state.npcs.find((n) => n.id === m.npcId) : undefined;
+        if (npc) npc.memoryLog = [`${m.title} — you chose "${option.label}"`, ...(npc.memoryLog ?? [])].slice(0, 10);
+        result = { ok: true, message: r.text };
+      });
+      return result;
+    },
+
+    askToDropAct: (offerId, npcId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That offer is closed.' };
+      set((state) => {
+        if (!state.player) return;
+        const offer = state.showOffers.find((o) => o.id === offerId);
+        if (!offer || offer.status !== 'open') return;
+        const act = (offer.lineup ?? []).find((a) => a.npcId === npcId);
+        const host = state.npcs.find((n) => n.id === offer.hostId);
+        if (!act || !host) { result.message = 'They are not on this bill.'; return; }
+        if (act.npcId === offer.hostId) { result.message = 'You cannot ask the host to leave their own show.'; return; }
+        if (offer.log.some((l) => l.startsWith('You asked to drop'))) { result.message = 'You already made that ask. Twice is a tantrum.'; return; }
+        const d = dropActDecision({ host: host as NPC, playerFame: blendedFame(state.player), act: act as LineupAct, roll: Math.random() });
+        offer.log = [`You asked to drop ${act.name}. ${d.text}`, ...offer.log];
+        const serial = dateToSerial(state.gameDate);
+        const rival = state.npcs.find((n) => n.id === npcId);
+        if (d.outcome === 'dropped') {
+          offer.lineup = (offer.lineup ?? []).filter((a) => a.npcId !== npcId);
+          if (rival) rival.relationshipScore = Math.max(-100, rival.relationshipScore - 6);
+          nudgeBeef(state, npcId, 8, serial);
+          result = { ok: true, message: `${d.text} ${act.name} will hear about it.` };
+        } else if (d.outcome === 'refused') {
+          offer.patience = Math.max(0, offer.patience - 1);
+          host.relationshipScore = Math.max(-100, host.relationshipScore - 2);
+          result = { ok: false, message: d.text };
+        } else {
+          offer.status = 'walked';
+          host.relationshipScore = Math.max(-100, host.relationshipScore - 4);
+          result = { ok: false, message: d.text };
+        }
+      });
+      return result;
+    },
+
+    setGigAvoidRival: (gigId, avoid) =>
+      set((state) => {
+        const gig = state.bookedGigs.find((g) => g.id === gigId);
+        if (gig) gig.avoidRival = avoid;
+      }),
+
+    showGuestCandidates: (showId, role) => {
+      const state = get();
+      const show = state.scheduledShows.find((s) => s.id === showId);
+      if (!show || !state.player) return [];
+      const fame = blendedFame(state.player);
+      const beefs = activeBeefIds(state);
+      const taken = new Set((show.guests ?? []).map((g) => g.npcId));
+      const out: { npc: NPC; fee: number; beef: boolean; score: number }[] = [];
+      for (const n of state.npcs) {
+        if (n.role !== 'artist' || taken.has(n.id)) continue;
+        if (role === 'opener' && n.fame > fame + 5) continue;
+        if (n.fame > fame + 35) continue;
+        const near = n.country === show.country;
+        if (!near && n.relationshipScore < 30) continue;
+        // People you know first, then names who would actually say yes:
+        // near your level, from that city's country.
+        const fit = role === 'special_guest' ? -Math.abs(n.fame - (fame + 8)) : -Math.abs(n.fame - (fame - 10));
+        const score = n.relationshipScore * 2 + (near ? 15 : 0) + fit * 1.5 + (beefs.has(n.id) ? -500 : 0);
+        out.push({ npc: n, fee: guestFee(n, fame, show.capacity), beef: beefs.has(n.id), score });
+      }
+      return out.sort((a, b) => b.score - a.score).slice(0, 12).map(({ npc, fee, beef }) => ({ npc, fee, beef }));
+    },
+
+    inviteShowGuest: (showId, npcId, role, fee) => {
+      let result: FeatureActionResult = { ok: false, message: 'That show is not on sale.' };
+      set((state) => {
+        if (!state.player) return;
+        const show = state.scheduledShows.find((s) => s.id === showId);
+        if (!show) return;
+        show.guests = show.guests ?? [];
+        if (show.guests.filter((g) => g.status === 'confirmed').length >= 3) { result.message = 'Three guests is a festival, not a show.'; return; }
+        if (show.guests.some((g) => g.npcId === npcId && g.status === 'confirmed')) { result.message = 'They are already on the bill.'; return; }
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (!npc) return;
+        const serial = dateToSerial(state.gameDate);
+        if (show.serial - serial < 2) { result.message = 'Too late to change the poster.'; return; }
+        const fame = blendedFame(state.player);
+        const quoted = guestFee(npc as NPC, fame, show.capacity);
+        const busy = state.bookedGigs.some((g) => g.serial === show.serial && g.hostId === npcId);
+        const beef = activeBeefIds(state).has(npcId);
+        const raw0 = guestAnswer({ npc: npc as NPC, playerFame: fame, role, fee, quoted, beefWithPlayer: beef, busy, roll: Math.random() });
+        // Real artists' replies come from their team — nobody puts words in their mouth.
+        const ans = npc.id.endsWith('_real')
+          ? { yes: raw0.yes, text: raw0.yes ? '[Their team] Confirmed — they will be there.' : '[Their team] Not available for this date.' }
+          : raw0;
+        const thread = state.dmThreads[npcId] ?? { npcId, messages: [], unread: 0 };
+        thread.messages.push({ id: uuidv4(), npcId, fromPlayer: true, content: `Want to ${role === 'special_guest' ? 'come out as my special guest' : 'open for me'} at ${show.city} on ${formatGameDate(serialToDate(show.serial))}? I can do $${fee.toLocaleString()}.`, timestamp: new Date().toISOString(), read: true });
+        thread.messages.push({ id: uuidv4(), npcId, fromPlayer: false, content: ans.text, timestamp: new Date().toISOString(), read: true });
+        state.dmThreads[npcId] = thread;
+        if (!ans.yes) {
+          show.guests.push({ npcId, name: npc.name, fame: Math.round(npc.fame), role, fee, status: 'declined', askedSerial: serial });
+          if (fee < quoted * 0.6) npc.relationshipScore = Math.max(-100, npc.relationshipScore - 2);
+          result = { ok: false, message: `${npc.name}: ${ans.text}` };
+          return;
+        }
+        show.guests = show.guests.filter((g) => g.npcId !== npcId);
+        show.guests.push({ npcId, name: npc.name, fame: Math.round(npc.fame), role, fee, status: 'confirmed', askedSerial: serial });
+        show.notes.unshift(`${npc.name} confirmed as ${role === 'special_guest' ? 'special guest' : 'opener'} ($${fee.toLocaleString()} on the night).`);
+        npc.relationshipScore = Math.min(100, npc.relationshipScore + 2);
+        if (role === 'special_guest') {
+          state.socialPosts.unshift({
+            id: uuidv4(), platform: 'chirp', authorId: 'player', authorName: state.player.artistName,
+            content: `${show.city}. ${formatGameDate(serialToDate(show.serial))}. Special guest: ${npc.name}. 🎤 Get your tickets.`,
+            likes: Math.round(30 + (fame + npc.fame) * 20), shares: Math.round(5 + npc.fame * 3), comments: [],
+            timestamp: new Date().toISOString(), isPlayerPost: true, trendingScore: 10 + npc.fame / 3, daySerial: serial,
+          });
+        }
+        result = { ok: true, message: `${npc.name}: ${ans.text} They're on the poster — watch ticket sales move.` };
+      });
+      return result;
+    },
+
+    removeShowGuest: (showId, npcId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not on the bill.' };
+      set((state) => {
+        const show = state.scheduledShows.find((s) => s.id === showId);
+        const g = show?.guests?.find((x) => x.npcId === npcId && x.status === 'confirmed');
+        if (!show || !g) return;
+        show.guests = (show.guests ?? []).filter((x) => x !== g);
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - 8);
+        show.notes.unshift(`Took ${g.name} off the bill.`);
+        result = { ok: true, message: `${g.name} is off the bill. They did not take it well.` };
+      });
+      return result;
     },
 
     backOutOfGig: (gigId) => {
@@ -11192,8 +11724,27 @@ export const useGameStore = create<GameState & GameActions>()(
             // The deposit and promotion were paid weeks ago. The settlement
             // charged them as costs, so hand the cash back or they are paid twice.
             state.player.career.money += show.deposit + show.marketingSpend;
+            // Your guests: paid on the night, if they turned up.
+            const guestLines: string[] = [];
+            for (const g of show.guests ?? []) {
+              if (g.status !== 'confirmed') continue;
+              const npc = state.npcs.find((n) => n.id === g.npcId);
+              if (guestShowsUp(npc as NPC | undefined, Math.random())) {
+                g.status = 'played';
+                state.player.career.money -= g.fee;
+                if (npc) npc.relationshipScore = Math.min(100, npc.relationshipScore + (quality >= 65 ? 6 : 3));
+                guestLines.push(`${g.name} came out as your ${g.role === 'special_guest' ? 'special guest' : 'opener'} (${g.role === 'special_guest' ? 'the room lost it' : 'warmed them up'}) — paid $${g.fee.toLocaleString()}.`);
+                if (g.role === 'special_guest') addMomentum(state, 2);
+              } else {
+                g.status = 'no_show';
+                state.player.career.reputation = Math.max(0, state.player.career.reputation - 2);
+                if (npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - 10);
+                guestLines.push(`${g.name} never showed. The crowd booed when the screen said their name. You did not pay them.`);
+              }
+            }
             ledgerAdd('shows', state.player.career.money - balanceBefore);
             void settled;
+            if (guestLines.length) tourLines.push(...guestLines.map((l) => `🎤 ${l}`));
 
             const fillPct = Math.round(night.fill * 100);
             state.mailbox.unshift({
@@ -11204,7 +11755,8 @@ export const useGameStore = create<GameState & GameActions>()(
                 `Door $${night.gross.toLocaleString()} + merch $${night.merch.toLocaleString()}.\n` +
                 `Costs $${night.totalCosts.toLocaleString()}.\n` +
                 `Net ${night.net >= 0 ? '+' : '−'}$${Math.abs(night.net).toLocaleString()}.\n\n` +
-                `Reviewed ${quality}/100.${show.postponements ? ` (Postponed ${show.postponements}×.)` : ''}`,
+                `Reviewed ${quality}/100.${show.postponements ? ` (Postponed ${show.postponements}×.)` : ''}` +
+                ((show.guests ?? []).length ? `\n\n${(show.guests ?? []).map((g) => `${g.name}: ${g.status === 'played' ? `played, $${g.fee.toLocaleString()}` : g.status.replace('_', ' ')}`).join('\n')}` : ''),
               timestamp: new Date().toISOString(), read: false, type: 'general',
             });
           }
@@ -11293,6 +11845,16 @@ export const useGameStore = create<GameState & GameActions>()(
           const song = state.songs.find((s) => s.id === req.songId);
           const manager = activeManager(raw(state.contracts) as ActiveContract[], rawNPCs);
 
+          // Sometimes the answer does not arrive on time. Real artists are
+          // never written into a twist — their side of it would be invented.
+          const generatedNpc = !npc.id.endsWith('_real');
+          const lateAlready = (state.moments ?? []).some((m) => m.kind === 'feature_late' && m.data?.requestId === req.id);
+          if (generatedNpc && !lateAlready && Math.random() < 0.15) {
+            req.dueDate = formatGameDate(advanceDate(state.gameDate, 6) as GameDate);
+            deliverMoment(state, buildFeatureTwist('late', { id: req.id, songTitle: req.songTitle, npcId: npc.id, npcName: npc.name, fee: req.fee }, targetSerial), targetSerial);
+            continue;
+          }
+
           const decision = decideFeatureResponse({
             npc: npc as FeatureCandidate,
             playerFame: blendedFame(state.player),
@@ -11309,6 +11871,11 @@ export const useGameStore = create<GameState & GameActions>()(
           if (decision.outcome === 'terms') {
             req.originalFee = decision.fee;
             req.negotiationRound = 0;
+            // A counter-idea instead of a price: verse for a verse, or billing.
+            if (generatedNpc && Math.random() < 0.3) {
+              const kind = npc.fame > blendedFame(state.player) + 5 && Math.random() < 0.45 ? 'lead' : 'swap';
+              deliverMoment(state, buildFeatureTwist(kind, { id: req.id, songTitle: req.songTitle, npcId: npc.id, npcName: npc.name, fee: decision.fee }, targetSerial), targetSerial);
+            }
           }
 
           if (decision.outcome === 'free') {
@@ -12219,6 +12786,11 @@ export const useGameStore = create<GameState & GameActions>()(
           labelTick(state, rawNPCs, streamRun.labelRevenueBySong, targetSerial, days, worldLog);
         }
 
+        // ─── MOMENTS ──────────────────────────────────────────────────
+        // People text you; your team walks in with problems. Decisions
+        // with consequences, some of them weeks later.
+        momentsTick(state, rawNPCs, targetSerial, days);
+
         // ─── INDUSTRY & LIFE TICK ─────────────────────────────────────
         const todaySerial = dateToSerial(state.gameDate);
         for (const campaign of state.payolaCampaigns) {
@@ -12688,6 +13260,7 @@ export const useGameStore = create<GameState & GameActions>()(
           investments: state.investments,
           businesses: state.businesses,
           label: state.label ?? null,
+          moments: (state.moments ?? []).slice(0, 40),
           ownedAssets: state.ownedAssets,
           awards: state.awards,
           certifications: state.certifications,
@@ -13014,6 +13587,7 @@ export const useGameStore = create<GameState & GameActions>()(
         investments: state.investments,
         businesses: state.businesses,
         label: state.label ?? null,
+        moments: (state.moments ?? []).slice(0, 40),
         ownedAssets: state.ownedAssets,
         awards: state.awards,
         certifications: state.certifications,

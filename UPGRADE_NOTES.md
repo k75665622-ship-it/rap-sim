@@ -76,6 +76,32 @@ Files: `src/sim/label.ts` (pure engine), `src/components/screens/LabelScreen.tsx
 
 Also fixed in this pass: the Industry & Life actions (sample clearance, payola, scout missions, retirement, comeback, child support) were missing from the store's type, so `tsc` failed; and a venue inquiry on a retired career referenced an undefined variable and would have thrown.
 
+## 2026-10-18 (b) — Label v2 and a living world
+
+### Label v2
+- **Artists work on their own.** Every few weeks each signee pitches a demo (a single, or an album after three singles). The **A&R** tab shows the office's estimate (an A&R hire makes it accurate), the pitch and the budget they want. **Approve** at any budget, **send it back** for another pass (perfectionists improve, divas sulk), or **shelve** it. Ignore a demo and they get restless; after ~45 days it **leaks** with no campaign. Creative-control and distribution artists release without asking.
+- **Office rules** (A&R tab): auto-approve everything, or only demos the office rates above a threshold, at the artist's ask or a fixed budget; and whether label-funded singles get videos.
+- **Albums** release as real projects: a lead single plus deep cuts that reach a fraction of the audience (new optional `streamWeight` on songs, applied in the streaming engine).
+- **All-in deals**: a recoupable recording fund paid at signing. The artist pays for their own sessions, videos and marketing (booking your studio pays the label rent) and releases on their own. Top up the fund from the Roster.
+- **Negotiation**: signing bonus, albums owed, option years, video budget, publishing share, touring cut; their counters name what they want; leverage and temperature; table tactics — pitch your vision, meet in person (25 energy), ask what they need, play hardball, exploding offer. Option years can be exercised when a deal ends.
+- **Label studio**: five building tiers and five gear lines with upkeep; better quality, cheaper and faster sessions; rent from other artists on idle days. New staff: in-house producer and studio engineer.
+- **Videos** for label songs from the song page go up on the artist's channel. The world no longer shoots random videos for label songs.
+- New releases get their first day of streams at once; label pages show live, climbing numbers.
+- Fixed: NPC songs aged a "week" per day on the running clock.
+
+### Shows with a real bill
+- Every show offer comes with a **lineup**: the host, support acts, openers, the DJ. Friends are marked; a **rival** can be on the bill (promoters love a storyline). Ask the host to **drop them** — they might, they might refuse, or they might drop you.
+- On a booked bill with a rival, choose **keep your distance** or **don't back down**. On the night: steal the show, get upstaged, squash it backstage (ends the beef), or your crews clash (fine, headline, heat). Everyone else on the bill: relationship from sharing a stage; headliners sometimes ask for your number.
+- **Friends invite you more**, and more invitations now come from artists.
+- **Your own shows**: a **Bill** tab to add a special guest or an opener — fees scale with the room, friends cost less, lowballs sting. A name on the poster lifts ticket demand. Guests are paid on the night only if they turn up; flaky ones sometimes don't.
+
+### Moments — the world comes to you
+- People **text you** with things that want an answer: studio invites, parties, diss-bait (that can turn into a diss track weeks later), friends asking to borrow money (some pay you back), collab ideas, bloggers with a story, fans, cash gigs, beats for sale, "I'm bringing you out tonight", artists asking to open for you.
+- Your **team walks in** with decisions: a cringe brand deal, a story about to break, burnout, a leaked snippet, raises, two team members feuding, a designer who wants to dress you. No team yet? Your cousin "handles things".
+- Every option has a consequence, rolled with who they are and who you are; ignoring one is a choice too. They show up in PingChat (with buttons), on the Team page, and in a **Waiting on you** card on the Dashboard.
+- **Feature requests** have twists: artists run late (wait, chase, or pull it), offer verse-for-a-verse instead of a fee, or demand top billing.
+- **PingChat replies** read what you said (greeting, compliment, feature ask, money, insult, apology, flirt, show, label) and who they are. Stars ignore unknowns, friends answer fast, and double-texting costs you. Real artists' DMs are handled by their team.
+
 ## How to run
 
 ```

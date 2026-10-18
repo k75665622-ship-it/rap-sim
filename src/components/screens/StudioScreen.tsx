@@ -307,9 +307,9 @@ function RoomPanel({
   const effective = roomProductionBonus(levels, roomId);
 
   return (
-    <div className="grid grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
       {/* ── WHAT YOU OWN ─────────────────────────────────────────────── */}
-      <div className="col-span-2 space-y-4">
+      <div className="lg:col-span-2 space-y-4">
         <Card>
           <div className="flex items-start justify-between mb-1">
             <div>
@@ -1005,9 +1005,33 @@ export function StudioScreen() {
       ) : mode === 'remix' ? (
         <RemixPanel />
       ) : (
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 pb-24 lg:pb-0">
         {/* ── EDITOR ─────────────────────────────────────────────────── */}
-        <div className="col-span-2 space-y-4">
+        <div className="lg:col-span-2 space-y-4">
+          {/* On a phone the live read sits on top, where you can see it. */}
+          {preview && (
+            <div className="lg:hidden rounded-[16px] border border-line bg-card p-4 flex items-center gap-4" style={{ background: 'linear-gradient(120deg, rgba(245,179,1,0.10), transparent 70%)' }}>
+              <div className="relative w-16 h-16 shrink-0">
+                <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90"><circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" /><circle cx="18" cy="18" r="15.5" fill="none" stroke={isBlankSession ? '#3A3D48' : preview.quality >= 74 ? '#2ECC71' : preview.quality >= 50 ? '#F5B301' : '#FF5C5C'} strokeWidth="3" strokeLinecap="round" strokeDasharray={`${isBlankSession ? 0 : Math.round(preview.quality) * 0.974} 100`} /></svg>
+                <div className="absolute inset-0 flex items-center justify-center text-[18px] font-black text-ink">{isBlankSession ? '–' : Math.round(preview.quality)}</div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] uppercase tracking-wider text-ink3">Live read</div>
+                <div className="text-[14px] font-semibold text-ink leading-snug">{isBlankSession ? 'Write something to get a read' : describeScore(preview.quality)}</div>
+                <div className="text-[11px] text-ink3 mt-0.5">${totalCost.toLocaleString()} · {sessionLength}d · ⚡{sessionEnergy(effort)}</div>
+              </div>
+            </div>
+          )}
+          {/* Sticky on a phone: the price and the button, always in reach. */}
+          {error && <div className="lg:hidden fixed bottom-[64px] inset-x-3 z-40 rounded-[12px] bg-fall/90 text-white text-[12px] px-3 py-2 shadow-lg" onClick={() => setError(null)}>{error}</div>}
+          <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-line bg-[#0A0B10]/95 backdrop-blur px-4 py-3 flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold text-ink truncate">{title.trim() || 'Untitled'} · <span className={cn(isBlankSession ? 'text-ink3' : preview && preview.quality >= 74 ? 'text-rise' : preview && preview.quality >= 50 ? 'text-amber' : 'text-fall')}>{isBlankSession || !preview ? '—' : `${Math.round(preview.quality)}`}</span></div>
+              <div className="text-[11px] text-ink3">${totalCost.toLocaleString()} · {sessionLength} day{sessionLength === 1 ? '' : 's'} · ⚡{sessionEnergy(effort)}</div>
+            </div>
+            {tab !== 'mix' && <button onClick={() => setTab(TABS[Math.min(TABS.length - 1, TABS.findIndex((x) => x.id === tab) + 1)].id)} className="h-10 px-3 rounded-[10px] border border-line text-[13px] text-ink2">Next →</button>}
+            <button onClick={handleRecord} disabled={!canAfford} className="h-10 px-4 rounded-[10px] bg-amber text-black text-[13px] font-bold disabled:opacity-40">Book</button>
+          </div>
           <Card>
             <div className="mb-4">
               <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">Track Title</label>
@@ -1032,7 +1056,7 @@ export function StudioScreen() {
             </div>
 
             {/* ── The steps ── */}
-            <div className="grid grid-cols-5 gap-1.5 mb-5">
+            <div className="flex gap-1.5 mb-5 overflow-x-auto -mx-1 px-1 snap-x">
               {TABS.map((t, i) => {
                 const active = tab === t.id;
                 const done = TABS.findIndex(x => x.id === tab) > i;
@@ -1040,7 +1064,7 @@ export function StudioScreen() {
                   <button
                     key={t.id}
                     onClick={() => setTab(t.id)}
-                    className={`group text-left rounded-xl px-2.5 py-2 border transition-all ${
+                    className={`group text-left rounded-xl px-2.5 py-2 border transition-all shrink-0 min-w-[118px] flex-1 snap-start ${
                       active
                         ? 'bg-yellow-500/15 border-yellow-500/70'
                         : done
@@ -1092,15 +1116,15 @@ export function StudioScreen() {
 
                 {/* ── Hire a pen ─────────────────────────────────────────── */}
                 <div className="border-t border-gray-800 pt-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs text-gray-400 uppercase tracking-wider">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
+                    <label className="text-xs text-gray-400 uppercase tracking-wider shrink-0">
                       ✍️ Ghostwriter
                     </label>
                     <span className="text-xs text-gray-600">
                       Their sheet is theirs — your lyricism does not cap it
                     </span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {GHOSTWRITERS.map(w => {
                       const affordable = player.career.money >= w.fee;
                       const picked = ghostwriterId === w.id;
@@ -1222,7 +1246,7 @@ export function StudioScreen() {
 
                 <div>
                   <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">Mood</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {MOODS.map(m => (
                       <button
                         key={m.id}
@@ -1649,21 +1673,23 @@ export function StudioScreen() {
               </button>
               <div>
                 <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">Session Effort</label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
                   {EFFORT_OPTIONS.map(opt => (
                     <button
                       key={opt.id}
                       onClick={() => setEffort(opt.id)}
-                      className={`p-3 rounded-xl text-left transition-all ${
+                      className={`p-3 rounded-xl text-left transition-all flex items-center gap-3 sm:block ${
                         effort === opt.id
                           ? 'bg-yellow-500/20 border border-yellow-500 text-white'
                           : 'bg-gray-800 border border-gray-700 text-gray-400 hover:border-gray-600'
                       }`}
                     >
-                      <div className="text-lg mb-1">{opt.emoji}</div>
-                      <div className="text-xs font-bold">{opt.label}</div>
-                      <div className="text-xs text-gray-500 leading-tight">{opt.desc}</div>
-                      <div className="text-xs text-yellow-500 mt-1">
+                      <div className="text-2xl sm:text-lg sm:mb-1 shrink-0">{opt.emoji}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm sm:text-xs font-bold">{opt.label}</div>
+                        <div className="text-xs text-gray-500 leading-tight">{opt.desc}</div>
+                      </div>
+                      <div className="text-xs text-yellow-500 sm:mt-1 shrink-0">
                         ${Math.round(opt.cost * crewFx.sessionCost)} · {Math.max(1, Math.round(opt.days * crewFx.sessionSpeed))}d
                       </div>
                     </button>
@@ -2349,8 +2375,8 @@ function ProjectBuilder() {
     picked.length >= MIN_PROJECT_TRACKS[type];
 
   return (
-    <div className="grid grid-cols-3 gap-6">
-      <div className="col-span-2 space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+      <div className="lg:col-span-2 space-y-4">
         <Card>
           <h2 className="text-white font-black mb-1">Build a project</h2>
           <p className="text-xs text-gray-500 mb-4">

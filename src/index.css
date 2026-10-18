@@ -197,3 +197,25 @@ input[type='date'] {
     animation: none;
   }
 }
+
+/* ── Social: living media ─────────────────────────────────────────────── */
+@keyframes rl-clip-pan {
+  0% { transform: translate(-6%, -4%) scale(1.1); }
+  50% { transform: translate(6%, 4%) scale(1.25); }
+  100% { transform: translate(-6%, -4%) scale(1.1); }
+}
+.rl-clip-pan { animation: rl-clip-pan 9s ease-in-out infinite; }
+@keyframes rl-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.rl-marquee { animation: rl-marquee 8s linear infinite; padding-right: 2rem; }
+@keyframes rl-story-bar { from { width: 0%; } to { width: 100%; } }
+.rl-story-bar { animation: rl-story-bar 4s linear forwards; }
+@keyframes rl-pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
+.rl-pop { animation: rl-pop 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes rl-live-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.rl-live-dot { animation: rl-live-dot 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .rl-clip-pan, .rl-marquee, .rl-live-dot { animation: none; }
+}

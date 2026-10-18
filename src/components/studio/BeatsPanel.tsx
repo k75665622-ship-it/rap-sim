@@ -155,14 +155,14 @@ export function BeatsPanel({ onUseBeat, initialView = 'library' }: { onUseBeat: 
           <div className="px-4 py-3 border-b border-line text-[12px] text-ink3">New beats every week. <b className="text-ink2">Lease</b>: cheap, somebody else may have it too (−4 freshness). <b className="text-ink2">Exclusive</b>: yours alone.</div>
           {(beats?.store ?? []).length === 0 && <div className="p-6 text-[13px] text-ink3 text-center">The store restocks with the next day.</div>}
           {(beats?.store ?? []).map((l) => (
-            <div key={l.id} className={cn('flex items-center gap-3 px-4 py-3 border-b border-line last:border-0', l.sold && 'opacity-50')}>
+            <div key={l.id} className={cn('flex items-center gap-3 px-4 py-3 border-b border-line last:border-0 flex-wrap sm:flex-nowrap', l.sold && 'opacity-50')}>
               <div className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[11px] font-black text-black shrink-0" style={{ background: qColor(l.quality) }}>{l.quality}</div>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-semibold text-ink truncate">{l.name} <span className="text-ink3 font-normal">· {beatGrade(l.quality)}</span></div>
                 <div className="text-[11px] text-ink3 truncate">prod. {l.producerName} · {GENRE_BY_ID[l.genre]?.label ?? l.genre} · {l.bpm} BPM · {l.mood}</div>
               </div>
               {l.sold ? <span className="text-[12px] text-ink3">Bought</span> : (
-                <div className="flex gap-1.5 shrink-0">
+                <div className="flex gap-1.5 shrink-0 w-full sm:w-auto justify-end">
                   <Button size="sm" variant="secondary" disabled={money < l.lease} onClick={() => setFlash(buyBeat(l.id, 'lease'))}>Lease ${l.lease.toLocaleString()}</Button>
                   <Button size="sm" disabled={money < l.exclusive} onClick={() => setFlash(buyBeat(l.id, 'exclusive'))}>Own ${l.exclusive.toLocaleString()}</Button>
                 </div>

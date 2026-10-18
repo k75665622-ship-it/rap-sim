@@ -1,314 +1,254 @@
-import { useState } from 'react';
-import { useGameStore } from '../../store/gameStore';
-import { Card, Button, Badge } from '../ui/Card';
-import { INTERVIEW_STATIONS } from '../../data/interviewStations';
-import { generateInterviewQuestion } from '../../ai/offlineProvider';
-import type { InterviewTone } from '../../types/game';
-import { ENERGY_COSTS, energyShortfallMessage } from '../../sim/energy';
+// ─── INTERVIEWS ────────────────────────────────────────────────────────────
+// Radio, TV, podcasts, blogs. They invite you — more when you're hot — or you
+// pitch yourself. Every sit-down is built from your world, something
+// unexpected can happen on air, and every answer moves something.
 
-const TONES: { id: InterviewTone; label: string; emoji: string; desc: string }[] = [
-  { id: 'diplomatic', label: 'Diplomatic', emoji: '🕊️', desc: '+Rep, safe, low momentum' },
-  { id: 'dismissive', label: 'Dismissive', emoji: '😒', desc: '-Rep, +Street Cred' },
-  { id: 'aggressive', label: 'Aggressive', emoji: '🔥', desc: '+Street, -Rep, risks beef' },
-  { id: 'humorous', label: 'Humorous', emoji: '😄', desc: '+Fame, +Momentum, crowd loves it' },
-  { id: 'honest', label: 'Honest', emoji: '💯', desc: '+Rep, +Fame, small risk of reveals' },
-];
+import { useMemo, useState } from 'react';
+import { cn } from '@/utils/cn';
+import { compact } from '@/utils/format';
+import { useGameStore, blendedFame } from '../../store/gameStore';
+import { Button, PageTitle } from '../ui/kit';
+import { dateToSerial } from '../../sim/gameClock';
+import { ENERGY_COSTS } from '../../sim/energy';
+import { FORMAT_INFO, KIND_EMOJI, outletsFor, type InterviewFormat, type IvOption, type Outlet } from '../../sim/interviews';
+import type { InterviewRecord } from '../../types/game';
+import { Avatar } from '../social/shared';
 
-const TONE_ANSWERS: Record<InterviewTone, string[]> = {
-  diplomatic: [
-    "I appreciate the question. I just want to focus on the music and what it means to the people who listen.",
-    "You know, at the end of the day, this industry is about building something meaningful. I try to stay on that path.",
-    "I have a lot of respect for everyone in the game. We all have different journeys.",
-  ],
-  dismissive: [
-    "Next question.",
-    "I don't really think about that kind of thing. I'm focused on my craft.",
-    "That's not really relevant to what I'm building. Let's talk about the music.",
-  ],
-  aggressive: [
-    "Listen, I keep it one hundred. If someone has a problem with me, they know where to find me.",
-    "I don't play games. The music speaks and if anyone has an issue with what I'm saying, say it to my face.",
-    "People need to stop moving funny. I see everything and I respond in my music.",
-  ],
-  humorous: [
-    "Ha! You know what, I'm not even going to dignify that with a straight answer. *laughs* But for real though—",
-    "Man, you almost got me! *laughs* Look, life is too short to be serious all the time.",
-    "I came here to vibe, not to start drama! *laughs* Ask me about the music!",
-  ],
-  honest: [
-    "Real talk? It was hard. There were times I almost quit. But this is what I was born to do.",
-    "I'll be transparent with you — that situation was complicated. Here's what actually happened.",
-    "Look, I'm not going to sugarcoat it. I made mistakes. But I learned and kept moving.",
-  ],
+const TAG_CLS: Record<IvOption['tag'], string> = {
+  Safe: 'bg-white/10 text-ink2', Bold: 'bg-amber/15 text-amber', Funny: 'bg-[#4DA3FF]/15 text-[#4DA3FF]', Honest: 'bg-rise/15 text-rise',
+  Savage: 'bg-fall/15 text-fall', Humble: 'bg-new/15 text-new', 'Walk out': 'bg-fall/25 text-fall', Deflect: 'bg-white/10 text-ink3', Hype: 'bg-[#E93D82]/15 text-[#E93D82]',
 };
+const STAT_LABEL = { charisma: 'Charisma', freestyle: 'Freestyle', lyricism: 'Lyricism', performance: 'Performance' } as const;
 
-function getAnswer(tone: InterviewTone): string {
-  const pool = TONE_ANSWERS[tone];
-  return pool[Math.floor(Math.random() * pool.length)];
+function OutletBadge({ o, size = 44 }: { o: Outlet; size?: number }) {
+  return <div className="rounded-[12px] flex items-center justify-center shrink-0 text-black font-black" style={{ width: size, height: size, background: o.color, fontSize: size * 0.45 }}>{KIND_EMOJI[o.kind]}</div>;
+}
+
+function Delta({ label, v, money }: { label: string; v: number; money?: boolean }) {
+  if (!v) return null;
+  const up = v > 0;
+  return <span className={cn('px-2 h-[22px] rounded-full text-[11px] font-semibold flex items-center', up ? 'bg-rise/15 text-rise' : 'bg-fall/15 text-fall')}>{label} {up ? '+' : ''}{money ? `$${Math.round(v).toLocaleString()}` : Math.abs(v) >= 100 ? compact(v) : v}</span>;
+}
+
+function Results({ rec, onBack }: { rec: InterviewRecord; onBack: () => void }) {
+  return (
+    <div className="rounded-[18px] border border-line bg-card overflow-hidden rl-pop">
+      <div className="p-5" style={{ background: rec.viral ? 'linear-gradient(135deg, rgba(255,92,92,0.18), transparent 70%)' : 'linear-gradient(135deg, rgba(245,179,1,0.12), transparent 70%)' }}>
+        <div className="text-[11px] uppercase tracking-wider text-ink3">The headline</div>
+        <div className="text-[20px] font-bold text-ink leading-snug mt-1">{rec.headline}</div>
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {rec.viral && <span className="px-2 h-[22px] rounded-full text-[11px] font-bold flex items-center bg-fall/20 text-fall">🔥 The clip is going viral</span>}
+          {rec.walked && <span className="px-2 h-[22px] rounded-full text-[11px] font-bold flex items-center bg-fall/20 text-fall">🚪 Walked out</span>}
+          <Delta label="Fame" v={rec.deltas.fame} />
+          <Delta label="Reputation" v={rec.deltas.rep} />
+          <Delta label="Momentum" v={rec.deltas.momentum} />
+          <Delta label="Fans" v={rec.deltas.fans} />
+          <Delta label="Fee" v={rec.deltas.money} money />
+        </div>
+      </div>
+      <div className="p-5">
+        <div className="text-[12px] text-ink3 mb-2">What you said</div>
+        <ul className="space-y-1.5">{rec.highlights.map((h, i) => <li key={i} className="text-[13px] text-ink2">“{h}”</li>)}</ul>
+        <div className="text-[12px] text-ink3 mt-3">The outlet posted the clip on Clip. People you named have heard about it — check your Activity.</div>
+        <Button className="mt-4" onClick={onBack}>Back to interviews</Button>
+      </div>
+    </div>
+  );
+}
+
+function LiveInterview({ outlets, onFinished }: { outlets: Outlet[]; onFinished: (r: InterviewRecord) => void }) {
+  const ai = useGameStore((s) => s.activeInterview);
+  const player = useGameStore((s) => s.player);
+  const answer = useGameStore((s) => s.answerInterview);
+  const [last, setLast] = useState<{ text: string; passed?: boolean } | null>(null);
+  if (!ai || !player) return null;
+  const outlet = outlets.find((o) => o.id === ai.outletId);
+  const q = ai.questions[ai.idx];
+  const fmt = FORMAT_INFO[ai.format as InterviewFormat];
+  const stats = { charisma: player.stats.charisma, freestyle: player.stats.freestyle, lyricism: player.stats.lyricism, performance: player.stats.performance };
+
+  return (
+    <div className="rounded-[18px] border border-line bg-[#0C0D12] overflow-hidden">
+      <div className="px-4 py-3 border-b border-line flex items-center gap-3" style={{ background: outlet ? `linear-gradient(90deg, ${outlet.color}30, transparent)` : undefined }}>
+        {outlet && <OutletBadge o={outlet} size={40} />}
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-bold text-ink truncate">{ai.outletName}</div>
+          <div className="text-[12px] text-ink3 truncate">with {ai.host} · {fmt.emoji} {fmt.label}</div>
+        </div>
+        <span className="flex items-center gap-1.5 px-2.5 h-[24px] rounded-full bg-fall/20 text-fall text-[11px] font-bold"><span className="w-2 h-2 rounded-full bg-fall rl-live-dot" />ON AIR</span>
+      </div>
+      <div className="px-4 pt-3 flex gap-1">
+        {ai.questions.map((_, i) => <div key={i} className={cn('flex-1 h-1 rounded-full', i < ai.idx ? 'bg-amber' : i === ai.idx ? 'bg-amber/50' : 'bg-white/10')} />)}
+      </div>
+      <div className="p-4 space-y-3 max-h-[42vh] overflow-y-auto">
+        {ai.transcript.map((t, i) => (
+          <div key={i} className="space-y-1.5">
+            {t.surprise && <div className="text-[11px] font-bold text-fall">{t.surprise}</div>}
+            <div className="flex gap-2"><Avatar name={ai.host} seed={ai.host} size={26} /><div className="rounded-[14px] rounded-tl-[4px] bg-white/[0.06] px-3 py-2 text-[13px] text-ink2 max-w-[85%]">{t.q}</div></div>
+            <div className="flex justify-end"><div className="rounded-[14px] rounded-tr-[4px] bg-amber/90 text-black px-3 py-2 text-[13px] font-medium max-w-[85%]">{t.a}</div></div>
+            {t.reaction && <div className={cn('text-[12px] italic text-center', t.passed === false ? 'text-fall' : t.passed ? 'text-rise' : 'text-ink3')}>{t.reaction}</div>}
+          </div>
+        ))}
+      </div>
+      {q && (
+        <div className="p-4 border-t border-line">
+          {q.surprise && <div className="mb-2 inline-flex items-center gap-1.5 px-2.5 h-[24px] rounded-full bg-fall/20 text-fall text-[11px] font-bold rl-pop">{q.surprise}</div>}
+          <div className="flex gap-3 items-start">
+            <Avatar name={ai.host} seed={ai.host} size={40} />
+            <div className="text-[17px] sm:text-[18px] font-semibold text-ink leading-snug">{q.host}</div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {q.options.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => {
+                  const r = answer(o.id);
+                  setLast({ text: r.reaction, passed: r.passed });
+                  if (r.done && r.record) onFinished(r.record);
+                }}
+                className="text-left rounded-[14px] border border-line bg-card hover:bg-cardhover hover:border-amber/50 p-3 transition"
+              >
+                <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                  <span className={cn('px-1.5 h-[18px] rounded-full text-[10px] font-bold uppercase tracking-wide flex items-center', TAG_CLS[o.tag])}>{o.tag}</span>
+                  {o.check && <span className="px-1.5 h-[18px] rounded-full text-[10px] font-semibold flex items-center bg-white/5 text-ink3">🎲 {STAT_LABEL[o.check.stat]} {Math.round(stats[o.check.stat])} vs {o.check.dc}</span>}
+                </div>
+                <div className="text-[14px] text-ink leading-snug">“{o.text}”</div>
+              </button>
+            ))}
+          </div>
+          {last && <div className={cn('mt-3 text-[12px] italic', last.passed === false ? 'text-fall' : last.passed ? 'text-rise' : 'text-ink3')}>{last.text}</div>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function InterviewsScreen() {
-  const { player, interviews, openThreads, startInterview, answerQuestion, completeInterview, setScreen } = useGameStore();
-  const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [activeInterviewId, setActiveInterviewId] = useState<string | null>(null);
-  const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
-  const [questions, setQuestions] = useState<string[]>([]);
-  const [answers, setAnswers] = useState<Array<{ q: string; tone: InterviewTone; a: string }>>([]);
-  const [interviewDone, setInterviewDone] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
+  const player = useGameStore((s) => s.player);
+  const invites = useGameStore((s) => s.interviewInvites);
+  const active = useGameStore((s) => s.activeInterview);
+  const log = useGameStore((s) => s.interviewLog);
+  const outletRel = useGameStore((s) => s.outletRel);
+  const lastPitch = useGameStore((s) => s.lastPitchSerial);
+  const gameDate = useGameStore((s) => s.gameDate);
+  const desk = useGameStore((s) => s.managerDesk);
+  const acceptInterview = useGameStore((s) => s.acceptInterview);
+  const declineInterview = useGameStore((s) => s.declineInterview);
+  const pitchInterview = useGameStore((s) => s.pitchInterview);
+  const [flash, setFlash] = useState<{ ok: boolean; message: string } | null>(null);
+  const [result, setResult] = useState<InterviewRecord | null>(null);
+  const [formatFor, setFormatFor] = useState<Record<string, InterviewFormat>>({});
+  const outlets = useMemo(() => (player ? outletsFor(player.country, player.city || player.country) : []), [player?.country, player?.city]);
   if (!player) return null;
-
-  const activeInterview = interviews.find(i => i.id === activeInterviewId);
-  const completedInterviews = interviews.filter(i => i.completed);
-
-  function handleStartInterview() {
-    if (!selectedStationId) return;
-    // A press day costs energy. Gate it up front rather than letting the
-    // player answer four questions and then discover it did not count.
-    if (player!.energy < ENERGY_COSTS.interview) {
-      setNotice(energyShortfallMessage(ENERGY_COSTS.interview, player!.energy));
-      return;
-    }
-    setNotice(null);
-    startInterview(selectedStationId);
-    const station = INTERVIEW_STATIONS.find(s => s.id === selectedStationId)!;
-
-    // Generate questions
-    const openThread = openThreads.find(t => !t.resolved);
-    const qs = Array.from({ length: 4 }, () =>
-      generateInterviewQuestion(station.personality, openThread?.description)
-    );
-
-    setQuestions(qs);
-    setAnswers([]);
-    setCurrentQuestionIdx(0);
-    setInterviewDone(false);
-
-    const state = useGameStore.getState();
-    const newInterview = state.interviews[state.interviews.length - 1];
-    setActiveInterviewId(newInterview.id);
-  }
-
-  function handleAnswer(tone: InterviewTone) {
-    if (!activeInterviewId) return;
-    const q = questions[currentQuestionIdx];
-    const a = getAnswer(tone);
-
-    answerQuestion(activeInterviewId, currentQuestionIdx, tone);
-    setAnswers(prev => [...prev, { q, tone, a }]);
-
-    if (currentQuestionIdx >= questions.length - 1) {
-      completeInterview(activeInterviewId);
-      setInterviewDone(true);
-    } else {
-      setCurrentQuestionIdx(i => i + 1);
-    }
-  }
-
-  function handleReset() {
-    setActiveInterviewId(null);
-    setSelectedStationId(null);
-    setQuestions([]);
-    setAnswers([]);
-    setCurrentQuestionIdx(0);
-    setInterviewDone(false);
-  }
-
-  const riskColor = (level: number) => level >= 60 ? 'red' : level >= 30 ? 'orange' : 'green';
+  const serial = dateToSerial(gameDate);
+  const fame = blendedFame(player);
+  const open = (invites ?? []).filter((i) => i.status === 'open');
+  const pitchedToday = lastPitch === serial;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>
-          🎙️ Interviews
-        </h1>
-        <p className="text-gray-500 text-sm">Speak to the world. Choose your words carefully.</p>
-      </div>
+    <div className="max-w-[1100px] mx-auto space-y-5">
+      <PageTitle subtitle="Radio, TV, podcasts, blogs — every answer moves something.">Interviews</PageTitle>
+      {flash && <div className={cn('rounded-[12px] px-4 py-2.5 text-[13px]', flash.ok ? 'bg-rise/10 text-rise' : 'bg-fall/10 text-fall')}>{flash.message}</div>}
 
-      {!activeInterviewId ? (
-        <div className="grid grid-cols-3 gap-6">
-          {/* Station selection */}
-          <div className="col-span-2">
-            <Card>
-              <h3 className="font-bold text-white mb-4">Available Stations</h3>
-              <div className="space-y-3">
-                {INTERVIEW_STATIONS.map(station => (
-                  <button
-                    key={station.id}
-                    onClick={() => setSelectedStationId(station.id)}
-                    className={`w-full text-left p-4 rounded-xl transition-all ${
-                      selectedStationId === station.id
-                        ? 'bg-yellow-500/10 border border-yellow-500'
-                        : 'bg-gray-900 border border-gray-800 hover:border-gray-600'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-bold text-white text-sm">{station.name}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{station.audienceType}</div>
-                        <div className="mt-2 flex gap-2">
-                          <Badge color={riskColor(station.riskLevel) as any}>
-                            Risk: {station.riskLevel}/100
-                          </Badge>
-                          <Badge color={
-                            station.personality === 'friendly' ? 'green' :
-                            station.personality === 'provocative' ? 'red' :
-                            station.personality === 'underground' ? 'blue' : 'orange'
-                          }>
-                            {station.personality}
-                          </Badge>
-                        </div>
-                      </div>
-                      <span className="text-2xl">
-                        {station.personality === 'friendly' ? '😊' :
-                         station.personality === 'provocative' ? '⚡' :
-                         station.personality === 'underground' ? '🎤' : '🔥'}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-              {notice && (
-                <div className="bg-red-500/10 border border-red-500/40 rounded-xl px-3 py-2 text-red-300 text-xs mt-4">
-                  {notice}
-                </div>
-              )}
-              <Button
-                variant="gold"
-                className="w-full justify-center mt-4"
-                onClick={handleStartInterview}
-                disabled={!selectedStationId}
-              >
-                🎙️ Start Interview
-              </Button>
-              <p className="text-[11px] text-gray-600 text-center mt-2">
-                A press day costs ⚡{ENERGY_COSTS.interview} energy. You have {Math.floor(player.energy)}.
-              </p>
-            </Card>
-          </div>
-
-          {/* Completed interviews */}
-          <div>
-            <Card>
-              <h3 className="font-bold text-white text-sm mb-3">Past Interviews ({completedInterviews.length})</h3>
-              {completedInterviews.length === 0 ? (
-                <p className="text-gray-600 text-xs text-center py-4">No interviews yet</p>
+      {result ? <Results rec={result} onBack={() => setResult(null)} />
+        : active ? <LiveInterview outlets={outlets} onFinished={(r) => { setResult(r); setFlash(null); }} />
+        : (
+          <>
+            <section>
+              <h2 className="text-[16px] font-semibold text-ink mb-2">Invitations {open.length > 0 && <span className="text-amber">· {open.length}</span>}</h2>
+              {open.length === 0 ? (
+                <div className="rounded-[14px] border border-dashed border-line p-5 text-[13px] text-ink3">No invitations right now. Release something, start something, or get hot — the phone rings more when people are talking about you. Or pitch yourself below.</div>
               ) : (
-                <div className="space-y-2">
-                  {completedInterviews.slice(0, 5).map(intv => {
-                    const station = INTERVIEW_STATIONS.find(s => s.id === intv.stationId);
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {open.map((inv) => {
+                    const o = outlets.find((x) => x.id === inv.outletId);
+                    if (!o) return null;
+                    const f = FORMAT_INFO[inv.format as InterviewFormat];
+                    const brief = (desk ?? []).find((b) => b.refId === inv.id);
                     return (
-                      <div key={intv.id} className="bg-gray-800 rounded-xl p-3">
-                        <div className="text-white text-xs font-bold">{station?.name}</div>
-                        <div className="text-gray-500 text-xs">{intv.date}</div>
-                        <div className="flex gap-1 mt-1">
-                          {intv.fameGained > 0 && <Badge color="yellow">+{intv.fameGained} Fame</Badge>}
-                          {intv.reputationChange > 0 && <Badge color="green">+{intv.reputationChange} Rep</Badge>}
-                          {intv.reputationChange < 0 && <Badge color="red">{intv.reputationChange} Rep</Badge>}
+                      <div key={inv.id} className="rounded-[16px] border border-line bg-card p-4">
+                        <div className="flex items-start gap-3">
+                          <OutletBadge o={o} />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[15px] font-semibold text-ink leading-snug">{o.name}</div>
+                            <div className="text-[12px] text-ink3">with {o.host} · {compact(o.reach)} listeners</div>
+                          </div>
+                          <span className="text-[11px] text-ink3 shrink-0">{Math.max(0, inv.expiresSerial - serial)}d left</span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          <span className="px-2 h-[22px] rounded-full text-[11px] font-semibold flex items-center bg-white/[0.06] text-ink">{f.emoji} {f.label}</span>
+                          <span className={cn('px-2 h-[22px] rounded-full text-[11px] font-semibold flex items-center', f.risk === 'High' ? 'bg-fall/15 text-fall' : f.risk === 'Medium' ? 'bg-amber/15 text-amber' : 'bg-rise/15 text-rise')}>Risk: {f.risk}</span>
+                          {inv.fee > 0 && <span className="px-2 h-[22px] rounded-full text-[11px] font-semibold flex items-center bg-rise/15 text-rise">${inv.fee.toLocaleString()}</span>}
+                        </div>
+                        <div className="text-[13px] text-ink2 mt-2 leading-snug">{inv.reason}</div>
+                        {brief && <div className="mt-2 text-[12px] text-ink3">📋 Manager: “{brief.reason}”</div>}
+                        <div className="mt-3 flex gap-2">
+                          <Button size="sm" disabled={player.energy < ENERGY_COSTS.interview} onClick={() => setFlash(acceptInterview(inv.id))}>Go on air · ⚡{ENERGY_COSTS.interview}</Button>
+                          <Button size="sm" variant="ghost" onClick={() => declineInterview(inv.id)}>Decline</Button>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               )}
-            </Card>
-          </div>
-        </div>
-      ) : (
-        /* Active Interview */
-        <Card className="max-w-2xl mx-auto">
-          <div className="text-center mb-6">
-            <span className="text-4xl">🎙️</span>
-            <h2 className="text-xl font-black text-white mt-2">
-              {INTERVIEW_STATIONS.find(s => s.id === selectedStationId)?.name}
-            </h2>
-            {!interviewDone && (
-              <p className="text-gray-500 text-sm">Question {currentQuestionIdx + 1} of {questions.length}</p>
-            )}
-          </div>
+            </section>
 
-          {/* Q&A so far */}
-          {answers.length > 0 && (
-            <div className="space-y-4 mb-6">
-              {answers.map((qa, idx) => (
-                <div key={idx} className="space-y-2">
-                  <div className="bg-gray-800 rounded-xl p-3">
-                    <p className="text-xs text-gray-500 mb-1">Interviewer:</p>
-                    <p className="text-gray-300 text-sm">"{qa.q}"</p>
-                  </div>
-                  <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 ml-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-xs text-yellow-500">{player.artistName}</p>
-                      <Badge color={qa.tone === 'aggressive' ? 'red' : qa.tone === 'diplomatic' ? 'blue' : 'yellow'}>
-                        {TONES.find(t => t.id === qa.tone)?.emoji} {qa.tone}
-                      </Badge>
-                    </div>
-                    <p className="text-gray-300 text-sm">"{qa.a}"</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!interviewDone ? (
-            <>
-              {/* Current question */}
-              <div className="bg-gray-800 rounded-xl p-4 mb-4">
-                <p className="text-xs text-gray-500 mb-2">Interviewer:</p>
-                <p className="text-white text-sm font-medium">"{questions[currentQuestionIdx]}"</p>
+            <section>
+              <div className="flex items-end justify-between mb-2">
+                <h2 className="text-[16px] font-semibold text-ink">Pitch yourself</h2>
+                <span className="text-[12px] text-ink3">{pitchedToday ? 'You pitched today — try again tomorrow.' : 'One pitch a day. A manager opens doors.'}</span>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {outlets.map((o) => {
+                  const locked = fame < o.minFame - 10;
+                  const rel = outletRel?.[o.id] ?? 0;
+                  const fmt = formatFor[o.id] ?? o.formats[0];
+                  return (
+                    <div key={o.id} className={cn('rounded-[14px] border border-line bg-card p-3 flex flex-col', locked && 'opacity-55')}>
+                      <div className="flex items-center gap-2.5">
+                        <OutletBadge o={o} size={36} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] font-semibold text-ink truncate">{o.name}</div>
+                          <div className="text-[11px] text-ink3 truncate">{o.kind} · {compact(o.reach)} · {o.vibe}{o.international ? ' · abroad' : ''}</div>
+                        </div>
+                        {rel !== 0 && <span className={cn('text-[11px] font-semibold', rel > 0 ? 'text-rise' : 'text-fall')}>{rel > 0 ? '♥' : '✕'} {Math.abs(Math.round(rel))}</span>}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {o.formats.map((f) => (
+                          <button key={f} onClick={() => setFormatFor((m) => ({ ...m, [o.id]: f }))} className={cn('px-2 h-[22px] rounded-full text-[10px] font-semibold border', fmt === f ? 'border-amber text-amber bg-amber/10' : 'border-line text-ink3')}>{FORMAT_INFO[f].emoji} {FORMAT_INFO[f].label}</button>
+                        ))}
+                      </div>
+                      <div className="mt-auto pt-3">
+                        {locked ? <div className="text-[11px] text-ink3">Books artists around fame {o.minFame}.</div>
+                          : <Button size="sm" variant="secondary" disabled={pitchedToday || player.energy < ENERGY_COSTS.interview} onClick={() => setFlash(pitchInterview(o.id, fmt))}>Pitch</Button>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
 
-              {/* Tone choices */}
-              <div>
-                <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">How do you respond?</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {TONES.map(tone => (
-                    <button
-                      key={tone.id}
-                      onClick={() => handleAnswer(tone.id)}
-                      className="p-3 bg-gray-800 border border-gray-700 rounded-xl text-left hover:border-yellow-500/50 hover:bg-gray-700 transition-all"
-                    >
-                      <div className="text-lg mb-0.5">{tone.emoji}</div>
-                      <div className="text-white text-xs font-bold">{tone.label}</div>
-                      <div className="text-gray-500 text-xs">{tone.desc}</div>
-                    </button>
+            {(log ?? []).length > 0 && (
+              <section>
+                <h2 className="text-[16px] font-semibold text-ink mb-2">Past interviews</h2>
+                <div className="space-y-2">
+                  {(log ?? []).map((r) => (
+                    <div key={r.id} className="rounded-[14px] border border-line bg-card p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[14px] font-semibold text-ink leading-snug">{r.headline}</div>
+                          <div className="text-[11px] text-ink3 mt-0.5">{r.outletName} · {FORMAT_INFO[r.format as InterviewFormat]?.label} · {serial - r.serial === 0 ? 'today' : `${serial - r.serial}d ago`}</div>
+                        </div>
+                        <div className="flex flex-wrap gap-1 justify-end">{r.viral && <span className="text-[11px]">🔥</span>}{r.walked && <span className="text-[11px]">🚪</span>}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mt-2"><Delta label="Fame" v={r.deltas.fame} /><Delta label="Rep" v={r.deltas.rep} /><Delta label="Fans" v={r.deltas.fans} /><Delta label="Fee" v={r.deltas.money} money /></div>
+                    </div>
                   ))}
                 </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Interview complete */}
-              <div className="text-center py-4">
-                <div className="text-4xl mb-2">✅</div>
-                <h3 className="text-lg font-black text-white">Interview Complete!</h3>
-                <p className="text-gray-500 text-sm mt-1">
-                  "{activeInterview?.headline}"
-                </p>
-                <div className="flex justify-center gap-3 mt-3">
-                  {(activeInterview?.fameGained ?? 0) > 0 && (
-                    <Badge color="yellow">+{activeInterview?.fameGained} Fame</Badge>
-                  )}
-                  {(activeInterview?.reputationChange ?? 0) !== 0 && (
-                    <Badge color={(activeInterview?.reputationChange ?? 0) >= 0 ? 'green' : 'red'}>
-                      {(activeInterview?.reputationChange ?? 0) >= 0 ? '+' : ''}{activeInterview?.reputationChange} Rep
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex gap-3 justify-center mt-4">
-                  <Button variant="gold" onClick={handleReset}>
-                    Do Another Interview
-                  </Button>
-                  <Button variant="secondary" onClick={() => setScreen('social_chirp')}>
-                    See Social Reactions
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </Card>
-      )}
+              </section>
+            )}
+          </>
+        )}
     </div>
   );
 }

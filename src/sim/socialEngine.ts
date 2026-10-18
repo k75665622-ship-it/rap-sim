@@ -69,6 +69,14 @@ export function npcArtistPosts(npc: NPC, ownSongs: Song[]): SocialPost[] {
   let content: string;
   let relatedSongId: string | undefined;
 
+  // Real artists post a picture or a record sticker — the game never puts
+  // words in a real person's mouth.
+  if (npc.id.endsWith('_real')) {
+    content = recent ? `🎵 "${recent.title}"` : pick(['📸', '🎥', '🌍', '🖤', '🔥', '🙏🏾', '🎤']);
+    posts.push(makePost(npc, content, pick(['snapgram', 'clip', 'chirp'] as Platform[]), npc.fame, recent?.id));
+    return posts;
+  }
+
   if (recent) {
     const good = recent.weeklyStreams > 50_000;
     content = pick(good
@@ -249,13 +257,14 @@ export function buildTrending(
 ): TrendingTopic[] {
   const topics: TrendingTopic[] = [];
 
-  const ghana = charts['Ghana'] ?? [];
+  const country = player?.country ?? 'Ghana';
+  const ghana = charts[country] ?? charts['Ghana'] ?? [];
   const top = ghana[0];
   if (top) {
     topics.push({
       tag: `#${top.songTitle.replace(/[^a-zA-Z0-9]/g, '')}`,
-      posts: Math.floor(200 + Math.random() * 900),
-      reason: `#1 on the Ghana chart`,
+      posts: Math.floor(2_000 + Math.random() * 40_000),
+      reason: `#1 on the ${country} chart`,
     });
   }
 
@@ -264,7 +273,7 @@ export function buildTrending(
   if (climber) {
     topics.push({
       tag: `#${climber.artistName.replace(/\s/g, '')}`,
-      posts: Math.floor(100 + Math.random() * 500),
+      posts: Math.floor(800 + Math.random() * 9_000),
       reason: `climbing the chart`,
     });
   }
@@ -274,19 +283,22 @@ export function buildTrending(
     if (onAny) {
       topics.push({
         tag: `#${player.artistName.replace(/\s/g, '')}`,
-        posts: Math.floor(80 + Math.random() * 400),
+        posts: Math.floor(500 + Math.random() * 6_000),
         reason: `you're charting`,
       });
     }
   }
 
+  const second = ghana[1];
+  if (second) topics.push({ tag: second.artistName, posts: Math.floor(1_500 + Math.random() * 20_000), reason: `"${second.songTitle}" is everywhere` });
   topics.push({
-    tag: '#GhanaHipHop',
-    posts: Math.floor(400 + Math.random() * 1200),
+    tag: `#${country.replace(/\s+/g, '')}Music`,
+    posts: Math.floor(4_000 + Math.random() * 30_000),
     reason: 'always busy',
   });
+  topics.push({ tag: '#NewMusicFriday', posts: Math.floor(10_000 + Math.random() * 90_000), reason: 'worldwide' });
 
-  return topics.slice(0, 5);
+  return topics.slice(0, 6);
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useGameStore, fanbaseOf, feedCooldown, tagsLeftToday } from '../../store/gameStore';
-import { Card, Button, Badge } from '../ui/Card';
+import { Card, Button } from '../ui/Card';
 import { cn } from '@/utils/cn';
 import { dateToSerial } from '../../sim/gameClock';
 import type { NPC, Platform, SocialPost } from '../../types/game';

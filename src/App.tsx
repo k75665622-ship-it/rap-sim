@@ -12,6 +12,7 @@ import { TeamScreen } from './components/screens/TeamScreen';
 import { TaxScreen } from './components/screens/TaxScreen';
 import { CareersScreen } from './components/screens/CareersScreen';
 import { IndustryLifeScreen } from './components/screens/IndustryLifeScreen';
+import { LabelScreen } from './components/screens/LabelScreen';
 import { TrainingScreen } from './components/screens/TrainingScreen';
 import { JobsScreen } from './components/screens/JobsScreen';
 import { ShowsScreen } from './components/screens/ShowsScreen';
@@ -88,6 +89,7 @@ export default function App() {
       case 'news': return <NewsScreen />;
       case 'lifestyle': return <LifestyleScreen />;
       case 'retirement': return <IndustryLifeScreen />;
+      case 'label': return <LabelScreen />;
       case 'social_chirp': return <SocialScreen platform={'chirp' as Platform} />;
       case 'social_snapgram': return <SocialScreen platform={'snapgram' as Platform} />;
       case 'social_clip': return <SocialScreen platform={'clip' as Platform} />;

@@ -31,7 +31,7 @@ const BUSINESS_OPTIONS = [
 ];
 
 export function InvestmentsScreen() {
-  const { player, investments, businesses, buyInvestment, sellInvestment, buyBusiness, sellBusiness } = useGameStore();
+  const { player, investments, businesses, buyInvestment, sellInvestment, buyBusiness, sellBusiness, label, setScreen } = useGameStore();
   const [tab, setTab] = useState<'portfolio' | 'invest' | 'business'>('portfolio');
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -196,6 +196,30 @@ export function InvestmentsScreen() {
           {BUSINESS_OPTIONS.map((opt, idx) => {
             const canAfford = player.career.money >= opt.cost;
             const owned = businesses.some(b => b.type === opt.type);
+            // A record label is not a number that ticks any more — it is a
+            // company you run, with artists, records and a bank account.
+            if (opt.type === 'record_label') {
+              return (
+                <Card key={idx}>
+                  <div className="flex items-start gap-3">
+                    <span className="text-3xl">{opt.emoji}</span>
+                    <div className="flex-1">
+                      <div className="font-bold text-white text-sm">{label ? label.name : 'Record Label'}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        {label
+                          ? `${label.roster.length} artist${label.roster.length === 1 ? '' : 's'} · reputation ${label.reputation.toFixed(0)} · $${Math.round(label.cash).toLocaleString()} in the bank`
+                          : owned
+                            ? 'You own a label business. Turn it into a real label: sign artists, fund records, own the masters.'
+                            : 'Run your own label: scout and sign artists, fund their records, live off the catalogue.'}
+                      </div>
+                      <Button variant="gold" size="sm" className="mt-2" onClick={() => setScreen('label')}>
+                        {label ? 'Open My Label' : owned ? 'Convert to a real label' : 'Start a label'}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              );
+            }
             return (
               <Card key={idx}>
                 <div className="flex items-start gap-3">

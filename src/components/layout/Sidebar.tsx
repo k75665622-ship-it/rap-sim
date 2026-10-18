@@ -19,6 +19,7 @@ import {
   IconCareers,
   IconCircle,
   IconDiamond,
+  IconDisc,
   IconDumbbell,
   IconFilm,
   IconHome,
@@ -49,7 +50,7 @@ interface NavItem {
 }
 
 export function Sidebar() {
-  const { screen, setScreen, player, dmThreads, mailbox, notifications, rest } = useGameStore();
+  const { screen, setScreen, player, dmThreads, mailbox, notifications, rest, label } = useGameStore();
   const crew = useGameStore((s) => s.crew);
   // A personal assistant makes a nap worth more. The control says what it will
   // actually give back rather than what it would give back alone.
@@ -60,6 +61,12 @@ export function Sidebar() {
 
   const totalUnread = Object.values(dmThreads).reduce((sum, t) => sum + t.unread, 0);
   const unreadMail = mailbox.filter((m) => !m.read).length;
+  // Things at the label waiting on the player: records to fund, demands,
+  // poaching and disputes, and talks about to lapse.
+  const labelAlerts = label
+    ? label.roster.filter((s) => (s.requestSerial !== undefined && !s.inStudio) || s.demand || s.rivalOffer || s.status === 'dispute').length +
+      label.pitches.filter((p) => p.status === 'open' && p.renewal).length
+    : 0;
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <IconHome />, group: 'main' },
@@ -100,6 +107,7 @@ export function Sidebar() {
     { id: 'npc_profile', label: 'Artists', icon: <IconUsers />, group: 'world' },
 
     { id: 'interviews', label: 'Interviews', icon: <IconInterview />, group: 'business' },
+    { id: 'label', label: 'My Label', icon: <IconDisc />, badge: labelAlerts, group: 'business' },
     { id: 'investments', label: 'Investments', icon: <IconTrend />, group: 'business' },
     { id: 'lifestyle', label: 'Lifestyle', icon: <IconDiamond />, group: 'business' },
     { id: 'trophy_room', label: 'Trophy Room', icon: <IconTrophy />, group: 'business' },

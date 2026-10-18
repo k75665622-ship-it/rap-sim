@@ -157,6 +157,63 @@ export const RENTAL_ROOMS: RentalRoom[] = [
   },
 ];
 
+// ─── THE BUILDING ───────────────────────────────────────────────────────────
+//
+// Gear goes INTO a room, and the room is a building you own. A bedroom corner
+// cannot take a large-format console; a flagship complex has a live room, a
+// vocal booth and a lounge the label people want to be seen in. The building
+// is the big purchase, it has rent and power bills every month, and when you
+// are not in it you can rent it out — which pays some of the bills, never all.
+//
+// Stored as `studio.levels.building` so it rides on the existing save and the
+// one function every preview already calls (`roomProductionBonus`).
+
+export interface HomeStudioTier {
+  level: number;
+  name: string;
+  emoji: string;
+  /** One-off cost to move up TO this level. */
+  build: number;
+  /** Monthly: rent, power, insurance, the cleaner. */
+  upkeep: number;
+  /** Production points the building itself adds, on top of the gear in it. */
+  bonus: number;
+  /** The highest gear rung this room can take. */
+  gearCap: number;
+  /** How much faster the team turns beats around in here. */
+  beatSpeed: number;
+  /** A month of renting it out to other artists, at fame 50. */
+  rentOut: number;
+  blurb: string;
+  perks: string[];
+}
+
+export const HOME_STUDIO_TIERS: HomeStudioTier[] = [
+  { level: 0, name: 'Bedroom corner', emoji: '🛏️', build: 0, upkeep: 0, bonus: 0, gearCap: 1, beatSpeed: 1, rentOut: 0,
+    blurb: 'A laptop, a mic and a blanket on the wall.', perks: ['Entry-level gear only'] },
+  { level: 1, name: 'Home studio', emoji: '🏠', build: 12_000, upkeep: 350, bonus: 1, gearCap: 2, beatSpeed: 1, rentOut: 0,
+    blurb: 'A spare room, properly treated. Your own key, your own hours.', perks: ['Takes mid-range gear', '+1 production'] },
+  { level: 2, name: 'Project studio', emoji: '🎹', build: 60_000, upkeep: 1_400, bonus: 2, gearCap: 3, beatSpeed: 1.25, rentOut: 900,
+    blurb: 'A small commercial space: control room and a booth.', perks: ['Takes top-end gear', '+2 production', 'Team makes beats 25% faster', 'Can be rented out'] },
+  { level: 3, name: 'Pro studio', emoji: '🎚️', build: 220_000, upkeep: 4_500, bonus: 4, gearCap: 3, beatSpeed: 1.5, rentOut: 3_200,
+    blurb: 'A live room, two booths and a lounge. Artists ask to work here.', perks: ['+4 production', 'Team makes beats 50% faster', 'Better rent-out income', 'Artists want to session with you'] },
+  { level: 4, name: 'Flagship complex', emoji: '🏛️', build: 750_000, upkeep: 13_000, bonus: 6, gearCap: 3, beatSpeed: 2, rentOut: 9_000,
+    blurb: 'The building on the album credits. Three rooms, always booked.', perks: ['+6 production', 'Team makes beats twice as fast', 'Top rent-out income', 'A landmark — fame and respect'] },
+];
+
+export function buildingLevel(levels: GearLevels | undefined): number {
+  return Math.max(0, Math.min(HOME_STUDIO_TIERS.length - 1, levels?.building ?? 0));
+}
+export function buildingTier(levels: GearLevels | undefined): HomeStudioTier {
+  return HOME_STUDIO_TIERS[buildingLevel(levels)];
+}
+
+/** A month of renting the room out. Fame fills the calendar. */
+export function rentOutIncome(tier: HomeStudioTier, fame: number, roll: number): number {
+  if (!tier.rentOut) return 0;
+  return Math.round(tier.rentOut * (0.45 + Math.min(100, fame) / 90) * (0.8 + roll * 0.4) / 10) * 10;
+}
+
 // ─── READING THE GEAR ───────────────────────────────────────────────────────
 
 /** Owned levels, keyed by slot. Missing means nothing is owned in that slot. */
@@ -184,7 +241,7 @@ export function nextGearTier(slotId: string, level: number): GearTier | undefine
  */
 export function gearBonus(levels: GearLevels | undefined): number {
   if (!levels) return 0;
-  let total = 0;
+  let total = buildingTier(levels).bonus;
   for (const slot of GEAR_SLOTS) {
     const tier = gearTierOf(slot.id, levels[slot.id] ?? 0);
     if (tier) total += tier.bonus;
@@ -207,7 +264,7 @@ export function gearProgress(levels: GearLevels | undefined): {
 } {
   const l = levels ?? {};
   let owned = 0;
-  let maxBonus = 0;
+  let maxBonus = HOME_STUDIO_TIERS[HOME_STUDIO_TIERS.length - 1].bonus;
   for (const slot of GEAR_SLOTS) {
     if (l[slot.id]) owned += 1;
     maxBonus += slot.tiers[slot.tiers.length - 1].bonus;
@@ -271,7 +328,7 @@ export function roomSummary(levels: GearLevels | undefined, roomId?: string | nu
   if (source === 'rental' && room) return `${room.name} (+${bonus} production)`;
   if (source === 'gear') {
     const { owned } = gearProgress(levels);
-    return `Your own studio, ${owned} of ${GEAR_SLOTS.length} slots kitted (+${bonus} production)`;
+    return `Your ${buildingTier(levels).name.toLowerCase()}, ${owned} of ${GEAR_SLOTS.length} slots kitted (+${bonus} production)`;
   }
   return 'No room of your own and nothing rented — tracking as it comes.';
 }

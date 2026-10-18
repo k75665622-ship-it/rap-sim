@@ -102,6 +102,32 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - **Feature requests** have twists: artists run late (wait, chase, or pull it), offer verse-for-a-verse instead of a fee, or demand top billing.
 - **PingChat replies** read what you said (greeting, compliment, feature ask, money, insult, apology, flirt, show, label) and who they are. Stars ignore unknowns, friends answer fast, and double-texting costs you. Real artists' DMs are handled by their team.
 
+## 2026-10-18 (c) — Social v2, rivals, relationships and the studio
+
+### Four real apps
+- **Chirp** (timeline), **Snapgram** (photo grid), **Clip** (vertical videos) and **Circle** (your community) each look and work like themselves, with separate follower counts that grow from your fanbase and from what you post.
+- **One composer, all apps**: pick the kind of post (thread, photo dump, cover reveal, dance challenge, freestyle, skit, Q&A…), attach a released song, tag up to five people — artists, managers, producers, blogs — and cross-post to any apps at once. Each app gets its own version.
+- Posts **keep collecting for three days**, can **go viral** (a viral Clip challenge pulls the attached song back up the charts), and posting ten times a day gets scrolled past.
+- **Comment sections are real**: stans, fans, haters, trolls, rival fans and other artists. Open any post to read every comment, like them, reply — fans freak out when you answer; replying to a hater can go either way. Artists answer in their own voice (real-named artists never get words written for them).
+- **Repost and quote** anything. Reposting someone is noticed; quote-tweeting them with an insult starts something.
+- **Tagging matters**: friends reply or repost (their followers find you), big names often ignore you, rivals clap back.
+- **Features post on every app**: when an artist is on your record they post it on Chirp, Snapgram and Clip and tag you; when your verse lands on their song, they post it too.
+- The scene posts on every app daily — artists, fan pages editing your songs, blogs reporting on the stars. Name your fanbase on your profile.
+
+### Rivals: fan wars and beef
+- **Fan wars** (your fans vs theirs) start when you're fighting someone for the same chart spot, when a blog pits you against a peer, or when a beef spills into the comments. Watch intensity and who's winning; **rally**, **call for peace** or **quote a hater**. A boiling war can drag you into a beef.
+- **Beef now starts on its own**: people who can't stand you (relationship −35 or worse) finally say it, insulting or quote-tweeting someone, tagging a rival in a fight. Rivals **hit back online** while you keep it going. The **Rivals** tab shows every beef with its heat, the 9-rung ladder, the next move, and how it can end.
+
+### Relationships
+- Up: time together, **gifts** (flowers, a bottle, a chain — the second gift in a week reads as trying too hard), likes, reposts, replies, tagging with love, delivering verses, inviting them on stage.
+- Down: insults in DMs or comments, quote-tweets, tagging them in a fight, beef.
+- Friends you never make time for **drift** a little every month; grudges soften slowly. The rules are on every artist's profile.
+
+### The studio
+- New **Studio home**: start a song, the best beats waiting for you, masters to finish, who on your team does what, your room.
+- **Beats you own**: your in-house **producer** sends a beat every few days and your **sound engineer** about once a week — free. The **beat store** restocks weekly (lease cheap, or own it exclusive). **Order a beat** to a brief — genre, tempo, mood, the song it's for — from your team (free) or anyone (a fee); don't like it, **ask for a redo**. Pick a library beat in the session and it sets genre/tempo/mood to match, with no producer fee.
+- **Build your own studio**: bedroom corner → home studio → project studio → pro studio → flagship complex. Each costs a lot once and has monthly upkeep, takes better gear, adds production and makes the team's beats faster. From project studio up you can **rent it out** to cover part of the bills.
+
 ## How to run
 
 ```

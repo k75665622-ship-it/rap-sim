@@ -1,5 +1,7 @@
 // ─── CORE GAME TYPES ───────────────────────────────────────────────────────
 
+import type { BeatsState } from '../sim/beats';
+
 export type Background = 'broke_hustler' | 'middle_class' | 'industry_connect';
 export type Gender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say';
 export type Genre =
@@ -883,11 +885,16 @@ export interface JobShift {
 
 export interface SocialComment {
   id: string;
-  authorId: string; // npc id or 'player'
+  authorId: string; // npc id, 'player', or 'fan:<handle>'
   authorName: string;
   content: string;
   likes: number;
   timestamp: string;
+  /** What kind of commenter this is — stan, hater, troll, a rival's fan. */
+  tone?: 'stan' | 'love' | 'neutral' | 'hater' | 'troll' | 'rival' | 'artist';
+  /** Replies under this comment (one level, like the real apps). */
+  replies?: SocialComment[];
+  liked?: boolean;
 }
 
 export interface SocialPost {
@@ -904,6 +911,22 @@ export interface SocialPost {
   relatedSongId?: string;
   isPlayerPost: boolean;
   trendingScore: number;
+  /** Post type on its app: a photo dump, a dance challenge, a Q&A… */
+  kind?: string;
+  /** People tagged in it. */
+  tags?: { id: string; name: string }[];
+  /** A straight repost of another post. */
+  repostOf?: string;
+  /** A quote of another post, with this post's text on top. */
+  quoteOf?: string;
+  /** Video and photo apps count views. */
+  views?: number;
+  /** The player has liked / reposted it. */
+  liked?: boolean;
+  reposted?: boolean;
+  viral?: boolean;
+  /** Engagement still to arrive over the next days (player posts). */
+  growth?: { likes: number; shares: number; comments: number; views: number; follows: number; days: number };
   /**
    * The game day this was posted.
    *
@@ -1357,8 +1380,10 @@ export interface BookedGig {
  * world.
  */
 export interface StudioState {
-  /** Slot id → the rung owned. A missing slot is one nothing has been bought for. */
+  /** Slot id → the rung owned. A missing slot is one nothing has been bought for. `building` is the room itself. */
   levels: Record<string, number>;
+  /** Rent the room out to other artists when you are not in it. */
+  rentOut?: boolean;
 }
 
 // ─── BEEF ────────────────────────────────────────────────────────────────
@@ -1450,6 +1475,25 @@ export interface Business {
   monthlyCosts: number;
   reputation: number;
   purchaseDate: string;
+}
+
+// ─── FAN WARS ────────────────────────────────────────────────────────────
+
+export interface FanWar {
+  id: string;
+  npcId: string;
+  npcName: string;
+  /** What THEIR fans call themselves. */
+  theirFans: string;
+  /** 0-100: how loud it is. */
+  intensity: number;
+  /** -50..50: positive means your fans are winning. */
+  edge: number;
+  cause: string;
+  startedSerial: number;
+  lastSerial: number;
+  status: 'active' | 'over';
+  log: string[];
 }
 
 // ─── MOMENTS ─────────────────────────────────────────────────────────────
@@ -2165,6 +2209,18 @@ export interface GameState {
   label?: PlayerLabel | null;
   /** Texts and team decisions waiting on the player, and recent outcomes. */
   moments?: Moment[];
+  /** Followers on each social app (chirp, snapgram, clip, circle). */
+  socialStats?: Record<string, { followers: number; lastPostSerial?: number }>;
+  /** Posts made today across every app — posting ten times a day is spam. */
+  postsToday?: { serial: number; count: number };
+  /** Likes/comments per NPC today, so relationship farming has a ceiling. */
+  socialTouches?: { serial: number; counts: Record<string, number> };
+  /** What the player's fans call themselves. */
+  fanbaseName?: string;
+  /** Fanbases at war with yours. */
+  fanWars?: FanWar[];
+  /** Beats you own, beats on order, and this week's beat store. */
+  beats?: BeatsState;
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

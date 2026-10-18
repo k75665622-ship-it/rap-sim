@@ -63,6 +63,12 @@ import {
 import { StudioVault } from './StudioVault';
 import { GENRE_LIST, GENRE_BY_ID, FAMILY_LABEL, type GenreFamily } from '../../data/genres';
 import { RemixDialog } from './RemixDialog';
+import { Segmented } from '../ui/kit';
+import { StudioHome } from '../studio/StudioHome';
+import { BeatsPanel } from '../studio/BeatsPanel';
+import { BuildingPanel } from '../studio/BuildingPanel';
+import { buildingTier, gearBonus as ownedRoomBonus } from '../../sim/room';
+import type { OwnedBeat } from '../../sim/beats';
 
 /**
  * Remixing, from the room where records get made.
@@ -339,6 +345,8 @@ function RoomPanel({
           const level = levels?.[slot.id] ?? 0;
           const next = nextGearTier(slot.id, level);
           const owned = level ? slot.tiers.find(t => t.level === level) : undefined;
+          const cap = buildingTier(levels).gearCap;
+          const locked = next ? next.level > cap : false;
           const short = next ? money < next.price : false;
           return (
             <Card key={slot.id}>
@@ -368,14 +376,19 @@ function RoomPanel({
                         </div>
                         <Button
                           size="sm"
-                          variant={short ? 'secondary' : 'gold'}
-                          disabled={short}
+                          variant={short || locked ? 'secondary' : 'gold'}
+                          disabled={short || locked}
                           onClick={() => onBuy(slot.id)}
                         >
-                          {short ? `$${next.price.toLocaleString()}` : `Buy · $${next.price.toLocaleString()}`}
+                          {locked ? '🔒 Bigger room needed' : short ? `$${next.price.toLocaleString()}` : `Buy · $${next.price.toLocaleString()}`}
                         </Button>
                       </div>
-                      {short && (
+                      {locked && (
+                        <p className="text-orange-300/80 text-xs mt-2">
+                          Your {buildingTier(levels).name.toLowerCase()} can't take this. Upgrade the building above.
+                        </p>
+                      )}
+                      {!locked && short && (
                         <p className="text-red-400/80 text-xs mt-2">
                           ${(next.price - money).toLocaleString()} short.
                         </p>
@@ -506,7 +519,11 @@ export function StudioScreen() {
   // Three jobs live in this room: cutting a single, assembling a body of work
   // out of the singles you already have, and going back to something you
   // recorded and never put out.
-  const [mode, setMode] = useState<'single' | 'album' | 'room' | 'vault' | 'remix'>('single');
+  const [mode, setMode] = useState<'home' | 'single' | 'beats' | 'album' | 'room' | 'vault' | 'remix'>('home');
+  const [beatsView, setBeatsView] = useState<'library' | 'store' | 'order'>('library');
+  /** A beat from the player's own library, when the session is cut over one. */
+  const [libBeatId, setLibBeatId] = useState<string | null>(null);
+  const beatsState = useGameStore(s => s.beats);
   /**
    * The room this session is being tracked in, when it is not the player's own.
    *
@@ -590,6 +607,21 @@ export function StudioScreen() {
 
   const selectedBeat = beats.find(b => b.id === beatId) ?? beats[0];
 
+  // The library beat, if one is chosen — already paid for, and it names its maker.
+  const libBeat = useMemo(
+    () => (libBeatId ? (beatsState?.library ?? []).find(b => b.id === libBeatId && !b.usedOnSongId) ?? null : null),
+    [libBeatId, beatsState],
+  );
+  const libSkill = libBeat
+    ? ((crew ?? []).find(c => c.npcId === libBeat.producerId)?.skill
+      ?? producers.find(p => p.id === libBeat.producerId)?.skill
+      ?? libBeat.quality)
+    : null;
+  const readyBeats = useMemo(
+    () => (beatsState?.library ?? []).filter(b => !b.usedOnSongId).slice().sort((a, b) => b.quality - a.quality),
+    [beatsState],
+  );
+
   // The artist pool for the feature picker now lives in the shared
   // `FeaturePicker`, because the Vault needed the same list and a second copy
   // is how the two screens drifted apart in the first place.
@@ -626,8 +658,8 @@ export function StudioScreen() {
       bpm,
       mood,
       vocals,
-      producerSkill: selectedProducer ? selectedProducer.skill : null,
-      beatQuality: selectedBeat?.quality ?? 50,
+      producerSkill: libBeat ? libSkill : selectedProducer ? selectedProducer.skill : null,
+      beatQuality: libBeat ? libBeat.quality : selectedBeat?.quality ?? 50,
       features: [],
       effort,
       // Same number the store will use when it records the master. The preview
@@ -639,7 +671,7 @@ export function StudioScreen() {
       // under-promise the record by the price of the booking.
       studioBonus: roomProductionBonus(studio?.levels, roomId).bonus,
     });
-  }, [player, lyrics, genre, bpm, mood, vocals, selectedProducer, selectedBeat, effort, crew, studio, roomId]);
+  }, [player, lyrics, genre, bpm, mood, vocals, selectedProducer, selectedBeat, effort, crew, studio, roomId, libBeat, libSkill]);
 
   // ── What the payroll does to this session ─────────────────────────────
   // The same fold the store will use when it records the master. An engineer
@@ -661,7 +693,7 @@ export function StudioScreen() {
     1,
     Math.round(EFFORT_OPTIONS.find(e => e.id === effort)!.days * crewFx.sessionSpeed),
   );
-  const producerCost = selectedProducer && !usingInHouseProducer
+  const producerCost = !libBeat && selectedProducer && !usingInHouseProducer
     ? producerFee(selectedProducer.skill)
     : 0;
   const ghostwriterCost = ghostwriterId ? (ghostwriterById(ghostwriterId)?.fee ?? 0) : 0;
@@ -750,6 +782,7 @@ export function StudioScreen() {
       // The booking travels with the session and is charged at the same moment,
       // so the record is stamped with the room it was actually cut in.
       roomId,
+      libraryBeatId: libBeat?.id ?? null,
     });
 
     if (!res) {
@@ -758,6 +791,8 @@ export function StudioScreen() {
     }
 
     setResult(res);
+    // The beat is on this record now.
+    setLibBeatId(null);
     // Clear the sheet for the next one but keep the session settings, so
     // recording a second song does not mean redoing the whole setup.
     setTitle('');
@@ -765,8 +800,22 @@ export function StudioScreen() {
     setTab('lyrics');
   }, [
     title, lyrics, canAfford, totalCost, player, createStudioSong,
-    genre, bpm, mood, vocals, effort, selectedProducer, selectedBeat, roomId,
+    genre, bpm, mood, vocals, effort, selectedProducer, selectedBeat, roomId, libBeat,
   ]);
+
+  /** Take a beat from the library into a new session, set up to fit it. */
+  const pickLibraryBeat = useCallback((b: OwnedBeat) => {
+    setLibBeatId(b.id);
+    setGenre(b.genre);
+    setBpm(b.bpm);
+    setMood(b.mood);
+    setProducerId(null);
+    setBeatId('');
+    if (b.forTitle) setTitle(t => t || b.forTitle!);
+    setMode('single');
+    setTab('beat');
+    setNotice(`"${b.name}" is loaded. Genre, tempo and mood are set to match it.`);
+  }, []);
 
   // ── Feature negotiation handlers ───────────────────────────────────────
   const handleShop = useCallback((npcId: string, npcName: string) => {
@@ -870,45 +919,50 @@ export function StudioScreen() {
   const mixSong = mixDialog ? songs.find(s => s.id === mixDialog) : null;
   const releaseSong = releaseDialog ? songs.find(s => s.id === releaseDialog) : null;
 
+  const tierNow = buildingTier(studio?.levels);
+  const readyCount = readyBeats.length;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>
-            🎛️ Recording Studio
-          </h1>
-          <p className="text-gray-500 text-sm">
-            Write it, track it, mix it — and shoot the video before you put it out
-          </p>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <h1 className="text-[28px] font-bold text-ink leading-tight">Studio</h1>
+          <div className="text-[13px] text-ink2 mt-0.5 flex items-center gap-2 flex-wrap">
+            <span>{tierNow.emoji} {tierNow.name}</span>
+            <span className="text-ink3">·</span>
+            <span className="text-amber">+{ownedRoomBonus(studio?.levels)} production</span>
+            {unmixedCount > 0 && <><span className="text-ink3">·</span><button onClick={() => setMode('vault')} className="text-orange-300 hover:underline">{unmixedCount} master{unmixedCount > 1 ? 's' : ''} to mix</button></>}
+          </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          {unmixedCount > 0 && (
-            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2 text-xs text-orange-300">
-              {unmixedCount} unmixed master{unmixedCount > 1 ? 's' : ''} waiting
-            </div>
-          )}
-          {/* The shoot lives in the Studio because this is where things get
-              MADE — a record and its video are one job, and the screen that
-              makes the record is where you go looking for it. One
-              implementation, a second door: this goes to the same
-              `CreateVideoScreen` the video platform uses. */}
-          <Button variant="secondary" onClick={() => setScreen('create_video')}>
-            📹 Shoot a video
-          </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="secondary" onClick={() => setScreen('create_video')}>📹 Shoot a video</Button>
+          <Button onClick={() => setMode('single')}>🎙️ New song</Button>
         </div>
       </div>
 
-      {/* Feedback that belongs to the whole screen rather than one tab: buying
-          gear and the session hand-off both land here, and a refusal that is
-          only rendered inside a tab the player has left is a refusal nobody
-          reads. */}
+      <div className="overflow-x-auto -mx-1 px-1">
+        <Segmented
+          value={mode}
+          onChange={(m) => setMode(m)}
+          options={[
+            { id: 'home', label: 'Home' },
+            { id: 'single', label: 'Record' },
+            { id: 'beats', label: 'Beats', badge: readyCount ? String(readyCount) : undefined },
+            { id: 'vault', label: 'Masters', badge: unmixedCount ? String(unmixedCount) : undefined },
+            { id: 'album', label: 'Projects' },
+            { id: 'room', label: 'My studio' },
+            { id: 'remix', label: 'Remix' },
+          ]}
+        />
+      </div>
+
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-300">
+        <div className="bg-red-500/10 border border-red-500/30 rounded-[12px] px-4 py-3 text-sm text-red-300">
           {error}
         </div>
       )}
       {notice && (
-        <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3 text-sm text-green-300 flex items-center justify-between gap-4">
+        <div className="bg-green-500/10 border border-green-500/30 rounded-[12px] px-4 py-3 text-sm text-green-300 flex items-center justify-between gap-4">
           <span>{notice}</span>
           <button onClick={() => setNotice(null)} className="text-green-500/70 hover:text-green-300 text-xs font-bold">
             Dismiss
@@ -916,31 +970,22 @@ export function StudioScreen() {
         </div>
       )}
 
-      <div className="flex gap-1 border-b border-gray-800">
-        {([
-          ['single', '🎙️ Track a record'],
-          ['album', '💿 Build a project'],
-          ['room', '🏠 The Room'],
-          ['vault', '🎒 The Vault'],
-          ['remix', '🔁 Remix something out'],
-        ] as const).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setMode(id)}
-            className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 -mb-px ${
-              mode === id
-                ? 'border-yellow-500 text-yellow-400'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {mode === 'album' ? (
+      {mode === 'home' ? (
+        <StudioHome
+          go={(to) => {
+            if (to === 'order') { setBeatsView('order'); setMode('beats'); return; }
+            if (to === 'beats') setBeatsView('library');
+            setMode(to);
+          }}
+          onUseBeat={pickLibraryBeat}
+        />
+      ) : mode === 'beats' ? (
+        <BeatsPanel key={beatsView} initialView={beatsView} onUseBeat={pickLibraryBeat} />
+      ) : mode === 'album' ? (
         <ProjectBuilder />
       ) : mode === 'room' ? (
+        <div className="space-y-6">
+        <BuildingPanel onFlash={(r) => { if (r.ok) { setNotice(r.message); setError(null); } else { setError(r.message); } }} />
         <RoomPanel
           levels={studio?.levels}
           money={money}
@@ -954,6 +999,7 @@ export function StudioScreen() {
           roomId={roomId}
           onPickRoom={setRoomId}
         />
+        </div>
       ) : mode === 'vault' ? (
         <StudioVault onRelease={setReleaseDialog} onMix={setMixDialog} />
       ) : mode === 'remix' ? (
@@ -981,7 +1027,7 @@ export function StudioScreen() {
               <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">{bpm} BPM</span>
               <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300 capitalize">{mood}</span>
               <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">
-                {selectedProducer ? `Prod. ${selectedProducer.name}` : 'Self-produced'}
+                {libBeat ? `Beat: ${libBeat.name} · prod. ${libBeat.producerName}` : selectedProducer ? `Prod. ${selectedProducer.name}` : 'Self-produced'}
               </span>
             </div>
 
@@ -1195,6 +1241,38 @@ export function StudioScreen() {
                 </div>
 
                 <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs text-gray-400 uppercase tracking-wider">Your beats</label>
+                    <button onClick={() => { setBeatsView('store'); setMode('beats'); }} className="text-[11px] text-yellow-400 hover:text-yellow-300">Beat store →</button>
+                  </div>
+                  {readyBeats.length === 0 ? (
+                    <p className="text-xs text-gray-500 mb-1">No beats in your library. Your producer or engineer sends them weekly, or buy one in the store.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {readyBeats.slice(0, 6).map(b => (
+                        <button
+                          key={b.id}
+                          onClick={() => (libBeatId === b.id ? setLibBeatId(null) : pickLibraryBeat(b))}
+                          className={`p-2.5 rounded-xl text-left transition-all ${
+                            libBeatId === b.id ? 'bg-yellow-500/20 border border-yellow-500' : 'bg-gray-800 border border-gray-700 hover:border-gray-600'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-white truncate">🎵 {b.name}</span>
+                            <span className="text-xs text-yellow-500 shrink-0">{b.quality}</span>
+                          </div>
+                          <div className="text-[11px] text-gray-500 truncate">{b.producerName} · {b.bpm} BPM · {b.license === 'inhouse' ? 'your team' : b.license}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {libBeat && (
+                    <p className="text-xs text-green-400 mt-2">Cutting over "{libBeat.name}" — already paid for, no producer fee. Tap it again to pick a producer instead.</p>
+                  )}
+                </div>
+
+                {!libBeat && (<>
+                <div>
                   <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">Producer</label>
                   <button
                     onClick={() => { setProducerId(null); setBeatId(''); }}
@@ -1298,6 +1376,7 @@ export function StudioScreen() {
                     </div>
                   </div>
                 )}
+                </>)}
               </div>
             )}
 
@@ -1601,7 +1680,7 @@ export function StudioScreen() {
                 </div>
                 <div className="flex justify-between mb-1">
                   <span className="text-gray-400">
-                    Producer{selectedProducer ? ` — ${selectedProducer.name}` : ' (none)'}
+                    {libBeat ? `Beat — ${libBeat.name} (yours)` : <>Producer{selectedProducer ? ` — ${selectedProducer.name}` : ' (none)'}</>}
                     {usingInHouseProducer && (
                       <span className="text-green-400"> · on your payroll, no fee</span>
                     )}

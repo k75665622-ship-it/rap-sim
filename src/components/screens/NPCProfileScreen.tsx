@@ -92,6 +92,7 @@ export function NPCProfileScreen() {
   const hireCrew = useGameStore((s) => s.hireCrew);
   const fireCrew = useGameStore((s) => s.fireCrew);
   const reachOutToNpc = useGameStore((s) => s.reachOutToNpc);
+  const sendGift = useGameStore((s) => s.sendGift);
 
   const [hireFlash, setHireFlash] = useState<TeamActionResult | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
@@ -920,6 +921,31 @@ export function NPCProfileScreen() {
                         <p className="text-[11px] text-gray-600">
                           What it is worth depends on them, and on how far above you they are.
                         </p>
+                        <div className="grid grid-cols-3 gap-1.5 mt-1">
+                          {([
+                            ['flowers', '💐 Flowers', 150],
+                            ['bottle', '🍾 Bottle', 800],
+                            ['chain', '⛓️ Chain', 6000],
+                          ] as const).map(([tier, label, cost]) => (
+                            <button
+                              key={tier}
+                              onClick={() => setReachFlash(sendGift(selected.id, tier))}
+                              className="rounded-lg border border-line bg-card px-2 py-1.5 text-[11px] text-ink2 hover:text-ink hover:bg-cardhover"
+                            >
+                              <div className="font-semibold">{label}</div>
+                              <div className="text-[10px] text-ink3">${cost.toLocaleString()}</div>
+                            </button>
+                          ))}
+                        </div>
+                        <details className="mt-1 rounded-lg border border-line bg-black/20 px-3 py-2">
+                          <summary className="text-[11px] font-semibold text-ink2 cursor-pointer">How a relationship moves</summary>
+                          <ul className="mt-2 space-y-1 text-[11px] text-gray-500 leading-relaxed">
+                            <li><span className="text-green-400">Up:</span> time together (weekly), gifts, a verse delivered on time, liking, reposting and replying to their posts, tagging them with love, inviting them on your stage, paying fair.</li>
+                            <li><span className="text-orange-300">Down:</span> insults in DMs or comments, quote-tweeting them, tagging them in a fight, a late verse, a lowball, beef, dropping them from a bill.</li>
+                            <li><span className="text-gray-400">Drift:</span> close friends you never make time for cool off a little every month; grudges soften slowly.</li>
+                            <li><span className="text-gray-400">Limits:</span> social touches count three times a day per person, and a second gift in a week reads as trying too hard.</li>
+                          </ul>
+                        </details>
                       </div>
                     </div>
                   );

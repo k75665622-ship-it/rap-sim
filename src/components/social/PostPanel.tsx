@@ -1,0 +1,146 @@
+// ─── SOCIAL: A POST, OPENED ────────────────────────────────────────────────
+// The full post, its numbers, and the comment section — every comment can be
+// liked or answered, and the people in it answer back.
+
+import { useState } from 'react';
+import { cn } from '@/utils/cn';
+import { compact, full } from '@/utils/format';
+import { SlidePanel, Button } from '../ui/kit';
+import { useGameStore } from '../../store/gameStore';
+import { APP_META, kindDef, type PostKind, type SocialApp } from '../../sim/social';
+import type { SocialComment, SocialPost } from '../../types/game';
+import { Avatar, RichText, ToneTag, handleOf, postAge } from './shared';
+
+function CommentRow({
+  c, depth, onLike, onReply, onOpenArtist,
+}: {
+  c: SocialComment; depth: number; onLike: (id: string) => void; onReply: (c: SocialComment) => void; onOpenArtist: (id: string) => void;
+}) {
+  const person = !c.authorId.startsWith('fan:') && c.authorId !== 'player';
+  return (
+    <div className={cn('flex gap-2.5', depth > 0 && 'ml-9 mt-2.5')}>
+      <button onClick={() => person && onOpenArtist(c.authorId)} className={cn(!person && 'cursor-default')}><Avatar name={c.authorName} seed={c.authorId} size={depth ? 24 : 30} /></button>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={cn('text-[12px] font-semibold', c.authorId === 'player' ? 'text-amber' : 'text-ink')}>{c.authorId === 'player' ? 'You' : c.authorName}</span>
+          <ToneTag tone={c.tone} />
+        </div>
+        <RichText text={c.content} className="text-[13px] text-ink2 mt-0.5 leading-snug" />
+        <div className="flex items-center gap-4 mt-1 text-[11px] text-ink3">
+          <button onClick={() => onLike(c.id)} className={cn('hover:text-[#E93D82]', c.liked && 'text-[#E93D82]')}>{c.liked ? '♥' : '♡'} {compact(c.likes)}</button>
+          {c.authorId !== 'player' && depth === 0 && <button onClick={() => onReply(c)} className="hover:text-ink">Reply</button>}
+        </div>
+        {(c.replies ?? []).map((r) => <CommentRow key={r.id} c={r} depth={depth + 1} onLike={onLike} onReply={onReply} onOpenArtist={onOpenArtist} />)}
+      </div>
+    </div>
+  );
+}
+
+export function PostPanel({ post, songTitle, onClose, nowSerial }: { post: SocialPost | null; songTitle?: string; onClose: () => void; nowSerial: number }) {
+  const likePost = useGameStore((s) => s.likePost);
+  const repostPost = useGameStore((s) => s.repostPost);
+  const quotePost = useGameStore((s) => s.quotePost);
+  const commentOnPost = useGameStore((s) => s.commentOnPost);
+  const likeComment = useGameStore((s) => s.likeComment);
+  const openArtist = useGameStore((s) => s.openArtist);
+  const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<SocialComment | null>(null);
+  const [quoting, setQuoting] = useState(false);
+  const [flash, setFlash] = useState<{ ok: boolean; message: string } | null>(null);
+
+  if (!post) return null;
+  const app = post.platform as SocialApp;
+  const meta = APP_META[app] ?? APP_META.chirp;
+  const k = kindDef(post.kind as PostKind);
+  const person = post.authorId !== 'player' && !post.authorId.startsWith('fan:');
+  const pending = post.growth && post.growth.days > 0;
+
+  function send() {
+    if (!text.trim() || !post) return;
+    const r = quoting ? quotePost(post.id, text) : commentOnPost(post.id, text, replyTo?.id);
+    setFlash(r);
+    setText('');
+    setReplyTo(null);
+    setQuoting(false);
+  }
+
+  const close = () => { setFlash(null); setReplyTo(null); setQuoting(false); setText(''); onClose(); };
+
+  return (
+    <SlidePanel
+      open={!!post}
+      onClose={close}
+      width={480}
+      title={<span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: meta.color }} />{meta.name}</span>}
+      subtitle={`${k.emoji} ${k.label} · ${postAge(post, nowSerial)}`}
+      footer={
+        <div className="space-y-2">
+          {(replyTo || quoting) && (
+            <div className="flex items-center justify-between text-[11px] text-ink3">
+              <span>{quoting ? 'Quote post — your words go on top, on Chirp.' : `Replying to ${replyTo!.authorName}`}</span>
+              <button className="hover:text-ink" onClick={() => { setReplyTo(null); setQuoting(false); }}>Cancel</button>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && send()}
+              maxLength={280}
+              placeholder={quoting ? 'Add your take…' : replyTo ? `Reply to ${replyTo.authorName}…` : 'Write a comment…'}
+              className="flex-1 h-10 rounded-[10px] bg-card border border-line px-3 text-[13px] text-ink outline-none focus:border-amber"
+            />
+            <Button onClick={send} disabled={!text.trim()}>{quoting ? 'Quote' : 'Send'}</Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="p-4 border-b border-line">
+        <div className="flex items-center gap-3">
+          <button onClick={() => person && openArtist(post.authorId)} className={cn(!person && 'cursor-default')}><Avatar name={post.authorName} seed={post.authorId} size={44} /></button>
+          <div className="min-w-0">
+            <div className="text-[15px] font-semibold text-ink truncate">{post.authorId === 'player' ? `${post.authorName} (you)` : post.authorName}</div>
+            <div className="text-[12px] text-ink3">{handleOf(post.authorName)}</div>
+          </div>
+          {post.viral && <span className="ml-auto px-2 h-[22px] rounded-full bg-fall/15 text-fall text-[11px] font-bold flex items-center">🔥 Viral</span>}
+        </div>
+        <RichText text={post.content} className="text-[16px] text-ink mt-3 leading-relaxed" />
+        {songTitle && <div className="mt-3 inline-flex items-center gap-2 rounded-[10px] border border-line bg-white/[0.03] px-3 py-2 text-[13px] text-ink2"><span className="text-amber">♫</span> {songTitle}</div>}
+        {post.tags && post.tags.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {post.tags.map((t) => <button key={t.id} onClick={() => t.id !== 'player' && openArtist(t.id)} className="px-2 h-6 rounded-full bg-[#4DA3FF]/12 text-[#4DA3FF] text-[11px] font-semibold">@{t.name}</button>)}
+          </div>
+        )}
+        <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+          {[
+            ['Likes', post.likes],
+            ['Reposts', post.shares],
+            ['Comments', post.comments.length],
+            [post.views ? 'Views' : 'Reach', post.views ?? Math.round(post.likes * 9)],
+          ].map(([l, v]) => (
+            <div key={l as string} className="rounded-[10px] bg-white/[0.03] py-2">
+              <div className="text-[15px] font-semibold text-ink num">{compact(v as number)}</div>
+              <div className="text-[10px] text-ink3 uppercase tracking-wider">{l}</div>
+            </div>
+          ))}
+        </div>
+        {pending && post.authorId === 'player' && (
+          <div className="mt-2 text-[11px] text-ink3">Still collecting — about {full(post.growth!.likes)} more likes over the next {post.growth!.days} day{post.growth!.days === 1 ? '' : 's'}.</div>
+        )}
+        <div className="mt-3 flex gap-2">
+          <Button size="sm" variant="secondary" onClick={() => likePost(post.id)} className={cn(post.liked && 'text-[#E93D82]')}>{post.liked ? '♥ Liked' : '♡ Like'}</Button>
+          {post.authorId !== 'player' && <Button size="sm" variant="secondary" onClick={() => setFlash(repostPost(post.id))} disabled={post.reposted}>↻ {post.reposted ? 'Reposted' : 'Repost'}</Button>}
+          <Button size="sm" variant="secondary" onClick={() => { setQuoting(true); setReplyTo(null); }}>❝ Quote</Button>
+        </div>
+        {flash && <div className={cn('mt-3 text-[12px] rounded-[10px] px-3 py-2', flash.ok ? 'bg-rise/10 text-rise' : 'bg-fall/10 text-fall')}>{flash.message}</div>}
+      </div>
+      <div className="p-4 space-y-4">
+        <div className="text-[12px] font-semibold text-ink2 uppercase tracking-wider">Comments</div>
+        {post.comments.length === 0 && <div className="text-[13px] text-ink3">No comments yet.</div>}
+        {post.comments.map((c) => (
+          <CommentRow key={c.id} c={c} depth={0} onLike={(id) => likeComment(post.id, id)} onReply={(c2) => { setReplyTo(c2); setQuoting(false); }} onOpenArtist={(id) => { close(); openArtist(id); }} />
+        ))}
+      </div>
+    </SlidePanel>
+  );
+}

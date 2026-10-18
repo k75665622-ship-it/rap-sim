@@ -108,7 +108,7 @@ export function Sidebar() {
 
     { id: 'interviews', label: 'Interviews', icon: <IconInterview />, group: 'business' },
     { id: 'label', label: 'My Label', icon: <IconDisc />, badge: labelAlerts, group: 'business' },
-    { id: 'investments', label: 'Investments', icon: <IconTrend />, group: 'business' },
+    { id: 'investments', label: 'Money', icon: <IconTrend />, group: 'business' },
     { id: 'lifestyle', label: 'Lifestyle', icon: <IconDiamond />, group: 'business' },
     { id: 'trophy_room', label: 'Trophy Room', icon: <IconTrophy />, group: 'business' },
     { id: 'retirement', label: 'Industry & Life', icon: <IconDiamond />, group: 'business' },

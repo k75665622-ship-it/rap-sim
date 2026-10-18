@@ -3,6 +3,10 @@
 import type { BeatsState } from '../sim/beats';
 import type { LiveTarget, Story, LiveSession } from '../sim/socialLive';
 import type { IvQuestion, IvEffect } from '../sim/interviews';
+import type { MarketState, Portfolio } from '../sim/markets';
+import type { Venture } from '../sim/ventures';
+import type { DevProject } from '../sim/realestate';
+import type { BlackjackHand, Fixture, SportsBet } from '../sim/casino';
 
 export type Background = 'broke_hustler' | 'middle_class' | 'industry_connect';
 export type Gender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say';
@@ -1054,6 +1058,10 @@ export interface CrewMember {
   visible?: VisibleTrait[];
   /** Not shown to the player. Discovered by working with them. */
   hidden?: HiddenTrait[];
+  /** What you have them working on — see `sim/assignments.ts`. */
+  assignment?: string;
+  /** What they did last week. */
+  lastWork?: string;
   /**
    * How many game months they have been on the payroll.
    *
@@ -1488,6 +1496,19 @@ export interface Business {
 }
 
 // ─── FAN WARS ────────────────────────────────────────────────────────────
+
+export interface CasinoState {
+  visitSerial?: number;
+  vipPoints: number;
+  net: number;
+  biggestWin: number;
+  biggestLoss: number;
+  day: { serial: number; net: number; reported?: boolean };
+  blackjack?: BlackjackHand | null;
+  fixtures: Fixture[];
+  bets: SportsBet[];
+  history: string[];
+}
 
 export interface InterviewInvite {
   id: string;
@@ -2328,6 +2349,16 @@ export interface GameState {
   lastPitchSerial?: number;
   /** What your manager has on their desk for you. */
   managerDesk?: ManagerBrief[];
+  /** The stock exchange, the crypto market and the property index. */
+  market?: MarketState;
+  portfolio?: Portfolio;
+  /** Businesses you run. */
+  ventures?: Venture[];
+  /** Land and buildings you are developing. */
+  devProjects?: DevProject[];
+  casino?: CasinoState;
+  /** Net worth, once a week, for the chart. */
+  wealthHistory?: { serial: number; net: number }[];
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

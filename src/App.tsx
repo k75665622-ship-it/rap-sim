@@ -18,7 +18,7 @@ import { JobsScreen } from './components/screens/JobsScreen';
 import { ShowsScreen } from './components/screens/ShowsScreen';
 import { NPCProfileScreen } from './components/screens/NPCProfileScreen';
 import { InterviewsScreen } from './components/screens/InterviewsScreen';
-import { InvestmentsScreen } from './components/screens/InvestmentsScreen';
+import { MoneyScreen } from './components/screens/MoneyScreen';
 import { TrophyRoomScreen } from './components/screens/TrophyRoomScreen';
 import { NewsScreen } from './components/screens/NewsScreen';
 import { LifestyleScreen } from './components/screens/LifestyleScreen';
@@ -84,7 +84,7 @@ export default function App() {
       case 'shows': return <ShowsScreen />;
       case 'npc_profile': return <NPCProfileScreen />;
       case 'interviews': return <InterviewsScreen />;
-      case 'investments': return <InvestmentsScreen />;
+      case 'investments': return <MoneyScreen />;
       case 'trophy_room': return <TrophyRoomScreen />;
       case 'news': return <NewsScreen />;
       case 'lifestyle': return <LifestyleScreen />;

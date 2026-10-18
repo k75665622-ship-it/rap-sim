@@ -219,3 +219,7 @@ input[type='date'] {
 @media (prefers-reduced-motion: reduce) {
   .rl-clip-pan, .rl-marquee, .rl-live-dot { animation: none; }
 }
+
+/* Horizontal chip rows scroll without a visible bar on touch screens. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

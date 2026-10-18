@@ -103,6 +103,8 @@ export interface ReachInput {
   /** 0-100 craft stat that matters for this kind (freestyle → freestyle, skit → charisma). */
   craft: number;
   roll: number;
+  /** Extra reach from your team — a photographer on your socials. */
+  boost?: number;
 }
 
 export interface Reach {
@@ -125,7 +127,7 @@ export function postReach(i: ReachInput): Reach {
   const tagBoost = 1 + i.taggedFame.reduce((a, f) => a + clamp(f / Math.max(10, i.fame), 0, 3) * 0.12, 0);
   const craft = 0.75 + i.craft / 200;
   const fight = i.controversy ? 1.6 : 1;
-  const base = Math.max(30, i.followers) * k.reach * song * heat * tagBoost * craft * fight * spam * (0.7 + i.roll * 0.6);
+  const base = Math.max(30, i.followers) * k.reach * song * heat * tagBoost * craft * fight * spam * (0.7 + i.roll * 0.6) * (1 + (i.boost ?? 0));
 
   const viralChance = k.virality * (i.songQuality !== undefined ? i.songQuality / 70 : 1) * heat * (i.kind === 'freestyle' || i.kind === 'skit' ? craft * 1.4 : 1) * spam;
   const viral = unit(`${i.roll}|viral`) < viralChance;

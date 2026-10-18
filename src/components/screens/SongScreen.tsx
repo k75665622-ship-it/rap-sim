@@ -24,6 +24,47 @@ import { videosForSong } from '../../store/videoSelectors';
 import { SongPlatformBars } from './ArtistPageScreen';
 import { describeScore, gradeColor, gradeLabel } from '../../sim/studio';
 import { IconChevronLeft, IconPlay, IconTrend, IconUsers } from '../icons';
+import { VIDEO_TIERS, money as labelMoney } from '../../sim/label';
+
+/**
+ * Shooting a video for a record by an artist on the player's label. The
+ * label pays (or, on an all-in deal, the artist's own fund does) and the
+ * video goes up on the ARTIST's channel — not the player's.
+ */
+function LabelVideoPanel({ songId, onClose }: { songId: string; onClose: () => void }) {
+  const label = useGameStore((s) => s.label);
+  const shootLabelVideo = useGameStore((s) => s.shootLabelVideo);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const signee = label?.roster.find((s) => s.releases.includes(songId));
+  if (!label || !signee) return null;
+  const payer = signee.terms.allIn ? `${signee.name}'s fund (${labelMoney(signee.fund)})` : `${label.name} (${labelMoney(label.cash)})`;
+  return (
+    <Panel className="p-4 mb-6 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[14px] font-semibold text-ink">Shoot a video for {signee.name}</div>
+          <div className="text-[11px] text-ink3">Paid by {payer}. It premieres on {signee.name}'s channel.</div>
+        </div>
+        <button onClick={onClose} className="text-[12px] text-ink3 hover:text-ink">Close</button>
+      </div>
+      {signee.videoShoot ? (
+        <div className="text-[12px] text-amber">{signee.name} is already on set for another video.</div>
+      ) : (
+        <div className="grid sm:grid-cols-3 gap-2">
+          {VIDEO_TIERS.map((t) => (
+            <button key={t.id} onClick={() => { const r = shootLabelVideo(songId, t.id); setMsg({ ok: r.ok, text: r.message }); }}
+              className="text-left rounded-[10px] border border-line bg-sidebar hover:bg-cardhover p-3">
+              <div className="text-[13px] font-semibold text-ink">{t.label}</div>
+              <div className="text-[11px] text-amber num">{labelMoney(t.budget)} · {t.days} days</div>
+              <div className="text-[10px] text-ink3">{t.blurb}</div>
+            </button>
+          ))}
+        </div>
+      )}
+      {msg && <div className={cn('text-[12px]', msg.ok ? 'text-rise' : 'text-fall')}>{msg.text}</div>}
+    </Panel>
+  );
+}
 
 export function SongScreen() {
   const state = useGameStore();
@@ -35,6 +76,7 @@ export function SongScreen() {
   const openSong = useGameStore((s) => s.openSong);
   const setScreen = useGameStore((s) => s.setScreen);
   const [remixing, setRemixing] = useState(false);
+  const [labelShoot, setLabelShoot] = useState(false);
 
   const track = useMemo(() => (songId ? trackById(state, songId) : undefined), [state, songId]);
   const videos = useMemo(() => (songId ? videosForSong(state, songId) : []), [state, songId]);
@@ -85,6 +127,11 @@ export function SongScreen() {
   const week = totals?.week ?? 0;
 
   const maxCountry = Math.max(...countries.map((c) => c.units), 1);
+  // Who can shoot this record: the player for their own, the player's label
+  // for its artists' records, and nobody for anyone else's.
+  const labelSignee = state.label?.roster.find((s) => s.releases.includes(songId));
+  const canShoot = track.isPlayer || !!labelSignee;
+  const shoot = () => (track.isPlayer ? setScreen('create_video') : setLabelShoot(true));
 
   return (
     <div className="pb-16">
@@ -190,15 +237,17 @@ export function SongScreen() {
                 <IconPlay size={15} />
                 Watch video
               </Button>
-            ) : (
-              <Button variant="secondary" onClick={() => setScreen('create_video')}>
+            ) : canShoot ? (
+              <Button variant="secondary" onClick={shoot}>
                 <IconPlay size={15} />
-                Shoot a video
+                {labelSignee ? `Shoot ${labelSignee.name}'s video` : 'Shoot a video'}
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
+
+      {labelShoot && labelSignee ? <LabelVideoPanel songId={songId} onClose={() => setLabelShoot(false)} /> : null}
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-6">
         <div className="space-y-8">
@@ -220,8 +269,8 @@ export function SongScreen() {
               <Panel>
                 <EmptyState
                   title="No video for this record"
-                  body="Nobody has shot a visual for it yet. You can be the one who does."
-                  action={<Button onClick={() => setScreen('create_video')}>Shoot a video</Button>}
+                  body={canShoot ? 'Nobody has shot a visual for it yet. You can be the one who does.' : 'Nobody has shot a visual for it yet.'}
+                  action={canShoot ? <Button onClick={shoot}>Shoot a video</Button> : undefined}
                 />
               </Panel>
             ) : (

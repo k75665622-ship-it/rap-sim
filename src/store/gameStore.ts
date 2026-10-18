@@ -18,7 +18,8 @@ import type {
   FeedRefreshResult, BeefActionResult,
   PostCareerRole, SampleClearance,
   PlayerLabel, LabelSignee, LabelPitch, LabelEvent, LabelTerms, LabelDealType,
-  LabelStaffRole, LabelReleaseTier, Genre as LabelGenre,
+  LabelStaffRole, LabelReleaseTier, LabelGear, LabelTactic, LabelPolicy, LabelSubmission,
+  LabelSession, Genre as LabelGenre,
 } from '../types/game';
 import {
   FOUNDING_COST,
@@ -26,15 +27,27 @@ import {
   PROSPECT_REFRESH_DAYS,
   PITCH_WINDOW_DAYS,
   DEMAND_WINDOW_DAYS,
+  LEAK_DAYS,
   LABEL_COLORS,
   DEAL_INFO,
   RELEASE_TIERS,
+  VIDEO_TIERS,
   STAFF_INFO,
+  STUDIO_TIERS,
+  GEAR_INFO,
+  TACTIC_INFO,
   RIVAL_LABELS,
+  DEFAULT_POLICY,
+  allInTier,
+  applyTactic,
   dropOptics,
+  emptyStudio,
   fameCap,
+  gearCap,
   isSignable,
   lawyerRead,
+  leverage,
+  makeSubmission,
   marketingEfficiency,
   maybeRaiseDemand,
   maybeRivalOffer,
@@ -44,6 +57,7 @@ import {
   monthlyMood,
   moodWord,
   negotiateLabel,
+  normalizeTerms,
   openingOffer,
   overheadFor,
   patienceFor,
@@ -54,16 +68,23 @@ import {
   releaseFameBump,
   releaseQuality,
   reputationTarget,
+  reworkOutcome,
   rosterLimit,
   scoreOffer,
+  sessionPlan,
   settlementCost,
+  signingCost,
   splitRevenue,
   staffSalary,
   staffSkill,
   startingReputation,
+  studioEffects,
+  studioRent,
+  temperature,
   threeSixtyMonthly,
   unit,
   wantsFor,
+  workGap,
 } from '../sim/label';
 import { hashString } from '../sim/rng';
 import { isSongReleased } from '../sim/release';
@@ -139,6 +160,7 @@ import {
   npcReleaseTick,
   pruneNPCSongs,
   createNPCSong,
+  generateSongTitle,
   MAX_LIVE_NPC_SONGS,
 } from '../sim/npcMusic';
 import {
@@ -712,9 +734,7 @@ function applySlotPayload(state: GameState, saved: Partial<GameState>): void {
   if (!state.label || typeof state.label !== 'object') state.label = null;
   if (state.label) {
     const label = state.label;
-    for (const k of ['roster', 'alumni', 'pitches', 'prospects', 'staff', 'history', 'events'] as const) {
-      if (!Array.isArray(label[k])) (label as unknown as Record<string, unknown[]>)[k] = [];
-    }
+    normalizeLabel(label, dateToSerial(state.gameDate));
     const live = new Map(
       label.roster
         .filter((s) => s.status === 'active' || s.status === 'dispute' || s.status === 'expiring')
@@ -1078,6 +1098,7 @@ function contextForSong(opts: {
     videoViews: opts.hasVideo ? opts.song.videoViews ?? 0 : 0,
     isNpc: !opts.isPlayer,
     weeksOut: opts.song.weeksOut ?? 0,
+    weight: opts.song.streamWeight,
   };
 }
 
@@ -1463,6 +1484,9 @@ function npcVideoTick(state: GameState, npcs: NPC[], weekSerial: number): Video[
   for (const song of state.npcSongs) {
     if (made >= MAX_PER_TICK) break;
     if (already.has(song.id)) continue;
+    // Records released through the player's label get their videos from the
+    // label (or the artist's own fund), never from the world's dice.
+    if (song.labelName) continue;
 
     const npc = song.ownerId ? npcById.get(song.ownerId) : undefined;
     if (!npc || npc.role !== 'artist') continue;
@@ -2691,7 +2715,8 @@ interface GameActions {
   labelDeposit: (amount: number) => FeatureActionResult;
   labelWithdraw: (amount: number) => FeatureActionResult;
   refreshLabelProspects: () => FeatureActionResult;
-  openLabelPitch: (npcId: string, dealType: LabelDealType) => FeatureActionResult;
+  setLabelPolicy: (patch: Partial<LabelPolicy>) => void;
+  openLabelPitch: (npcId: string, dealType: LabelDealType, allIn?: boolean) => FeatureActionResult;
   labelPitchContext: (pitchId: string) => {
     mood: Mood;
     legalSkill: number;
@@ -2699,16 +2724,27 @@ interface GameActions {
     npc: NPC;
     potentialEstimate?: number;
     cap: number;
+    negotiator: number;
+    leverage: number;
+    temperature: { label: string; tone: 'good' | 'neutral' | 'bad' } | null;
+    energy: number;
   } | null;
   counterLabelPitch: (pitchId: string, terms: LabelTerms) => { outcome: 'accepted' | 'countered' | 'refused' | 'walked' | 'error'; message: string };
+  labelTactic: (pitchId: string, tactic: LabelTactic) => { ok: boolean; message: string; outcome?: 'accepted' | 'walked' };
   signLabelPitch: (pitchId: string) => FeatureActionResult;
   withdrawLabelPitch: (pitchId: string) => void;
+  exerciseLabelOption: (npcId: string) => FeatureActionResult;
+  answerLabelSubmission: (submissionId: string, answer: 'approve' | 'rework' | 'reject', tier?: LabelReleaseTier) => FeatureActionResult;
   fundLabelRelease: (npcId: string, tier: LabelReleaseTier) => FeatureActionResult;
+  shootLabelVideo: (songId: string, tier: 'low' | 'mid' | 'high') => FeatureActionResult;
+  topUpLabelFund: (npcId: string, amount: number) => FeatureActionResult;
   promoteLabelSong: (songId: string, amount: number) => FeatureActionResult;
   answerLabelDemand: (npcId: string, answer: 'raise' | 'bonus' | 'refuse') => FeatureActionResult;
   answerRivalOffer: (npcId: string, answer: 'match' | 'sell' | 'refuse') => FeatureActionResult;
   settleLabelDispute: (npcId: string) => FeatureActionResult;
   dropLabelArtist: (npcId: string) => FeatureActionResult;
+  upgradeLabelStudio: () => FeatureActionResult;
+  buyLabelGear: (gear: LabelGear) => FeatureActionResult;
   labelStaffCandidates: (role: LabelStaffRole) => { npcId: string; name: string; skill: number; salary: number; country: string }[];
   hireLabelStaff: (role: LabelStaffRole, npcId: string) => FeatureActionResult;
   fireLabelStaff: (role: LabelStaffRole) => void;
@@ -4001,7 +4037,7 @@ setAutoFreeze(false);
 //
 // The engine is `sim/label.ts`. These are the bits that touch the game state:
 // moving money in and out of the label's account, writing the mailbox and the
-// feed, and the daily/monthly tick.
+// feed, the artists' own work cycle, and the daily/monthly tick.
 
 /** Everybody the label still has a live claim on. */
 function labelSigneeIds(label: PlayerLabel): Set<string> {
@@ -4014,7 +4050,7 @@ function labelSigneeIds(label: PlayerLabel): Set<string> {
 
 function labelEvent(label: PlayerLabel, serial: number, text: string, tone: LabelEvent['tone'] = 'neutral'): void {
   label.events.unshift({ serial, text, tone });
-  if (label.events.length > 80) label.events.length = 80;
+  if (label.events.length > 100) label.events.length = 100;
 }
 
 function labelMail(state: GameState, subject: string, body: string): void {
@@ -4047,16 +4083,60 @@ function labelLegalSkill(state: GameState): number {
   return Math.max(own, playerNegotiatorSkill(state, 'lawyer') * 0.8);
 }
 
+/** How good the player is at the table: business sense plus their manager. */
+function labelNegotiatorSkill(state: GameState): number {
+  const biz = state.player?.stats.businessKnowledge ?? 30;
+  const mgr = playerNegotiatorSkill(state, 'manager');
+  return Math.round(Math.min(100, biz * 0.6 + mgr * 0.5));
+}
+
+/**
+ * Fill in everything a label saved by an older build is missing. Safe to call
+ * on every load and before every action: it only adds what is absent.
+ */
+function normalizeLabel(label: PlayerLabel, serial: number): void {
+  for (const k of ['roster', 'alumni', 'pitches', 'prospects', 'staff', 'history', 'events', 'submissions'] as const) {
+    if (!Array.isArray(label[k])) (label as unknown as Record<string, unknown[]>)[k] = [];
+  }
+  if (!label.policy) label.policy = { ...DEFAULT_POLICY };
+  if (!label.studio) label.studio = emptyStudio();
+  if (!label.studio.gear) label.studio.gear = emptyStudio().gear;
+  for (const s of [...label.roster, ...label.alumni]) {
+    s.terms = normalizeTerms(s.terms ?? {});
+    if (typeof s.fund !== 'number') s.fund = 0;
+    if (!Array.isArray(s.albums)) s.albums = [];
+    if (typeof s.albumsDelivered !== 'number') s.albumsDelivered = 0;
+    if (typeof s.singlesSinceAlbum !== 'number') s.singlesSinceAlbum = s.releases?.length ?? 0;
+    if (typeof s.optionsUsed !== 'number') s.optionsUsed = 0;
+    if (typeof s.workSerial !== 'number') s.workSerial = serial + 7;
+    // A v1 "release request" becomes the artist's next demo, straight away.
+    if (s.requestSerial !== undefined) { s.workSerial = Math.min(s.workSerial, serial); s.requestSerial = undefined; }
+    if (s.inStudio && !s.inStudio.kind) {
+      const old = s.inStudio as unknown as { until: number; tier: LabelReleaseTier; cost: number; quality: number; marketing: number };
+      s.inStudio = { kind: 'single', title: generateSongTitle(), trackCount: 1, until: old.until, tier: old.tier, cost: old.cost, quality: old.quality, marketing: old.marketing };
+    }
+  }
+  for (const p of label.pitches) {
+    p.terms = normalizeTerms(p.terms ?? {});
+    p.wants = normalizeTerms(p.wants ?? {});
+    if (p.agreedTerms) p.agreedTerms = normalizeTerms(p.agreedTerms);
+  }
+}
+
 /** Move a signee off the roster and into the alumni list. */
 function retireSignee(state: GameState, label: PlayerLabel, s: LabelSignee, status: LabelSignee['status']): void {
   s.status = status;
   s.inStudio = undefined;
+  s.videoShoot = undefined;
   s.requestSerial = undefined;
   s.demand = undefined;
   s.rivalOffer = undefined;
   label.roster = label.roster.filter((x) => x.npcId !== s.npcId);
   label.alumni.unshift(s);
   if (label.alumni.length > 30) label.alumni.length = 30;
+  for (const sub of label.submissions) {
+    if (sub.npcId === s.npcId && (sub.status === 'pending' || sub.status === 'reworking')) sub.status = 'rejected';
+  }
   const npc = state.npcs.find((n) => n.id === s.npcId);
   if (npc?.team?.label === label.name) npc.team = { ...npc.team, label: undefined };
 }
@@ -4081,62 +4161,308 @@ function mirrorSigneesToRoster(state: GameState, rawNPCs: NPC[]): void {
   }
 }
 
-/** Put a finished record out. */
+/**
+ * Give a brand-new record its first day of numbers at once, so it is never
+ * sitting on zero until the next midnight.
+ */
+function seedLabelSong(state: GameState, song: Song, npc: NPC, serial: number): void {
+  const stats = state.platformStats ?? (state.platformStats = {});
+  if (stats[song.id]) return;
+  const ctx = contextForSong({
+    song,
+    isPlayer: false,
+    popularity: npc.fame,
+    fanbase: npcFanbase(npc.fame),
+    genre: npc.genre ?? 'hip_hop',
+    homeCountry: song.ownerCountry ?? npc.country,
+    hasVideo: !!song.hasVideo,
+  });
+  const st = seedStreamState(song, ctx, serial);
+  stats[song.id] = st;
+  const totals = songTotals(st);
+  song.weeklyStreams = totals.week;
+  song.totalStreams = totals.lifetime;
+}
+
+/** Put a finished single or album out. */
 function releaseLabelRecord(
   state: GameState,
   label: PlayerLabel,
   s: LabelSignee,
   npc: NPC,
   serial: number,
-  rec: { tier: LabelReleaseTier; quality: number; marketing: number },
+  rec: LabelSession,
   log: string[],
-): Song {
-  const song = createNPCSong({ ...npc, fame: s.fame }, state.gameDate);
-  song.quality = rec.quality;
+  how: 'release' | 'leak' = 'release',
+): Song[] {
   const eff = marketingEfficiency(staffSkill(label.staff, 'marketing'));
   const radio = staffSkill(label.staff, 'radio') * 20;
-  song.marketingBudget = Math.round(rec.marketing * eff + radio);
-  song.labelName = label.name;
-  state.npcSongs.push(song);
+  const artist = { ...npc, fame: s.fame };
+  const made: Song[] = [];
+  const count = rec.kind === 'album' ? Math.max(2, rec.trackCount) : 1;
+  for (let i = 0; i < count; i++) {
+    const song = createNPCSong(artist, state.gameDate);
+    if (i === 0 && rec.kind === 'single') song.title = rec.title;
+    // The focus track carries the campaign; the deep cuts ride along.
+    const spread = rec.kind === 'album' ? (unit(`trk|${s.npcId}|${serial}|${i}`) - 0.55) * 16 : 0;
+    song.quality = Math.max(10, Math.min(99, Math.round(rec.quality + spread)));
+    const share = rec.kind === 'album' ? (i === 0 ? 0.45 : 0.55 / (count - 1)) : 1;
+    // The lead track is the single; the rest are heard by the fans who press
+    // play on the whole thing. Better albums keep more people listening.
+    if (rec.kind === 'album' && i > 0) {
+      song.streamWeight = Math.round((0.1 + Math.max(0, rec.quality - 40) / 300 + unit(`dc|${song.id}`) * 0.08) * 100) / 100;
+    }
+    song.marketingBudget = how === 'leak' ? 0 : Math.round(rec.marketing * share * eff + (i === 0 ? radio : radio * 0.2));
+    song.labelName = label.name;
+    state.npcSongs.push(song);
+    seedLabelSong(state, song, artist, serial);
+    s.releases.push(song.id);
+    made.push(song);
+  }
 
-  s.releases.push(song.id);
-  s.releasesDelivered += 1;
+  const lead = made[0];
+  let albumTitle = '';
+  if (rec.kind === 'album') {
+    albumTitle = rec.title;
+    const albums = state.npcAlbums ?? (state.npcAlbums = []);
+    const id = `alb_label_${uuidv4()}`;
+    albums.push({
+      id,
+      title: albumTitle,
+      songs: made.map((x) => x.id),
+      releaseDate: lead.releaseDate,
+      totalStreams: 0,
+      totalEarnings: 0,
+      certifications: [],
+      ownerId: npc.id,
+      ownerName: npc.name,
+      ownerCountry: npc.country,
+      type: made.length >= 7 ? 'album' : 'ep',
+      coverSeed: hashString(`label-cover|${id}`),
+      releaseSerial: serial,
+    } as (typeof albums)[number]);
+    s.albums.push(id);
+    s.albumsDelivered += 1;
+    s.singlesSinceAlbum = 0;
+  } else {
+    s.releasesDelivered += 1;
+    s.singlesSinceAlbum += 1;
+  }
+
   s.lastReleaseSerial = serial;
-  s.requestSerial = undefined;
   s.inStudio = undefined;
-  s.fame = Math.max(1, Math.min(100, s.fame + releaseFameBump(s, rec.quality, song.marketingBudget)));
-  s.mood = Math.min(100, s.mood + 3);
-  s.notes.unshift(`Released "${song.title}" (${RELEASE_TIERS[rec.tier].label.toLowerCase()}, quality ${rec.quality}).`);
+  s.workSerial = serial + workGap(npc, `gap|${s.npcId}|${serial}`) + (rec.kind === 'album' ? 30 : 0);
+  s.fame = Math.max(1, Math.min(100, s.fame + releaseFameBump(s, rec.quality, lead.marketingBudget) * (rec.kind === 'album' ? 1.6 : 1)));
+  s.mood = Math.max(0, Math.min(100, s.mood + (how === 'leak' ? -5 : 3)));
+  const what = rec.kind === 'album' ? `the ${made.length >= 7 ? 'album' : 'EP'} "${albumTitle}" (${made.length} tracks)` : `"${lead.title}"`;
+  const whatCap = what.charAt(0).toUpperCase() + what.slice(1);
+  s.notes.unshift(how === 'leak' ? `${whatCap} leaked before you answered.` : `Released ${what} — quality ${rec.quality}.`);
   if (s.notes.length > 12) s.notes.length = 12;
 
   const verdict = rec.quality >= 75 ? 'The office thinks it is a hit.' : rec.quality >= 55 ? 'Solid record.' : 'Not their best. It happens.';
-  labelEvent(label, serial, `${s.name} released "${song.title}" — quality ${rec.quality}. ${verdict}`, rec.quality >= 60 ? 'good' : 'neutral');
-  log.push(`💿 ${label.name}: ${s.name} — "${song.title}" is out.`);
+  labelEvent(
+    label,
+    serial,
+    how === 'leak' ? `${whatCap} by ${s.name} leaked online. No campaign, no rollout.` : `${s.name} released ${what}. ${verdict}`,
+    how === 'leak' ? 'bad' : rec.quality >= 60 ? 'good' : 'neutral',
+  );
+  log.push(`💿 ${label.name}: ${s.name} — ${what} ${how === 'leak' ? 'leaked' : 'is out'}.`);
   pushNotification(state, {
     kind: 'business',
-    title: `${label.name}: "${song.title}" is out`,
-    body: `${s.name}'s new record is live on every platform.`,
-    artSeed: `song|${song.id}`,
-    action: { type: 'song', id: song.id },
+    title: how === 'leak' ? `${s.name}'s record leaked` : `${label.name}: ${rec.kind === 'album' ? albumTitle : `"${lead.title}"`} is out`,
+    body: how === 'leak' ? 'It is out there with no campaign behind it.' : `${s.name}'s new ${rec.kind === 'album' ? 'project' : 'record'} is live on every platform.`,
+    artSeed: `song|${lead.id}`,
+    action: { type: 'song', id: lead.id },
   });
-  if (state.player) {
+  if (state.player && how === 'release') {
     state.socialPosts.unshift({
       id: uuidv4(),
       platform: 'chirp',
       authorId: 'player',
       authorName: state.player.artistName,
-      content: `New music from ${s.name} on ${label.name}. "${song.title}" out now. Go run it up. 💿`,
+      content: rec.kind === 'album'
+        ? `${s.name}'s new project "${albumTitle}" is out now on ${label.name}. ${made.length} tracks. Front to back. 💿`
+        : `New music from ${s.name} on ${label.name}. "${lead.title}" out now. Go run it up. 💿`,
       likes: Math.round(40 + s.fame * 30),
       shares: Math.round(5 + s.fame * 4),
       comments: [],
       timestamp: new Date().toISOString(),
-      relatedSongId: song.id,
+      relatedSongId: lead.id,
       isPlayerPost: true,
       trendingScore: 10 + s.fame / 3,
       daySerial: serial,
     });
   }
-  return song;
+  return made;
+}
+
+/** Book the studio for an approved demo. Returns a reason when it cannot. */
+function startLabelSession(
+  _state: GameState,
+  label: PlayerLabel,
+  s: LabelSignee,
+  sub: Pick<LabelSubmission, 'id' | 'kind' | 'title' | 'trackCount' | 'quality'> | null,
+  tier: LabelReleaseTier,
+  serial: number,
+): string | null {
+  if (s.inStudio) return `${s.name} is already in the studio.`;
+  const kind = sub?.kind ?? 'single';
+  if (s.terms.allIn || s.terms.dealType === 'distribution') {
+    // Their money, their call on the budget.
+    const own = s.terms.dealType === 'distribution' ? tier : allInTier(s.fund, kind, tier, label.studio, label.staff);
+    if (!own) return `${s.name}'s recording fund is down to ${money(s.fund)} — not enough for a session. Top it up or wait.`;
+    tier = own;
+  }
+  const plan = sessionPlan({ kind, tier, studio: label.studio, staff: label.staff, marketingCommit: s.terms.allIn ? 0 : s.terms.marketingCommit });
+  const cost = plan.recording + plan.marketing;
+  const selfFunded = s.terms.allIn || s.terms.dealType === 'distribution';
+  if (!selfFunded) {
+    if (label.cash < 0) return 'The label is overdrawn. Put money in first.';
+    if (label.cash < cost) return `That costs ${money(cost)} (recording ${money(plan.recording)} + marketing ${money(plan.marketing)}). The label has ${money(label.cash)}.`;
+    labelSpend(label, cost);
+    s.recoupBalance += plan.recording * recoupShare(s.terms.dealType, 'recording') + plan.marketing * recoupShare(s.terms.dealType, 'marketing');
+  } else if (s.terms.allIn) {
+    s.fund = Math.max(0, s.fund - cost);
+    // Booking your own label's studio: the label is paid for the room.
+    if (label.studio.tier > 0) {
+      const rent = Math.round(plan.recording * 0.35);
+      labelEarn(label, rent);
+    }
+  }
+  const baseQuality = sub?.quality ?? releaseQuality(s.fame, tier, 0, Math.random());
+  s.inStudio = {
+    submissionId: sub?.id,
+    kind,
+    title: sub?.title ?? generateSongTitle(),
+    trackCount: sub?.trackCount ?? 1,
+    until: serial + plan.days,
+    tier,
+    cost,
+    quality: Math.round(Math.max(10, Math.min(99, baseQuality + plan.qualityBonus))),
+    marketing: plan.marketing,
+    selfFunded,
+  };
+  if (label.studio.tier > 0) label.studio.busyDays = Math.min(30, label.studio.busyDays + plan.days);
+  s.mood = Math.min(100, s.mood + (tier === 'major' ? 5 : tier === 'standard' ? 3 : 1));
+  labelEvent(
+    label,
+    serial,
+    `${s.name} is in the studio — ${kind === 'album' ? `the album "${s.inStudio.title}" (${s.inStudio.trackCount} tracks, ${tier === 'major' ? 'big' : tier === 'standard' ? 'proper' : 'tight'} budget)` : `"${s.inStudio.title}", ${RELEASE_TIERS[tier].label.toLowerCase()}`}${selfFunded && s.terms.allIn ? ' on their own fund' : ''}. Out in ${plan.days} days.`,
+    'neutral',
+  );
+  return null;
+}
+
+/** Schedule a video. The label pays, or the artist pays from their fund. */
+function startLabelVideo(state: GameState, label: PlayerLabel, s: LabelSignee, song: Song, budget: number, days: number, payer: 'label' | 'fund', serial: number): string | null {
+  if (s.videoShoot) return `${s.name} is already shooting a video.`;
+  if ((state.videos ?? []).some((v) => v.songId === song.id && !v.removed)) return 'That record already has a video.';
+  if (payer === 'label') {
+    if (label.cash < budget) return `The shoot costs ${money(budget)}. The label has ${money(label.cash)}.`;
+    labelSpend(label, budget);
+    s.recoupBalance += budget * recoupShare(s.terms.dealType, 'video');
+  } else {
+    if (s.fund < budget) return `${s.name} has ${money(s.fund)} left in their fund.`;
+    s.fund -= budget;
+  }
+  const director = Math.min(100, 30 + Math.log10(Math.max(1000, budget)) * 12);
+  const seed = videoSeed(`vid-label-${song.id}`);
+  const quality = Math.round(shootQuality({ directorSkill: director, budget, songQuality: song.quality, seed }));
+  s.videoShoot = { songId: song.id, until: serial + days, budget, quality };
+  labelEvent(label, serial, `${s.name} is shooting a video for "${song.title}" (${money(budget)}${payer === 'fund' ? ', their own fund' : ''}).`, 'neutral');
+  return null;
+}
+
+function publishLabelVideo(state: GameState, label: PlayerLabel, s: LabelSignee, npc: NPC, serial: number, log: string[]): void {
+  const shoot = s.videoShoot;
+  s.videoShoot = undefined;
+  if (!shoot) return;
+  const song = state.npcSongs.find((x) => x.id === shoot.songId);
+  if (!song) return;
+  const videos = state.videos ?? (state.videos = []);
+  if (videos.some((v) => v.songId === song.id && !v.removed)) return;
+  const id = `vid-label-${song.id}`;
+  const seed = videoSeed(id);
+  const video = createVideo({
+    id,
+    songId: song.id,
+    songTitle: song.title,
+    title: videoTitle(song.title, seed, npc.genre),
+    artistId: npc.id,
+    artistName: npc.name,
+    artistCountry: song.ownerCountry ?? npc.country,
+    artistGenre: npc.genre,
+    directorId: 'label-director',
+    directorName: npcDirectorName(seed),
+    concept: npcConcept(seed),
+    visualStyle: npcStyle(seed),
+    quality: shoot.quality,
+    budget: shoot.budget,
+    marketingBudget: Math.round(shoot.budget * 0.3 * marketingEfficiency(staffSkill(label.staff, 'marketing'))),
+    uploadSerial: serial,
+    uploadDate: formatDateString(state.gameDate),
+    isPlayer: false,
+    songQuality: song.quality,
+  });
+  const opening = Math.round(Math.pow(Math.max(5, s.fame) / 100, 2) * 26_000 * (0.5 + shoot.quality / 200) * (1 + shoot.budget / 60_000));
+  video.views = opening;
+  video.hist = [...new Array(29).fill(0), opening];
+  video.peakDay = opening;
+  video.likes = Math.round(opening * 0.05);
+  video.dislikes = Math.round(opening * 0.004);
+  video.commentCount = Math.round(opening * 0.0035);
+  videos.unshift(video);
+  song.hasVideo = true;
+  s.mood = Math.min(100, s.mood + 3);
+  labelEvent(label, serial, `${s.name}'s video for "${song.title}" is up — quality ${shoot.quality}.`, shoot.quality >= 60 ? 'good' : 'neutral');
+  log.push(`🎬 ${label.name}: ${s.name}'s "${song.title}" video is live.`);
+  pushNotification(state, {
+    kind: 'business',
+    title: `${s.name}: "${song.title}" video is live`,
+    body: `${label.name} premiered the visual.`,
+    artSeed: `video|${id}`,
+    action: { type: 'video', id },
+  });
+}
+
+/** After a single drops: does it get a video, and who pays? */
+function autoVideoAfterRelease(state: GameState, label: PlayerLabel, s: LabelSignee, song: Song, serial: number): void {
+  if (s.videoShoot) return;
+  if (s.terms.allIn) {
+    const tier = [...VIDEO_TIERS].reverse().find((v) => v.budget <= s.fund * 0.35) ?? (VIDEO_TIERS[0].budget <= s.fund ? VIDEO_TIERS[0] : null);
+    if (tier) startLabelVideo(state, label, s, song, tier.budget, tier.days, 'fund', serial);
+    return;
+  }
+  if (s.terms.dealType === 'distribution') {
+    if (song.quality >= 60 && s.fame >= 20) startLabelVideo(state, label, s, song, VIDEO_TIERS[0].budget, VIDEO_TIERS[0].days, 'fund', serial);
+    return;
+  }
+  // Promised in the contract: the label owes it.
+  if (s.terms.videoBudget > 0) {
+    const err = startLabelVideo(state, label, s, song, s.terms.videoBudget, s.terms.videoBudget >= 40_000 ? 18 : s.terms.videoBudget >= 10_000 ? 10 : 5, 'label', serial);
+    if (err) {
+      s.mood = Math.max(0, s.mood - 8);
+      labelEvent(label, serial, `The label could not pay ${s.name}'s contracted video. They noticed.`, 'bad');
+    }
+    return;
+  }
+  const p = label.policy.videos;
+  if (p === 'all' || (p === 'hits' && song.quality >= 65)) {
+    const tier = song.quality >= 75 ? VIDEO_TIERS[2] : VIDEO_TIERS[1];
+    const pick = label.cash >= tier.budget * 2 ? tier : VIDEO_TIERS[0];
+    startLabelVideo(state, label, s, song, pick.budget, pick.days, 'label', serial);
+  }
+}
+
+/** Whether policy lets the office say yes to this demo without the player. */
+function policyApproves(label: PlayerLabel, sub: LabelSubmission): boolean {
+  if (label.policy.approve === 'all') return true;
+  if (label.policy.approve === 'good') return sub.estimate >= label.policy.threshold;
+  return false;
+}
+
+function policyTier(label: PlayerLabel, sub: LabelSubmission): LabelReleaseTier {
+  return label.policy.tier === 'ask' ? sub.askTier : label.policy.tier;
 }
 
 /**
@@ -4148,16 +4474,19 @@ function labelTick(
   rawNPCs: NPC[],
   labelRevenueBySong: Record<string, number>,
   serial: number,
+  days: number,
   log: string[],
 ): void {
   const label = state.label;
   if (!label || !state.player) return;
+  normalizeLabel(label, serial);
   const playerFame = blendedFame(state.player);
   const npcById = new Map<string, NPC>();
   const wanted = new Set<string>([...label.roster.map((s) => s.npcId), ...label.pitches.map((p) => p.npcId)]);
   for (const n of rawNPCs) if (wanted.has(n.id)) npcById.set(n.id, n);
   const legal = labelLegalSkill(state);
   const arSkill = staffSkill(label.staff, 'ar');
+  const live = labelSigneeIds(label);
   let rosterChanged = false;
 
   // ── 1. The money the records made ──────────────────────────────────────
@@ -4165,8 +4494,7 @@ function labelTick(
     if (!s.releases.length) continue;
     // On a distribution deal the artist owns the masters: once they leave, the
     // fee stops. Every other deal leaves the masters with the label for good.
-    const leftDistribution = s.terms.dealType === 'distribution' && !labelSigneeIds(label).has(s.npcId);
-    if (leftDistribution) continue;
+    if (s.terms.dealType === 'distribution' && !live.has(s.npcId)) continue;
     let gross = 0;
     for (const id of s.releases) gross += labelRevenueBySong[id] ?? 0;
     if (gross <= 0) continue;
@@ -4179,45 +4507,96 @@ function labelTick(
     labelEarn(label, split.label);
   }
 
-  // ── 2. Records finishing in the studio ─────────────────────────────────
+  // ── 2. Records and videos finishing ────────────────────────────────────
   for (const s of label.roster) {
-    if (!s.inStudio || s.inStudio.until > serial) continue;
     const npc = npcById.get(s.npcId);
-    if (!npc) { s.inStudio = undefined; continue; }
-    releaseLabelRecord(state, label, s, npc, serial, s.inStudio, log);
-    rosterChanged = true;
+    if (s.inStudio && s.inStudio.until <= serial) {
+      if (!npc) { s.inStudio = undefined; continue; }
+      const rec = s.inStudio;
+      const made = releaseLabelRecord(state, label, s, npc, serial, rec, log);
+      const sub = rec.submissionId ? label.submissions.find((x) => x.id === rec.submissionId) : undefined;
+      if (sub) sub.status = 'released';
+      if (rec.kind === 'single' && made[0]) autoVideoAfterRelease(state, label, s, made[0], serial);
+      rosterChanged = true;
+    }
+    if (s.videoShoot && s.videoShoot.until <= serial && npc) publishLabelVideo(state, label, s, npc, serial, log);
   }
 
-  // ── 3. New music handed in; distribution acts release on their own ─────
+  // ── 3. The artists at work ─────────────────────────────────────────────
   for (const s of label.roster) {
-    if (s.status !== 'active' || s.inStudio) continue;
-    const since = serial - (s.lastReleaseSerial ?? s.signedSerial);
-    if (s.terms.dealType === 'distribution') {
-      // They fund their own records and just hand you the finished master.
-      if (since >= 85 + (hashString(s.npcId) % 30)) {
-        const npc = npcById.get(s.npcId);
-        if (!npc) continue;
-        const quality = releaseQuality(s.fame, 'standard', 0, unit(`dq|${s.npcId}|${serial}`));
-        releaseLabelRecord(state, label, s, npc, serial, { tier: 'standard', quality, marketing: s.terms.marketingCommit }, log);
-        rosterChanged = true;
-      }
-      continue;
+    if (s.status !== 'active' && s.status !== 'expiring') continue;
+    const npc = npcById.get(s.npcId);
+    const mine = label.submissions.filter((x) => x.npcId === s.npcId && (x.status === 'pending' || x.status === 'reworking'));
+
+    // A rework comes back.
+    for (const sub of mine) {
+      if (sub.status !== 'reworking' || (sub.dueSerial ?? 0) > serial) continue;
+      sub.status = 'pending';
+      sub.submittedSerial = serial;
+      const spread = arSkill > 0 ? (100 - arSkill) / 6 : 18;
+      sub.estimate = Math.round(Math.max(5, Math.min(99, sub.quality + (unit(`rest|${sub.id}|${serial}`) - 0.5) * 2 * spread)));
+      labelEvent(label, serial, `${s.name} sent back the new version of "${sub.title}".`, 'neutral');
+      labelMail(state, `🎧 ${s.name}: new version of "${sub.title}"`, `They went back in. The office now rates it around ${sub.estimate}. Answer from My Label → A&R.`);
     }
-    if (s.requestSerial === undefined && since >= 60 + (hashString(s.npcId) % 25)) {
-      s.requestSerial = serial;
-      labelEvent(label, serial, `${s.name} handed in new music and wants it out.`, 'neutral');
-      labelMail(
-        state,
-        `🎧 ${s.name} turned in new music`,
-        `${s.name} has a record ready and wants a release. Fund it from My Label → Roster.\n\nA quick single is cheap; a big rollout costs more but lands harder. Leave it too long and they will feel shelved.`,
-      );
+
+    // Something new to pitch.
+    if (!s.inStudio && mine.length === 0 && serial >= s.workSerial) {
+      if (s.terms.allIn && s.fund < 2_000) {
+        if (!s.notes[0]?.startsWith('Out of fund')) {
+          s.notes.unshift('Out of fund — cannot make records until it is topped up.');
+          labelEvent(label, serial, `${s.name} has spent their whole recording fund.`, 'bad');
+          labelMail(state, `💸 ${s.name} is out of money`, `${s.name}'s all-in fund is spent. They cannot book sessions until you top it up (recoupable) from My Label → Roster.`);
+        }
+        s.workSerial = serial + 14;
+        continue;
+      }
+      const kindTitle = generateSongTitle();
+      const raw = makeSubmission({ npc, signee: s, serial, arSkill, title: kindTitle, roll: Math.random() });
+      const sub: LabelSubmission = { id: uuidv4(), ...raw };
+      label.submissions.unshift(sub);
+      const auto = s.terms.creativeControl || s.terms.dealType === 'distribution';
+      if (auto || policyApproves(label, sub)) {
+        const tier = auto ? sub.askTier : policyTier(label, sub);
+        const err = startLabelSession(state, label, s, sub, tier, serial);
+        if (!err) {
+          sub.status = 'approved';
+          sub.auto = true;
+          labelEvent(label, serial, auto
+            ? `${s.name} is recording "${sub.title}" — creative control means they don't need your yes.`
+            : `The office approved ${s.name}'s "${sub.title}" under your auto-approve rules.`, 'neutral');
+        } else {
+          labelMail(state, `🎧 ${s.name} wants to release "${sub.title}"`, `${sub.pitch}\n\nAuto-approve could not go ahead: ${err}\n\nAnswer from My Label → A&R.`);
+        }
+      } else {
+        labelEvent(label, serial, `${s.name} pitched ${sub.kind === 'album' ? `an album, "${sub.title}"` : `a new single, "${sub.title}"`}. Office rates it ~${sub.estimate}.`, 'neutral');
+        labelMail(
+          state,
+          `🎧 ${s.name} pitched ${sub.kind === 'album' ? 'an album' : 'a single'}: "${sub.title}"`,
+          `${sub.pitch}\n\nOffice estimate: ${sub.estimate}/100. They're asking for a ${RELEASE_TIERS[sub.askTier].label.toLowerCase()}${sub.kind === 'album' ? ` (${sub.trackCount} tracks)` : ''}.\n\nApprove, send it back for another pass, or shelve it — My Label → A&R. Leave it too long and they'll get restless.`,
+        );
+      }
+      s.workSerial = serial + 999; // the next one waits until this one is dealt with
+      rosterChanged = true;
+    }
+
+    // Unanswered for too long: it leaks.
+    for (const sub of mine) {
+      if (sub.status !== 'pending' || serial - sub.submittedSerial < LEAK_DAYS || s.inStudio || !npc) continue;
+      sub.status = 'leaked';
+      releaseLabelRecord(state, label, s, npc, serial, {
+        submissionId: sub.id, kind: sub.kind, title: sub.title, trackCount: sub.trackCount,
+        until: serial, tier: 'demo', cost: 0, quality: Math.max(10, sub.quality - 4), marketing: 0,
+      }, log, 'leak');
+      label.reputation = Math.max(0, label.reputation - 1);
+      s.loyalty = Math.max(0, s.loyalty - 6);
+      labelMail(state, `⚠️ "${sub.title}" leaked`, `${s.name}'s record sat in your inbox for ${serial - sub.submittedSerial} days. It is online now — no campaign, no rollout. The label still owns it, but ${s.name} is not happy and the press is asking questions.`);
+      rosterChanged = true;
     }
   }
 
   // ── 4. Deadlines: demands, rival offers, pitches, contracts ────────────
   for (const s of [...label.roster]) {
     if (s.demand && serial - s.demand.openedSerial > DEMAND_WINDOW_DAYS) {
-      // Ignored is answered.
       s.demand = undefined;
       s.mood = Math.max(0, s.mood - 15);
       s.loyalty = Math.max(0, s.loyalty - 10);
@@ -4250,6 +4629,7 @@ function labelTick(
           playerFame,
           relationship: npc.relationshipScore + (s.mood - 50) / 2 + (s.loyalty - 50) / 2,
           competing,
+          allIn: s.terms.allIn,
         });
         label.pitches.unshift({
           id: uuidv4(),
@@ -4257,17 +4637,25 @@ function labelTick(
           name: s.name,
           openedSerial: serial,
           expiresSerial: serial + 21,
-          terms: { ...s.terms, advance: 0 },
+          terms: { ...s.terms, advance: 0, signingBonus: 0, recordingFund: s.terms.allIn ? wants.recordingFund : 0 },
           wants,
           patience: patienceFor(npc) + (s.loyalty >= 60 ? 1 : 0),
           rounds: 0,
           status: 'open',
           competing: competing ? RIVAL_LABELS[hashString(`rc|${s.npcId}`) % RIVAL_LABELS.length] : undefined,
           renewal: true,
+          warmth: s.loyalty >= 70 ? 0.04 : 0,
         });
       }
-      labelEvent(label, serial, `${s.name}'s deal is up. Re-sign them in the next three weeks or they walk.`, 'neutral');
-      labelMail(state, `📝 ${s.name}'s contract is up`, `${s.name}'s deal with ${label.name} has run its course. Open My Label → Deals to negotiate a renewal. If nothing is signed within 21 days they leave — and the records you released stay yours${s.terms.dealType === 'distribution' ? ', except on a distribution deal, where the masters go with them' : ''}.`);
+      const option = s.terms.optionYears > s.optionsUsed;
+      labelEvent(label, serial, `${s.name}'s deal is up.${option ? ' You hold an option year.' : ''} Re-sign within three weeks or they walk.`, 'neutral');
+      labelMail(
+        state,
+        `📝 ${s.name}'s contract is up`,
+        `${s.name}'s deal with ${label.name} has run its course.\n\n` +
+          (option ? `You hold ${s.terms.optionYears - s.optionsUsed} option year${s.terms.optionYears - s.optionsUsed === 1 ? '' : 's'}: you can extend them 12 months on the same terms without asking — they may not love it.\n\n` : '') +
+          `Or open My Label → Deals to negotiate a renewal. If nothing is signed within 21 days they leave — and the records you released stay yours${s.terms.dealType === 'distribution' ? ', except on a distribution deal, where the masters go with them' : ''}.`,
+      );
     }
   }
 
@@ -4277,7 +4665,7 @@ function labelTick(
     p.lastReply = p.competing ? `They signed with ${p.competing} instead.` : 'They stopped waiting.';
     if (p.renewal) {
       const s = label.roster.find((x) => x.npcId === p.npcId);
-      if (s) {
+      if (s && s.status === 'expiring') {
         retireSignee(state, label, s, 'left');
         labelEvent(label, serial, `${s.name} left ${label.name} when the deal ran out.`, 'bad');
         rosterChanged = true;
@@ -4287,12 +4675,14 @@ function labelTick(
     }
   }
   if (label.pitches.length > 30) label.pitches = label.pitches.filter((p, i) => p.status === 'open' || i < 20);
+  if (label.submissions.length > 60) label.submissions = label.submissions.filter((x, i) => x.status === 'pending' || x.status === 'reworking' || i < 40);
 
   // ── 5. The scouting report, weekly ─────────────────────────────────────
   if (serial - label.prospectsSerial >= PROSPECT_REFRESH_DAYS) {
     label.prospects = pickProspects(rawNPCs, label, playerFame, arSkill, serial);
     label.prospectsSerial = serial;
   }
+  void days;
 
   // ── 6. Month end ───────────────────────────────────────────────────────
   const key = monthKeyOf(state.gameDate);
@@ -4317,7 +4707,12 @@ function labelMonthEnd(
   // Running costs.
   const salaries = label.staff.reduce((a, s) => a + s.salary, 0);
   const overhead = overheadFor(label);
-  labelSpend(label, salaries + overhead);
+  const fx = studioEffects(label.studio, label.staff);
+  labelSpend(label, salaries + overhead + fx.upkeep);
+  // Other artists renting the rooms.
+  const rent = studioRent(label.studio, label.reputation);
+  if (rent > 0) labelEarn(label, rent);
+  label.studio.busyDays = 0;
 
   const charting = new Set<string>();
   for (const row of state.globalSongs ?? []) charting.add(row.itemId);
@@ -4333,11 +4728,11 @@ function labelMonthEnd(
 
   for (const s of [...label.roster]) {
     const npc = npcById.get(s.npcId);
-    const monthArtistShare = s.monthGross * (s.terms.royalty / 100);
+    const monthArtistShare = s.monthGross * 0.85 * (s.terms.royalty / 100);
 
-    // 360: a cut of the road and the brand deals.
+    // 360: a cut of the road and the merch.
     if (s.terms.dealType === 'three_sixty' && s.status === 'active') {
-      const side = threeSixtyMonthly(s.fame);
+      const side = threeSixtyMonthly(s.fame, s.terms.touringShare || 20);
       if (side > 0) { labelEarn(label, side); s.labelEarned += side; }
     }
 
@@ -4345,10 +4740,14 @@ function labelMonthEnd(
     chartingTotal += charted;
     const bestWeekly = Math.max(0, ...s.releases.map((id) => songById.get(id)?.weeklyStreams ?? 0));
     if (s.lastReleaseSerial !== undefined && serial - s.lastReleaseSerial <= 31) releasesThisMonth++;
+    const pending = label.submissions.find((x) => x.npcId === s.npcId && x.status === 'pending');
 
     const before = s.fame;
     s.fame = monthlyFame(s, { serial, labelRep: label.reputation, chartingSongs: charted, bestWeekly });
-    const mood = monthlyMood(npc, s, { serial, labelRep: label.reputation, labelBroke: label.cash < 0, marketingSkill, monthArtistShare });
+    const mood = monthlyMood(npc, s, {
+      serial, labelRep: label.reputation, labelBroke: label.cash < 0, marketingSkill, monthArtistShare,
+      pendingDays: pending ? serial - pending.submittedSerial : 0,
+    });
     s.mood = mood.mood;
     s.loyalty = mood.loyalty;
     if (mood.notes.length) {
@@ -4359,6 +4758,7 @@ function labelMonthEnd(
     lines.push(
       `• ${s.name}: ${money(s.monthGross)} gross` +
         (s.recoupBalance > 0 ? `, ${money(s.recoupBalance)} still to recoup` : ', recouped') +
+        (s.terms.allIn ? ` · fund ${money(s.fund)}` : '') +
         ` · fame ${before.toFixed(0)}→${s.fame.toFixed(0)} · ${moodWord(s.mood).toLowerCase()}`,
     );
     s.monthGross = 0;
@@ -4410,10 +4810,10 @@ function labelMonthEnd(
     disputes,
     radioSkill: staffSkill(label.staff, 'radio'),
     releasesThisMonth,
+    studioTier: label.studio.tier,
   });
   label.reputation = Math.round((label.reputation + (target - label.reputation) * 0.15) * 10) / 10;
 
-  // Debt.
   if (label.cash < 0) {
     label.debtMonths += 1;
     labelEvent(label, serial, `The label is ${money(label.cash)} in the red (${label.debtMonths} month${label.debtMonths === 1 ? '' : 's'}).`, 'bad');
@@ -4428,7 +4828,7 @@ function labelMonthEnd(
   labelMail(
     state,
     `📊 ${label.name} — statement for ${label.monthKey}`,
-    `Revenue ${money(label.monthRevenue)} · Costs ${money(label.monthCosts)} (staff ${money(salaries)}, office ${money(overhead)}) · ` +
+    `Revenue ${money(label.monthRevenue)} · Costs ${money(label.monthCosts)} (staff ${money(salaries)}, office ${money(overhead)}${fx.upkeep ? `, studio ${money(fx.upkeep)}` : ''})${rent ? ` · Studio rent in ${money(rent)}` : ''} · ` +
       `${profit >= 0 ? 'Profit' : 'Loss'} ${money(Math.abs(profit))}\n` +
       `Cash in the bank: ${money(label.cash)} · Reputation ${label.reputation.toFixed(0)}/100\n\n` +
       (lines.length ? lines.join('\n') : 'No artists on the roster yet. Open My Label → Scouting.') +
@@ -9216,7 +9616,6 @@ export const useGameStore = create<GameState & GameActions>()(
             return;
           }
           state.player.career.money -= FOUNDING_COST;
-          // Most of the founding money is the label's first float.
           cash = Math.round(FOUNDING_COST * 0.6);
         }
         const serial = dateToSerial(state.gameDate);
@@ -9237,6 +9636,9 @@ export const useGameStore = create<GameState & GameActions>()(
           staff: [],
           history: [],
           events: [],
+          submissions: [],
+          policy: { ...DEFAULT_POLICY },
+          studio: emptyStudio(),
           monthRevenue: 0,
           monthCosts: 0,
           monthKey: monthKeyOf(state.gameDate),
@@ -9317,7 +9719,14 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    openLabelPitch: (npcId, dealType) => {
+    setLabelPolicy: (patch) =>
+      set((state) => {
+        if (!state.label) return;
+        normalizeLabel(state.label, dateToSerial(state.gameDate));
+        state.label.policy = { ...state.label.policy, ...patch };
+      }),
+
+    openLabelPitch: (npcId, dealType, allIn) => {
       let result: FeatureActionResult = { ok: false, message: 'Could not reach them.' };
       set((state) => {
         const label = state.label;
@@ -9338,7 +9747,7 @@ export const useGameStore = create<GameState & GameActions>()(
         }
         const serial = dateToSerial(state.gameDate);
         const competing = npc.fame >= 25 && unit(`comp|${npcId}|${Math.floor(serial / 14)}`) < 0.3;
-        const wants = wantsFor(npc as NPC, dealType, { labelRep: label.reputation, playerFame: fame, relationship: npc.relationshipScore, competing });
+        const wants = wantsFor(npc as NPC, dealType, { labelRep: label.reputation, playerFame: fame, relationship: npc.relationshipScore, competing, allIn: !!allIn });
         const pitch: LabelPitch = {
           id: uuidv4(),
           npcId,
@@ -9351,9 +9760,12 @@ export const useGameStore = create<GameState & GameActions>()(
           rounds: 0,
           status: 'open',
           competing: competing ? RIVAL_LABELS[hashString(`pc|${npcId}`) % RIVAL_LABELS.length] : undefined,
+          warmth: 0,
+          usedTactics: [],
+          revealed: [],
         };
         label.pitches.unshift(pitch);
-        labelEvent(label, serial, `Opened talks with ${npc.name}.`, 'neutral');
+        labelEvent(label, serial, `Opened talks with ${npc.name}${allIn ? ' (all-in deal)' : ''}.`, 'neutral');
         result = { ok: true, message: competing ? `Talks open — but ${pitch.competing} is also chasing ${npc.name}. Move fast.` : `Talks open with ${npc.name}.` };
       });
       return result;
@@ -9369,13 +9781,21 @@ export const useGameStore = create<GameState & GameActions>()(
       if (!npc) return null;
       const legal = labelLegalSkill(state);
       const serial = dateToSerial(state.gameDate);
+      const negotiator = labelNegotiatorSkill(state);
+      const playerFame = blendedFame(state.player);
+      const { score } = scoreOffer(npc, pitch.terms, pitch.wants);
       return {
         mood: moodOf(npc.id, serial),
         legalSkill: legal,
         lawyerNotes: lawyerRead(pitch.wants, legal),
         npc,
         potentialEstimate: potentialEstimate(potentialOf(npc), staffSkill(label.staff, 'ar'), npc.id),
-        cap: fameCap(label.reputation, blendedFame(state.player)),
+        cap: fameCap(label.reputation, playerFame),
+        negotiator,
+        leverage: leverage({ labelRep: label.reputation, playerFame, negotiator, relationship: npc.relationshipScore }, npc.fame, !!pitch.competing),
+        // Only a lawyer (or their own words) tells you how warm the table is.
+        temperature: legal >= 30 || (pitch.rounds ?? 0) > 0 ? temperature(score + (pitch.warmth ?? 0)) : null,
+        energy: state.player.energy,
       };
     },
 
@@ -9392,19 +9812,21 @@ export const useGameStore = create<GameState & GameActions>()(
         const r = negotiateLabel(
           npc as NPC,
           pitch,
-          terms,
+          normalizeTerms(terms),
           {
             labelRep: label.reputation,
             playerFame: blendedFame(state.player),
             relationship: npc.relationshipScore,
             moodShift: MOOD_INFO[moodOf(npc.id, serial)].shift,
             legalSkill: labelLegalSkill(state),
+            negotiator: labelNegotiatorSkill(state),
           },
           Math.random(),
         );
         pitch.rounds += 1;
         pitch.patience = r.patience;
         pitch.lastReply = r.message;
+        if (r.revealed) pitch.revealed = [...(pitch.revealed ?? []), r.revealed].slice(-6);
         if (r.outcome === 'walked') {
           pitch.status = 'walked';
           npc.relationshipScore = Math.max(-100, npc.relationshipScore - 3);
@@ -9418,13 +9840,66 @@ export const useGameStore = create<GameState & GameActions>()(
           pitch.terms = r.terms;
           pitch.agreedTerms = { ...r.terms };
         } else if (r.outcome === 'accepted') {
-          // They said yes to exactly this — it stays on the table to sign.
-          pitch.terms = { ...terms };
-          pitch.agreedTerms = { ...terms };
+          pitch.terms = normalizeTerms(terms);
+          pitch.agreedTerms = normalizeTerms(terms);
         } else {
           pitch.agreedTerms = undefined;
         }
         out = { outcome: r.outcome, message: r.message };
+      });
+      return out;
+    },
+
+    labelTactic: (pitchId, tactic) => {
+      let out: { ok: boolean; message: string; outcome?: 'accepted' | 'walked' } = { ok: false, message: 'Those talks are over.' };
+      set((state) => {
+        const label = state.label;
+        if (!label || !state.player) return;
+        const pitch = label.pitches.find((p) => p.id === pitchId);
+        if (!pitch || pitch.status !== 'open') return;
+        const npc = state.npcs.find((n) => n.id === pitch.npcId);
+        if (!npc) return;
+        pitch.usedTactics = pitch.usedTactics ?? [];
+        const once: LabelTactic[] = ['vision', 'personal', 'hardball'];
+        if (once.includes(tactic) && pitch.usedTactics.includes(tactic)) { out = { ok: false, message: 'You already tried that with them.' }; return; }
+        if (tactic === 'personal') {
+          if (!spendEnergy(state, 25)) { out = { ok: false, message: 'A proper sit-down takes 25 energy. Rest first.' }; return; }
+        }
+        const serial = dateToSerial(state.gameDate);
+        const r = applyTactic(npc as NPC, pitch, tactic, {
+          labelRep: label.reputation,
+          playerFame: blendedFame(state.player),
+          relationship: npc.relationshipScore,
+          moodShift: MOOD_INFO[moodOf(npc.id, serial)].shift,
+          legalSkill: labelLegalSkill(state),
+          negotiator: labelNegotiatorSkill(state),
+        }, Math.random());
+        pitch.usedTactics.push(tactic);
+        pitch.warmth = Math.max(-0.2, Math.min(0.2, r.warmth));
+        pitch.patience = r.patience;
+        pitch.lastReply = r.message;
+        if (r.revealed) pitch.revealed = [...(pitch.revealed ?? []), r.revealed].slice(-6);
+        if (tactic === 'personal' && r.ok) npc.relationshipScore = Math.min(100, npc.relationshipScore + 4);
+        if (r.concede) {
+          // They drop the ask: your current line on that term is now fine.
+          const k = r.concede as keyof LabelTerms;
+          (pitch.wants as unknown as Record<string, unknown>)[k] = (pitch.terms as unknown as Record<string, unknown>)[k];
+        }
+        if (r.outcome === 'accepted') {
+          pitch.agreedTerms = { ...pitch.terms };
+          pitch.wants = { ...pitch.terms };
+        } else if (r.outcome === 'walked') {
+          pitch.status = 'walked';
+          npc.relationshipScore = Math.max(-100, npc.relationshipScore - 5);
+          labelEvent(label, serial, `${pitch.name} walked out after your ${TACTIC_INFO[tactic].label.toLowerCase()}.`, 'bad');
+          if (pitch.renewal) {
+            const s = label.roster.find((x) => x.npcId === pitch.npcId);
+            if (s) retireSignee(state, label, s, 'left');
+          }
+        } else if (pitch.patience <= 0) {
+          pitch.status = 'walked';
+        }
+        out = { ok: r.ok, message: r.message, outcome: r.outcome };
       });
       return out;
     },
@@ -9434,38 +9909,43 @@ export const useGameStore = create<GameState & GameActions>()(
       set((state) => {
         const label = state.label;
         if (!label || !state.player) return;
+        normalizeLabel(label, dateToSerial(state.gameDate));
         const pitch = label.pitches.find((p) => p.id === pitchId);
         if (!pitch || pitch.status !== 'open') return;
         const npc = state.npcs.find((n) => n.id === pitch.npcId);
         if (!npc) return;
-        // Signing at the terms on the table only works if those are terms they
-        // have actually agreed to — their own counter, or an offer they accepted.
-        const agreed = pitch.agreedTerms && JSON.stringify(pitch.agreedTerms) === JSON.stringify(pitch.terms);
-        const { score } = scoreOffer(npc as NPC, pitch.terms, pitch.wants);
+        const terms = normalizeTerms(pitch.terms);
+        const agreed = pitch.agreedTerms && JSON.stringify(normalizeTerms(pitch.agreedTerms)) === JSON.stringify(terms);
+        const { score } = scoreOffer(npc as NPC, terms, pitch.wants);
         if (!agreed && score < 1) {
           result.message = 'They have not agreed to these terms. Send them as an offer first.';
           return;
         }
-        if (label.cash < pitch.terms.advance) {
-          result.message = `The advance is ${money(pitch.terms.advance)} and the label has ${money(label.cash)}. Put money in first.`;
+        const due = signingCost(terms);
+        if (label.cash < due) {
+          result.message = `Signing costs ${money(due)} today (advance${terms.signingBonus ? ' + bonus' : ''}${terms.allIn ? ' + recording fund' : ''}). The label has ${money(label.cash)}. Put money in first.`;
           return;
         }
         const serial = dateToSerial(state.gameDate);
-        labelSpend(label, pitch.terms.advance);
+        labelSpend(label, due);
         pitch.status = 'signed';
+        const recoup = terms.advance * recoupShare(terms.dealType, 'advance') + (terms.allIn ? terms.recordingFund * recoupShare(terms.dealType, 'fund') : 0);
 
         const existing = label.roster.find((s) => s.npcId === pitch.npcId);
         if (pitch.renewal && existing) {
-          existing.terms = { ...pitch.terms };
+          existing.terms = terms;
           existing.status = 'active';
           existing.signedSerial = serial;
-          existing.endsSerial = serial + pitch.terms.termMonths * 30;
+          existing.endsSerial = serial + terms.termMonths * 30;
           existing.releasesDelivered = 0;
-          existing.recoupBalance += pitch.terms.advance;
+          existing.albumsDelivered = 0;
+          existing.optionsUsed = 0;
+          existing.recoupBalance += recoup;
+          existing.fund += terms.allIn ? terms.recordingFund : 0;
           existing.fameAtSigning = existing.fame;
           existing.mood = Math.min(100, existing.mood + 15);
           existing.loyalty = Math.min(100, existing.loyalty + 10);
-          existing.notes.unshift(`Re-signed: ${DEAL_INFO[pitch.terms.dealType].label}, ${pitch.terms.royalty}% royalty.`);
+          existing.notes.unshift(`Re-signed: ${DEAL_INFO[terms.dealType].label}${terms.allIn ? ' (all-in)' : ''}, ${terms.royalty}% royalty.`);
           labelEvent(label, serial, `${pitch.name} re-signed with ${label.name}.`, 'good');
           result = { ok: true, message: `${pitch.name} re-signed.` };
           return;
@@ -9478,29 +9958,35 @@ export const useGameStore = create<GameState & GameActions>()(
           country: npc.country,
           tier: npc.tier,
           signedSerial: serial,
-          endsSerial: serial + pitch.terms.termMonths * 30,
-          terms: { ...pitch.terms },
+          endsSerial: serial + terms.termMonths * 30,
+          terms,
           fameAtSigning: npc.fame,
           fame: npc.fame,
           potential: potentialOf(npc as NPC),
-          recoupBalance: pitch.terms.advance * recoupShare(pitch.terms.dealType, 'advance'),
-          mood: 70,
+          recoupBalance: recoup,
+          fund: terms.allIn ? terms.recordingFund : 0,
+          mood: 70 + Math.min(15, Math.round(terms.signingBonus / 2000)),
           loyalty: Math.round(Math.max(20, Math.min(80, 40 + npc.relationshipScore / 3))),
           releases: [],
+          albums: [],
           releasesDelivered: 0,
+          albumsDelivered: 0,
+          singlesSinceAlbum: 0,
+          workSerial: serial + 10 + Math.floor(unit(`first|${npc.id}`) * 12),
+          optionsUsed: 0,
           status: 'active',
           grossEarned: 0,
           labelEarned: 0,
           artistPaid: 0,
           monthGross: 0,
-          notes: [`Signed: ${DEAL_INFO[pitch.terms.dealType].label}, ${pitch.terms.royalty}% royalty, ${money(pitch.terms.advance)} advance.`],
+          notes: [`Signed: ${DEAL_INFO[terms.dealType].label}${terms.allIn ? ` (all-in, ${money(terms.recordingFund)} fund)` : ''}, ${terms.royalty}% royalty, ${money(terms.advance)} advance.`],
         };
         label.roster.push(signee);
         npc.team = { ...(npc.team ?? {}), label: label.name };
         npc.relationshipScore = Math.min(100, npc.relationshipScore + 8);
         label.prospects = label.prospects.filter((p) => p.npcId !== npc.id);
         label.reputation = Math.min(100, label.reputation + (npc.fame >= 40 ? 3 : 1));
-        labelEvent(label, serial, `Signed ${npc.name}. ${money(pitch.terms.advance)} advance.`, 'good');
+        labelEvent(label, serial, `Signed ${npc.name}. ${money(due)} paid today. They are already writing.`, 'good');
         state.socialPosts.unshift({
           id: uuidv4(), platform: 'chirp', authorId: 'player', authorName: state.player.artistName,
           content: `Welcome ${npc.name} to ${label.name}. 🏷️ The family just got bigger.`,
@@ -9510,11 +9996,11 @@ export const useGameStore = create<GameState & GameActions>()(
         pushNotification(state, {
           kind: 'business',
           title: `${npc.name} signed to ${label.name}`,
-          body: `${DEAL_INFO[pitch.terms.dealType].label} · ${pitch.terms.royalty}% royalty · ${pitch.terms.releasesOwed} releases.`,
+          body: `${DEAL_INFO[terms.dealType].label}${terms.allIn ? ' (all-in)' : ''} · ${terms.royalty}% royalty · ${terms.releasesOwed} singles, ${terms.albumsOwed} album${terms.albumsOwed === 1 ? '' : 's'}.`,
           artSeed: `artist|${npc.id}`,
           action: { type: 'artist', id: npc.id },
         });
-        result = { ok: true, message: `${npc.name} is signed to ${label.name}.` };
+        result = { ok: true, message: `${npc.name} is signed to ${label.name}. Their first demo should land in a couple of weeks.` };
       });
       return result;
     },
@@ -9532,38 +10018,141 @@ export const useGameStore = create<GameState & GameActions>()(
         }
       }),
 
+    exerciseLabelOption: (npcId) => {
+      let result: FeatureActionResult = { ok: false, message: 'No option to exercise.' };
+      set((state) => {
+        const label = state.label;
+        if (!label) return;
+        const s = label.roster.find((x) => x.npcId === npcId);
+        if (!s || s.status !== 'expiring') return;
+        if (s.terms.optionYears <= s.optionsUsed) { result.message = 'There are no option years left on this deal.'; return; }
+        const serial = dateToSerial(state.gameDate);
+        s.optionsUsed += 1;
+        s.status = 'active';
+        s.endsSerial = serial + 365;
+        // Being held to old terms after you blew up stings; a happy artist shrugs.
+        const grew = s.fame - s.fameAtSigning;
+        const hit = s.mood < 50 || grew >= 12 ? 12 : 3;
+        s.mood = Math.max(0, s.mood - hit);
+        s.loyalty = Math.max(0, s.loyalty - (hit > 5 ? 8 : 1));
+        label.pitches = label.pitches.map((p) => (p.npcId === npcId && p.status === 'open' && p.renewal ? { ...p, status: 'withdrawn' as const } : p));
+        labelEvent(label, serial, `Exercised an option year on ${s.name}.${hit > 5 ? ' They feel trapped.' : ''}`, hit > 5 ? 'bad' : 'neutral');
+        result = { ok: true, message: hit > 5 ? `${s.name} is yours for another year — and they are not happy about the old terms.` : `${s.name} is yours for another year.` };
+      });
+      return result;
+    },
+
+    answerLabelSubmission: (subId, answer, tier) => {
+      let result: FeatureActionResult = { ok: false, message: 'That demo is not waiting on you.' };
+      set((state) => {
+        const label = state.label;
+        if (!label) return;
+        normalizeLabel(label, dateToSerial(state.gameDate));
+        const sub = label.submissions.find((x) => x.id === subId);
+        if (!sub || sub.status !== 'pending') return;
+        const s = label.roster.find((x) => x.npcId === sub.npcId);
+        if (!s) { sub.status = 'rejected'; return; }
+        const npc = state.npcs.find((n) => n.id === sub.npcId) as NPC | undefined;
+        const serial = dateToSerial(state.gameDate);
+        if (answer === 'approve') {
+          if (s.status === 'dispute') { result.message = `${s.name} is refusing to record until the dispute is settled.`; return; }
+          const err = startLabelSession(state, label, s, sub, tier ?? sub.askTier, serial);
+          if (err) { result.message = err; return; }
+          sub.status = 'approved';
+          // Giving them less than they asked for is noticed.
+          const order: LabelReleaseTier[] = ['demo', 'standard', 'major'];
+          const gap = order.indexOf(sub.askTier) - order.indexOf(tier ?? sub.askTier);
+          if (gap > 0) { s.mood = Math.max(0, s.mood - gap * 4); s.notes.unshift(`Wanted a ${RELEASE_TIERS[sub.askTier].label.toLowerCase()}; got less.`); }
+          if (gap < 0) s.mood = Math.min(100, s.mood + 4);
+          result = { ok: true, message: `Approved. ${s.name} is in the studio — out in ${(s.inStudio?.until ?? serial) - serial} days.` };
+        } else if (answer === 'rework') {
+          const r = reworkOutcome(npc, sub, Math.random());
+          sub.status = 'reworking';
+          sub.reworks += 1;
+          sub.quality = r.quality;
+          sub.dueSerial = serial + 8 + Math.floor(Math.random() * 10);
+          s.mood = Math.max(0, Math.min(100, s.mood + r.mood));
+          labelEvent(label, serial, `Sent "${sub.title}" back to ${s.name}. ${r.text}`, r.mood < -5 ? 'bad' : 'neutral');
+          result = { ok: true, message: `${r.text} The new version comes back in about ${sub.dueSerial - serial} days.` };
+        } else {
+          sub.status = 'rejected';
+          // A shelved album sends them back to singles for a while.
+          if (sub.kind === 'album') s.singlesSinceAlbum = 1;
+          const t = npc ? traitsOf(npc) : null;
+          const hit = t?.diva ? 14 : t?.petty ? 10 : 6;
+          s.mood = Math.max(0, s.mood - hit);
+          s.loyalty = Math.max(0, s.loyalty - Math.round(hit / 3));
+          s.workSerial = serial + 15 + Math.floor(Math.random() * 15);
+          labelEvent(label, serial, `Shelved ${s.name}'s "${sub.title}".`, 'bad');
+          result = { ok: true, message: `Shelved. ${s.name} ${hit >= 10 ? 'took it personally' : 'is disappointed'} and is back writing.` };
+        }
+      });
+      return result;
+    },
+
     fundLabelRelease: (npcId, tier) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not on the roster.' };
+      set((state) => {
+        const label = state.label;
+        if (!label) return;
+        normalizeLabel(label, dateToSerial(state.gameDate));
+        const s = label.roster.find((x) => x.npcId === npcId);
+        if (!s) return;
+        if (s.status === 'dispute') { result.message = `${s.name} is refusing to record until the dispute is settled.`; return; }
+        if (s.status !== 'active' && s.status !== 'expiring') { result.message = `${s.name} is not under contract.`; return; }
+        if (s.inStudio) { result.message = `${s.name} is already in the studio.`; return; }
+        const serial = dateToSerial(state.gameDate);
+        const sinceLast = serial - (s.lastReleaseSerial ?? -999);
+        if (sinceLast < 30) {
+          result.message = `${s.name}'s last record came out ${sinceLast} day${sinceLast === 1 ? '' : 's'} ago. Give it at least a month.`;
+          return;
+        }
+        const err = startLabelSession(state, label, s, null, tier, serial);
+        if (err) { result.message = err; return; }
+        const booked = s.inStudio as LabelSession | undefined;
+        result = { ok: true, message: `${s.name} is in the studio. The record lands in ${(booked?.until ?? serial) - serial} days.` };
+      });
+      return result;
+    },
+
+    shootLabelVideo: (songId, tierId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not a label record.' };
+      set((state) => {
+        const label = state.label;
+        if (!label) return;
+        normalizeLabel(label, dateToSerial(state.gameDate));
+        const s = label.roster.find((x) => x.releases.includes(songId));
+        const song = state.npcSongs.find((x) => x.id === songId);
+        if (!s || !song) { result.message = 'Only records by artists currently on your label can be shot.'; return; }
+        const tier = VIDEO_TIERS.find((v) => v.id === tierId) ?? VIDEO_TIERS[1];
+        const payer = s.terms.allIn ? 'fund' : 'label';
+        const err = startLabelVideo(state, label, s, song, tier.budget, tier.days, payer, dateToSerial(state.gameDate));
+        if (err) { result.message = err; return; }
+        result = { ok: true, message: `${s.name} is shooting a ${tier.label.toLowerCase()} for "${song.title}". It premieres in ${tier.days} days.` };
+      });
+      return result;
+    },
+
+    topUpLabelFund: (npcId, amount) => {
       let result: FeatureActionResult = { ok: false, message: 'Not on the roster.' };
       set((state) => {
         const label = state.label;
         if (!label) return;
         const s = label.roster.find((x) => x.npcId === npcId);
         if (!s) return;
-        if (s.status === 'dispute') { result.message = `${s.name} is refusing to record until the dispute is settled.`; return; }
-        if (s.status !== 'active' && s.status !== 'expiring') { result.message = `${s.name} is not under contract.`; return; }
-        if (s.terms.dealType === 'distribution') { result.message = `${s.name} funds their own records on a distribution deal. They hand you finished masters.`; return; }
-        if (s.inStudio) { result.message = `${s.name} is already in the studio.`; return; }
-        // Without new music handed in, a record can still be rushed — but not
-        // on top of the last one. A release needs room to breathe.
-        const sinceLast = dateToSerial(state.gameDate) - (s.lastReleaseSerial ?? -999);
-        if (s.requestSerial === undefined && sinceLast < 30) {
-          result.message = `${s.name}'s last record came out ${sinceLast} day${sinceLast === 1 ? '' : 's'} ago. Give it at least a month.`;
-          return;
+        if (!s.terms.allIn) { result.message = `${s.name} is on a label-funded deal; you pay per record.`; return; }
+        const amt = Math.floor(amount);
+        if (amt <= 0) { result.message = 'Enter an amount.'; return; }
+        if (label.cash < amt) { result.message = `The label only has ${money(label.cash)}.`; return; }
+        labelSpend(label, amt);
+        s.fund += amt;
+        s.recoupBalance += amt;
+        s.mood = Math.min(100, s.mood + 4);
+        if (s.workSerial > dateToSerial(state.gameDate) + 14 && !label.submissions.some((x) => x.npcId === npcId && (x.status === 'pending' || x.status === 'reworking'))) {
+          s.workSerial = dateToSerial(state.gameDate) + 3;
         }
-        if (label.cash < 0) { result.message = 'The label is overdrawn. Put money in first.'; return; }
-        const t = RELEASE_TIERS[tier];
-        const marketing = Math.max(t.marketing, s.terms.marketingCommit);
-        const cost = t.cost + marketing;
-        if (label.cash < cost) { result.message = `That costs ${money(cost)} (recording ${money(t.cost)} + marketing ${money(marketing)}). The label has ${money(label.cash)}.`; return; }
-        const serial = dateToSerial(state.gameDate);
-        labelSpend(label, cost);
-        s.recoupBalance += t.cost * recoupShare(s.terms.dealType, 'recording') + marketing * recoupShare(s.terms.dealType, 'marketing');
-        const quality = releaseQuality(s.fame, tier, staffSkill(label.staff, 'ar'), Math.random());
-        s.inStudio = { until: serial + t.days, tier, cost, quality, marketing };
-        s.requestSerial = undefined;
-        s.mood = Math.min(100, s.mood + (tier === 'major' ? 5 : tier === 'standard' ? 3 : 1));
-        labelEvent(label, serial, `${s.name} is in the studio — ${t.label.toLowerCase()}, out in ${t.days} days.`, 'neutral');
-        result = { ok: true, message: `${s.name} is in the studio. The record lands in ${t.days} days.` };
+        labelEvent(label, dateToSerial(state.gameDate), `Topped up ${s.name}'s fund by ${money(amt)} (recoupable).`, 'neutral');
+        result = { ok: true, message: `${s.name}'s fund is now ${money(s.fund)}.` };
       });
       return result;
     },
@@ -9702,9 +10291,49 @@ export const useGameStore = create<GameState & GameActions>()(
         if (npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - 12);
         if (s.inStudio) labelEvent(label, serial, `The unfinished ${s.name} record is shelved for good.`, 'bad');
         retireSignee(state, label, s, 'dropped');
-        label.pitches = label.pitches.map((p) => (p.npcId === npcId && p.status === 'open' ? { ...p, status: 'withdrawn' } : p));
+        label.pitches = label.pitches.map((p) => (p.npcId === npcId && p.status === 'open' ? { ...p, status: 'withdrawn' as const } : p));
         labelEvent(label, serial, `Dropped ${s.name}.${optics < 0 ? ' People noticed.' : ''}`, 'bad');
         result = { ok: true, message: `${s.name} is off the label.${s.recoupBalance > 0 ? ` ${money(s.recoupBalance)} unrecouped is written off.` : ''}` };
+      });
+      return result;
+    },
+
+    upgradeLabelStudio: () => {
+      let result: FeatureActionResult = { ok: false, message: 'No label.' };
+      set((state) => {
+        const label = state.label;
+        if (!label) return;
+        normalizeLabel(label, dateToSerial(state.gameDate));
+        const next = label.studio.tier + 1;
+        if (next >= STUDIO_TIERS.length) { result.message = 'The studio is already the best in the country.'; return; }
+        const t = STUDIO_TIERS[next];
+        if (label.cash < t.cost) { result.message = `${t.name} costs ${money(t.cost)}. The label has ${money(label.cash)}.`; return; }
+        labelSpend(label, t.cost);
+        label.studio.tier = next;
+        labelEvent(label, dateToSerial(state.gameDate), `Built the ${t.name.toLowerCase()} (${money(t.cost)}).`, 'good');
+        for (const s of label.roster) s.mood = Math.min(100, s.mood + 2);
+        result = { ok: true, message: `${t.name} is open. ${t.blurb}` };
+      });
+      return result;
+    },
+
+    buyLabelGear: (gear) => {
+      let result: FeatureActionResult = { ok: false, message: 'No label.' };
+      set((state) => {
+        const label = state.label;
+        if (!label) return;
+        normalizeLabel(label, dateToSerial(state.gameDate));
+        const lvl = label.studio.gear[gear] ?? 0;
+        if (lvl >= gearCap(label.studio.tier)) {
+          result.message = label.studio.tier === 0 ? 'Build a studio first.' : `The ${STUDIO_TIERS[label.studio.tier].name.toLowerCase()} has no room for more. Upgrade the building.`;
+          return;
+        }
+        const cost = GEAR_INFO[gear].costs[lvl];
+        if (label.cash < cost) { result.message = `That costs ${money(cost)}. The label has ${money(label.cash)}.`; return; }
+        labelSpend(label, cost);
+        label.studio.gear[gear] = lvl + 1;
+        labelEvent(label, dateToSerial(state.gameDate), `Upgraded the ${GEAR_INFO[gear].label.toLowerCase()} to level ${lvl + 1} (${money(cost)}).`, 'good');
+        result = { ok: true, message: `${GEAR_INFO[gear].label} upgraded.` };
       });
       return result;
     },
@@ -9721,7 +10350,6 @@ export const useGameStore = create<GameState & GameActions>()(
         const skill = npcSkill(n);
         out.push({ npcId: n.id, name: n.name, skill, salary: staffSalary(skill), country: n.country });
       }
-      // Home country first, then the best; a short list, like a recruiter's.
       out.sort((a, b) => (Number(b.country === label.country) - Number(a.country === label.country)) || b.skill - a.skill);
       const home = out.filter((c) => c.country === label.country).slice(0, 4);
       const abroad = out.filter((c) => c.country !== label.country).slice(0, 2);
@@ -9742,8 +10370,8 @@ export const useGameStore = create<GameState & GameActions>()(
         const serial = dateToSerial(state.gameDate);
         label.staff.push({ role, npcId, name: npc.name, skill, salary, hiredSerial: serial });
         labelEvent(label, serial, `Hired ${npc.name} as ${STAFF_INFO[role].title} (${money(salary)}/month).`, 'good');
-        if (role === 'ar') label.prospectsSerial = -999; // a new A&R brings a fresh report next tick
-        result = { ok: true, message: `${npc.name} joins as ${STAFF_INFO[role].title}.` };
+        if (role === 'ar') label.prospectsSerial = -999;
+        result = { ok: true, message: `${npc.name} joins as ${STAFF_INFO[role].title}.${role === 'engineer' && label.studio.tier === 0 ? ' They need a studio to work in — build one.' : ''}` };
       });
       return result;
     },
@@ -11444,6 +12072,13 @@ export const useGameStore = create<GameState & GameActions>()(
         // NPC songs live their own lives: they climb, decay, surge, and die out.
         const npcTick = tickNPCSongs(state.npcSongs as Song[], rawNPCs);
         for (const ev of npcTick.events) worldLog.push(ev);
+        // `tickNPCSongs` adds one "week" per TURN, and the running clock turns
+        // once a day — so a record was "13 weeks old" on its thirteenth day.
+        // Age is a fact about the calendar; read it off the release date.
+        for (const song of state.npcSongs as Song[]) {
+          const released = serialOfGameDate(song.releaseDate, targetSerial);
+          song.weeksOut = Math.max(0, Math.floor((targetSerial - released) / 7));
+        }
 
         // ─── ONE SOURCE OF TRUTH FOR THE NUMBERS ──────────────────────
         // The streaming engine writes per-platform daily values into
@@ -11581,7 +12216,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // twice). The label has its own bank account; nothing here touches
         // the player's money.
         if (state.label) {
-          labelTick(state, rawNPCs, streamRun.labelRevenueBySong, targetSerial, worldLog);
+          labelTick(state, rawNPCs, streamRun.labelRevenueBySong, targetSerial, days, worldLog);
         }
 
         // ─── INDUSTRY & LIFE TICK ─────────────────────────────────────

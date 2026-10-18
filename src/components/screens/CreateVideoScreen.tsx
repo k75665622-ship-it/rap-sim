@@ -36,7 +36,8 @@ export function CreateVideoScreen() {
     [state.songs],
   );
 
-  const [songId, setSongId] = useState<string>(songs[0]?.id ?? '');
+  // Arriving from a record's page, that record is the one being shot.
+  const [songId, setSongId] = useState<string>(songs.find((s) => s.id === state.selectedSongId)?.id ?? songs[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [concept, setConcept] = useState(VIDEO_CONCEPTS[0]);
   const [style, setStyle] = useState(VIDEO_STYLES[0]);

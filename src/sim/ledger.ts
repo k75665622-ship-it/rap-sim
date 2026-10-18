@@ -75,6 +75,21 @@ const LEDGER_LABELS: Record<string, { label: string; kind: LedgerKind; note?: st
     kind: 'expense',
     note: 'The annual charge on what you own.',
   },
+  studio_upkeep: {
+    label: 'Studio upkeep',
+    kind: 'expense',
+    note: 'Rent, power and insurance on the studio building.',
+  },
+  studio_rent: {
+    label: 'Studio rentals',
+    kind: 'income',
+    note: 'Other artists booking your room.',
+  },
+  beats: {
+    label: 'Beats',
+    kind: 'expense',
+    note: 'Leases, exclusives and commissioned beats.',
+  },
   other: {
     label: 'Other',
     kind: 'income',

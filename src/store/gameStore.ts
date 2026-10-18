@@ -20,9 +20,15 @@ import type {
   PlayerLabel, LabelSignee, LabelPitch, LabelEvent, LabelTerms, LabelDealType,
   LabelStaffRole, LabelReleaseTier, LabelGear, LabelTactic, LabelPolicy, LabelSubmission,
   LabelSession, Genre as LabelGenre, LineupAct, ShowGuest, Moment, MomentEffect,
+  FanWar, SocialComment,
 } from '../types/game';
 import { rollMoment, resolveMoment, expireMoment, buildFollowUp, buildFeatureTwist, type MomentWorld } from '../sim/moments';
-import { chatReply } from '../sim/chat';
+import { chatReply, detectIntent } from '../sim/chat';
+import {
+  SOCIAL_APPS, APP_META, kindDef, seedFollowers, postReach, generateComments as socialComments, tagResponse,
+  fanWarDay, fanWarMove, fanbaseNameFor, FANWAR_ACTIONS,
+  type SocialApp, type PostKind, type CommentContext as SocialCommentContext, type FanWarAction,
+} from '../sim/social';
 import {
   buildLineup,
   clashOutcome,
@@ -353,8 +359,16 @@ import {
   roomById,
   roomProductionBonus,
   roomLockReason,
+  HOME_STUDIO_TIERS,
+  buildingLevel,
+  buildingTier,
+  rentOutIncome,
   type GearSlotId,
 } from '../sim/room';
+import {
+  emptyBeats, storeCatalogue, dropInterval, teamBeat, orderQuote, customBeatQuality, takesOrder, beatName, beatGrade, LEASE_PENALTY,
+  type BeatsState, type OwnedBeat, type BeatOrder,
+} from '../sim/beats';
 import {
   MAX_ENERGY,
   sessionEnergy,
@@ -729,6 +743,14 @@ function applySlotPayload(state: GameState, saved: Partial<GameState>): void {
   // purchase with "cannot read levels of undefined".
   if (!state.studio || typeof state.studio !== 'object') state.studio = { levels: {} };
   if (!state.studio.levels || typeof state.studio.levels !== 'object') state.studio.levels = {};
+  // Gear bought before the building existed: the room it is in must be able
+  // to hold it, so an older career is given the room its gear implies.
+  if (state.studio.levels.building === undefined) {
+    const top = Math.max(0, ...GEAR_SLOTS.map((g) => state.studio.levels[g.id] ?? 0));
+    if (top >= 3) state.studio.levels.building = 2;
+    else if (top >= 2) state.studio.levels.building = 1;
+  }
+  if (!state.beats || typeof state.beats !== 'object' || !Array.isArray(state.beats.library)) state.beats = emptyBeats();
   // And the beefs, for the same reason as `tours`: absent, explicitly
   // `undefined`, or a stale shape would all make the first `beefs.length` or
   // `beefs.find` throw somewhere far away from here.
@@ -744,6 +766,8 @@ function applySlotPayload(state: GameState, saved: Partial<GameState>): void {
   // name back from the label's own records.
   if (!state.label || typeof state.label !== 'object') state.label = null;
   if (!Array.isArray(state.moments)) state.moments = [];
+  if (!Array.isArray(state.fanWars)) state.fanWars = [];
+  if (!state.socialStats || typeof state.socialStats !== 'object') state.socialStats = {};
   if (state.label) {
     const label = state.label;
     normalizeLabel(label, dateToSerial(state.gameDate));
@@ -968,6 +992,12 @@ function getInitialState(): GameState {
     businesses: [],
     label: null,
     moments: [],
+    fanWars: [],
+    beats: emptyBeats(),
+    socialStats: {},
+    fanbaseName: undefined,
+    postsToday: undefined,
+    socialTouches: undefined,
     ownedAssets: [],
     awards: [],
     certifications: [],
@@ -1995,6 +2025,9 @@ function finishWork(state: GameState, item: WorkItem, log: string[]): void {
     state.player!.stats.songwriting = Math.min(100, state.player!.stats.songwriting + 0.6);
     state.player!.stats.lyricism = Math.min(100, state.player!.stats.lyricism + 0.5);
 
+    // They post the record and tag you.
+    if (hostSong && npc) promoPosts(state, npc, hostSong.title, hostSong.id, dateToSerial(state.gameDate), true);
+
     log.push(
       hostSong
         ? `✍️ The verse for ${w.npcName}'s "${w.songTitle}" is sent — ${days} day${days > 1 ? 's' : ''}, and it reads ${gradeLabel(w.verseQuality)}.`
@@ -2632,6 +2665,33 @@ interface GameActions {
   /** End it — a truce, a concession or a knockout. */
   endBeef: (beefId: string, kind: ChosenResolution) => FeatureActionResult;
 
+  // Social v2
+  /**
+   * Post to one or more apps at once. Each app gets the closest kind of post
+   * it supports, reaches that app's followers, and keeps collecting for three
+   * days. Tagged people see it and decide what to do about it.
+   */
+  publishPost: (opts: { apps: string[]; kind: string; content: string; tags?: string[]; songId?: string }) => { ok: boolean; message: string; viral?: boolean };
+  repostPost: (postId: string) => FeatureActionResult;
+  quotePost: (postId: string, text: string) => FeatureActionResult;
+  /** Comment on a post, or reply to a comment on it. People answer. */
+  commentOnPost: (postId: string, text: string, replyToCommentId?: string) => FeatureActionResult;
+  likeComment: (postId: string, commentId: string) => void;
+  setFanbaseName: (name: string) => void;
+  fanWarAction: (warId: string, action: FanWarAction) => FeatureActionResult;
+  /** A gesture with a price on it. The second in a week is a bribe. */
+  sendGift: (npcId: string, tier: 'flowers' | 'bottle' | 'chain') => FeatureActionResult;
+
+  // Beats & the studio building
+  buyBeat: (listingId: string, license: 'lease' | 'exclusive') => FeatureActionResult;
+  /** Commission a beat to a brief, from your team (free) or anyone else (a fee). */
+  orderBeat: (opts: { producerId: string; genre: Genre; bpm: number; mood: SongMood; forTitle?: string }) => FeatureActionResult;
+  /** Don't like it? Ask for another pass. */
+  redoBeat: (beatId: string) => FeatureActionResult;
+  discardBeat: (beatId: string) => void;
+  upgradeStudioBuilding: () => FeatureActionResult;
+  setStudioRentOut: (on: boolean) => void;
+
   // Shows
   /**
    * The estimate, without committing to anything.
@@ -2988,6 +3048,12 @@ export interface StudioSessionPayload {
    * Absent means the session was tracked on the player's own gear.
    */
   roomId?: string | null;
+  /**
+   * A beat from the player's own library — made by the team, bought in the
+   * store, or commissioned. Already paid for, so the session charges no
+   * producer fee, and the beat is used up by the record.
+   */
+  libraryBeatId?: string | null;
   // NOTE: no feature ids. A song is tracked solo and features are NEGOTIATED
   // afterwards (see `sendFeatureRequest` / `addFeatureVerse`). Being able to
   // bolt a name onto a record at the click of a button was the cheat.
@@ -5174,6 +5240,582 @@ function applyMomentEffects(state: GameState, effects: MomentEffect[], serial: n
   }
 }
 
+// ─── SOCIAL v2: STORE SIDE ─────────────────────────────────────────────────
+// The engine is `sim/social.ts`. This holds the follower counts, makes posts,
+// applies what tags and comments do to people, and runs the daily social life
+// of the scene: posts collecting engagement, fan wars, rivals hitting back.
+
+function socialStatsOf(state: GameState): Record<string, { followers: number; lastPostSerial?: number }> {
+  const fanbase = state.player?.career.fanbase ?? 0;
+  const stats = state.socialStats ?? (state.socialStats = {});
+  for (const app of SOCIAL_APPS) {
+    if (!stats[app] || typeof stats[app].followers !== 'number') stats[app] = { followers: seedFollowers(app, fanbase) };
+  }
+  return stats;
+}
+
+function fanbaseNameOf(state: GameState): string {
+  if (!state.fanbaseName && state.player) state.fanbaseName = fanbaseNameFor(state.player.artistName, state.player.id);
+  return state.fanbaseName ?? 'the fans';
+}
+
+/** One like/comment per person counts; the tenth today does not. */
+function socialTouch(state: GameState, npcId: string, serial: number): number {
+  if (!state.socialTouches || state.socialTouches.serial !== serial) state.socialTouches = { serial, counts: {} };
+  const n = (state.socialTouches.counts[npcId] ?? 0) + 1;
+  state.socialTouches.counts[npcId] = n;
+  return n;
+}
+
+function bumpRel(state: GameState, npcId: string, delta: number, serial: number, why?: string): void {
+  if (!delta) return;
+  const npc = state.npcs.find((n) => n.id === npcId);
+  if (!npc) return;
+  // The same person can only be charmed so much in one day.
+  if (delta > 0 && socialTouch(state, npcId, serial) > 3) return;
+  npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + delta));
+  if (why) npc.memoryLog = [...(npc.memoryLog ?? []).slice(-9), why];
+}
+
+/** The rival in an active fan war or beef, for comment sections. */
+function currentRival(state: GameState): { name: string; fans: string } | undefined {
+  const war = (state.fanWars ?? []).find((w) => w.status === 'active' && w.intensity >= 25);
+  if (war) return { name: war.npcName, fans: war.theirFans };
+  const beef = (state.beefs ?? []).find((b) => !b.resolution && b.heat >= 30);
+  if (beef) return { name: beef.npcName, fans: fanbaseNameFor(beef.npcName, beef.npcId) };
+  return undefined;
+}
+
+function commentContext(state: GameState, controversy: boolean, seed: string): SocialCommentContext {
+  const p = state.player!;
+  const rival = currentRival(state);
+  const friends: { id: string; name: string }[] = [];
+  for (const n of raw(state.npcs) as NPC[]) {
+    if (friends.length >= 4) break;
+    if (n.role === 'artist' && n.relationshipScore >= 40 && !n.id.endsWith('_real')) friends.push({ id: n.id, name: n.name });
+  }
+  return {
+    fame: blendedFame(p),
+    reputation: p.career.reputation,
+    controversy,
+    rivalName: rival?.name,
+    rivalFans: rival?.fans,
+    artistFriends: friends,
+    seed,
+  };
+}
+
+/** A fan war, opened or fed. */
+function sparkFanWar(state: GameState, npc: NPC, cause: string, serial: number, intensity: number): FanWar {
+  const wars = state.fanWars ?? (state.fanWars = []);
+  let war = wars.find((w) => w.npcId === npc.id && w.status === 'active');
+  if (war) {
+    war.intensity = Math.min(100, war.intensity + intensity);
+    war.lastSerial = serial;
+    war.log = [cause, ...war.log].slice(0, 12);
+    return war;
+  }
+  war = {
+    id: uuidv4(), npcId: npc.id, npcName: npc.name, theirFans: fanbaseNameFor(npc.name, npc.id),
+    intensity, edge: 0, cause, startedSerial: serial, lastSerial: serial, status: 'active', log: [cause],
+  };
+  wars.unshift(war);
+  if (wars.length > 12) state.fanWars = wars.filter((w, i) => w.status === 'active' || i < 8);
+  pushNotification(state, {
+    kind: 'feature',
+    title: `Fan war: ${fanbaseNameOf(state)} vs ${war.theirFans}`,
+    body: cause,
+    artSeed: `fanwar|${war.id}`,
+    action: { type: 'artist', id: npc.id },
+  });
+  return war;
+}
+
+/** An NPC fires the first shot. The beef ladder starts with them. */
+function npcStartsBeef(state: GameState, npc: NPC, serial: number, why: string): void {
+  if (!state.player || npc.role !== 'artist') return;
+  if (state.beefs.some((b) => b.npcId === npc.id && !b.resolution)) return;
+  state.beefs.push({ id: uuidv4(), npcId: npc.id, npcName: npc.name, rung: 0, heat: 22, heatSerial: serial, startedSerial: serial, lastMoveSerial: serial, wins: 0, losses: 0, moves: [{ serial, by: 'npc', rung: 0, line: `${npc.name} fired the first shot: ${why}`, landed: true, score: 50, heatDelta: 22 }] });
+  state.socialPosts.unshift({
+    id: uuidv4(), platform: 'chirp', authorId: npc.id, authorName: npc.name,
+    content: npc.id.endsWith('_real') ? `[Reported] ${npc.name} took a shot at ${state.player.artistName} in a new post.` : pick3([
+      `Funny how some people only got popular by copying. You know who you are. 🤫`,
+      `Some of y'all are industry plants and it shows. @${state.player.artistName.replace(/\s+/g, '')}`,
+      `Not everybody with a hit is an artist. Remember that.`,
+    ], `${npc.id}|${serial}`),
+    likes: Math.round(800 + npc.fame * 150), shares: Math.round(80 + npc.fame * 20), comments: [], timestamp: new Date().toISOString(),
+    isPlayerPost: false, trendingScore: 60, daySerial: serial, tags: [{ id: 'player', name: state.player.artistName }],
+  });
+  deliverMoment(state, buildFollowUp('diss_track', { npcId: npc.id, npcName: npc.name }, serial)!, serial);
+  state.lastEventLog.unshift(`⚔️ ${npc.name} came for you: ${why}`);
+}
+
+function pick3<T>(arr: T[], seed: string): T {
+  return arr[hashString(seed) % arr.length];
+}
+
+/** Map a post kind to the closest kind on another app, for cross-posting. */
+function kindOnApp(kind: PostKind, app: SocialApp, hasSong: boolean): PostKind {
+  if (kindDef(kind).app === app) return kind;
+  if (app === 'chirp') return hasSong ? 'announce' : 'thought';
+  if (app === 'snapgram') return hasSong ? 'cover' : 'photo';
+  if (app === 'clip') return hasSong ? 'challenge' : 'bts';
+  return 'community';
+}
+
+/** The daily social life of the scene. */
+function socialTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
+  const p = state.player;
+  if (!p) return;
+  const stats = socialStatsOf(state);
+  const fame = blendedFame(p);
+  const now = new Date().toISOString();
+
+  // 1. Posts keep collecting for a few days.
+  for (const post of state.socialPosts) {
+    if (!post.isPlayerPost || !post.growth || post.growth.days <= 0) continue;
+    const steps = Math.min(days, post.growth.days);
+    const share = steps / post.growth.days;
+    const add = (n: number) => Math.round(n * share);
+    post.likes += add(post.growth.likes);
+    post.shares += add(post.growth.shares);
+    post.views = (post.views ?? 0) + add(post.growth.views);
+    const follows = add(post.growth.follows);
+    if (stats[post.platform]) stats[post.platform].followers += follows;
+    const newComments = Math.min(add(post.growth.comments), 4);
+    if (newComments > 0 && post.comments.length < 24) {
+      post.comments.push(...socialComments(post, newComments, commentContext(state, post.content.includes('@') && post.trendingScore > 50, `${serial}|${post.id}`), now));
+    }
+    post.growth = {
+      likes: post.growth.likes - add(post.growth.likes),
+      shares: post.growth.shares - add(post.growth.shares),
+      comments: post.growth.comments - add(post.growth.comments),
+      views: post.growth.views - add(post.growth.views),
+      follows: post.growth.follows - follows,
+      days: post.growth.days - steps,
+    };
+  }
+
+  // 2. Followers follow the fanbase; a silent account slowly bleeds.
+  for (const app of SOCIAL_APPS) {
+    const st = stats[app];
+    const floor = seedFollowers(app, p.career.fanbase);
+    if (st.followers < floor) st.followers += Math.ceil((floor - st.followers) * 0.08 * Math.min(days, 7));
+    if (st.lastPostSerial !== undefined && serial - st.lastPostSerial > 21) st.followers = Math.round(st.followers * Math.pow(0.998, days));
+  }
+
+  // 3. The scene posts on every app, and sometimes about you.
+  scenePosts(state, npcs, serial, Math.min(days, 3));
+
+  // 4. Fan wars: spark, burn, cool.
+  const wars = state.fanWars ?? (state.fanWars = []);
+  for (const war of wars) {
+    if (war.status !== 'active') continue;
+    const rival = npcs.find((n) => n.id === war.npcId);
+    const beef = state.beefs.find((b) => b.npcId === war.npcId && !b.resolution);
+    for (let d = 0; d < Math.min(days, 7); d++) {
+      const t = fanWarDay({ intensity: war.intensity, edge: war.edge, playerFame: fame, rivalFame: rival?.fame ?? 30, playerMomentum: p.career.momentum, beefHeat: beef ? settleHeat(beef, serial) : 0, playerFans: fanbaseNameOf(state), rivalFans: war.theirFans, roll: Math.random() });
+      war.intensity = t.intensity;
+      war.edge = t.edge;
+      if (t.momentum) addMomentum(state, t.momentum);
+      if (t.reputation) p.career.reputation = Math.max(0, p.career.reputation + t.reputation);
+      if (t.line) war.log = [t.line, ...war.log].slice(0, 12);
+      if (t.spillsIntoBeef && rival && !beef) {
+        npcStartsBeef(state, rival, serial, `the fan war with ${war.theirFans} spilled over.`);
+      }
+    }
+    war.lastSerial = serial;
+    if (war.intensity < 6) {
+      war.status = 'over';
+      war.log = [`It's over. ${war.edge >= 0 ? `${fanbaseNameOf(state)} are calling it a win.` : `${war.theirFans} are calling it a win.`}`, ...war.log].slice(0, 12);
+    }
+  }
+  // New wars: from hot beefs, and from chart neighbours. Two at a time at most.
+  const activeWars = wars.filter((w) => w.status === 'active').length;
+  if (activeWars < 2 && Math.random() < 1 - Math.pow(0.96, Math.min(days, 7))) {
+    const hot = state.beefs.find((b) => !b.resolution && settleHeat(b, serial) >= 30 && !wars.some((w) => w.npcId === b.npcId && w.status === 'active'));
+    if (hot) {
+      const rival = npcs.find((n) => n.id === hot.npcId);
+      if (rival) sparkFanWar(state, rival, `The beef with ${rival.name} spilled into the comments. Both fanbases are out.`, serial, 30);
+    } else {
+      const home = (state.charts?.[p.country] ?? []) as ChartEntry[];
+      const mine = home.find((e) => e.artistId === p.id);
+      const near = mine ? home.find((e) => e.artistId !== p.id && Math.abs(e.position - mine.position) <= 2) : undefined;
+      const rival = near ? npcs.find((n) => n.id === near.artistId) : undefined;
+      if (rival && !wars.some((w) => w.npcId === rival.id && w.status === 'active')) {
+        sparkFanWar(state, rival, `You and ${rival.name} are fighting for the same spot on the chart. The fans have noticed.`, serial, 22);
+      } else if (fame >= 15 && Math.random() < 0.25) {
+        const peer = npcs.find((n) => n.role === 'artist' && n.country === p.country && Math.abs(n.fame - fame) <= 6 && n.relationshipScore < 20 && !wars.some((w) => w.npcId === n.id));
+        if (peer) sparkFanWar(state, peer, `A blog posted "${p.artistName} or ${peer.name}?" and the replies turned into a war.`, serial, 18);
+      }
+    }
+  }
+
+  // 5. Organic beef: people who can't stand you, and rivals hitting back.
+  if (Math.random() < 1 - Math.pow(0.95, Math.min(days, 7))) {
+    const enemy = npcs.find((n) => n.role === 'artist' && n.relationshipScore <= -35 && Math.abs(n.fame - fame) <= 30 && !state.beefs.some((b) => b.npcId === n.id && !b.resolution));
+    if (enemy) npcStartsBeef(state, enemy, serial, 'they never liked you, and now they said it out loud.');
+  }
+  for (const beef of state.beefs) {
+    if (beef.resolution) continue;
+    const heat = settleHeat(beef, serial);
+    // They answer while you keep it going. Two quiet weeks from you and they
+    // have made their point.
+    const lastYours = beef.moves.find((m) => m.by === 'player')?.serial ?? beef.startedSerial;
+    if (heat < 35 || serial - lastYours > 14) continue;
+    if (Math.random() > 1 - Math.pow(0.88, Math.min(days, 7))) continue;
+    const rival = npcs.find((n) => n.id === beef.npcId);
+    if (!rival) continue;
+    const landed = Math.random() < 0.35 + (rival.fame - fame) / 100;
+    beef.heat = Math.min(100, heat + (landed ? 10 : 5));
+    beef.heatSerial = serial;
+    if (landed) { beef.losses += 1; addMomentum(state, -2); } else { beef.wins += 1; addMomentum(state, 1); }
+    const content = rival.id.endsWith('_real') ? `[Reported] ${rival.name} responded to ${p.artistName}.` : pick3([
+      `Keep my name out your mouth. Last warning.`,
+      `I heard the song. I laughed. That's the review.`,
+      `You want smoke? Check the charts first 📉`,
+      `Y'all really think they wrote that themselves? 😂`,
+      `Imagine dissing me and I still outsold you this week.`,
+    ], `${rival.id}|${serial}|${beef.wins + beef.losses}`);
+    beef.moves.unshift({ serial, by: 'npc', rung: beef.rung, line: `${rival.name} hit back online${landed ? ' and it landed' : ', and it fell flat'}.`, landed, score: landed ? 65 : 35, heatDelta: landed ? 10 : 5 });
+    beef.lastMoveSerial = serial;
+    state.socialPosts.unshift({
+      id: uuidv4(), platform: Math.random() < 0.5 ? 'chirp' : 'clip', authorId: rival.id, authorName: rival.name,
+      content,
+      likes: Math.round(500 + rival.fame * 200), shares: Math.round(60 + rival.fame * 25), comments: [], timestamp: now,
+      isPlayerPost: false, trendingScore: 70, daySerial: serial, tags: [{ id: 'player', name: p.artistName }],
+    });
+    state.lastEventLog.unshift(`⚔️ ${rival.name} hit back${landed ? ' — and it landed.' : ', and missed.'}`);
+  }
+
+  // 6. Relationships drift when nobody tends them. Once a month: friends you
+  // have not made time for cool a little, grudges soften a little.
+  if (Math.floor(serial / 30) !== Math.floor((serial - days) / 30)) {
+    for (let i = 0; i < npcs.length; i++) {
+      const n = npcs[i];
+      if (Math.abs(n.relationshipScore) < 30) continue;
+      if (n.lastReachOut !== undefined && serial - n.lastReachOut <= 45) continue;
+      const draft = state.npcs[i];
+      if (!draft || draft.id !== n.id) continue;
+      draft.relationshipScore += n.relationshipScore > 0 ? -2 : 1;
+    }
+  }
+
+  if (state.socialPosts.length > 320) trimFeed(state);
+}
+
+/** Posts from the older generators: stamp the game day and give them a comment section. */
+function settleScenePosts(posts: SocialPost[], serial: number): void {
+  const now = new Date().toISOString();
+  for (const post of posts) {
+    if (typeof post.daySerial !== 'number') post.daySerial = serial;
+    if (!post.comments || post.comments.length === 0) {
+      post.comments = socialComments(post, 1 + Math.floor(Math.random() * 4), { fame: Math.min(100, post.likes / 40), reputation: 55, controversy: post.trendingScore >= 60, artistFriends: [], seed: `${serial}|${post.id}` }, now);
+    }
+  }
+}
+
+/**
+ * Keep the feed bounded without throwing away the player's own posts — the
+ * scene posts a lot, and a flat slice would push your own history out first.
+ */
+function trimFeed(state: GameState): void {
+  if (state.socialPosts.length <= 150) return;
+  state.socialPosts = feedSlice(state.socialPosts, 80, 220);
+}
+
+/**
+ * The newest posts, with a share for every app — the timeline posts far more
+ * than the photo and video apps, and a flat cut would empty them.
+ */
+function feedSlice(posts: SocialPost[], mineMax: number, othersMax: number): SocialPost[] {
+  const share: Record<string, number> = { chirp: 0.45, snapgram: 0.2, clip: 0.22, circle: 0.13 };
+  let mine = 0;
+  const per: Record<string, number> = {};
+  const out: SocialPost[] = [];
+  for (const x of posts) {
+    if (x.isPlayerPost) { if (mine < mineMax) { out.push(x); mine += 1; } continue; }
+    const cap = Math.ceil(othersMax * (share[x.platform] ?? 0.1));
+    const n = per[x.platform] ?? 0;
+    if (n < cap) { out.push(x); per[x.platform] = n + 1; }
+  }
+  return out;
+}
+
+/** What goes into the save: your last 60 posts and the freshest 140 others. */
+function feedForSave(posts: SocialPost[]): SocialPost[] {
+  return feedSlice(posts, 60, 140);
+}
+
+/**
+ * The rest of the scene living its life on every app: generated artists post
+ * photos, clips and community updates; fan pages post edits; blogs report on
+ * the real stars (never in their own words). One to three a day.
+ */
+function scenePosts(state: GameState, npcs: NPC[], serial: number, days: number): void {
+  const p = state.player;
+  if (!p) return;
+  const now = new Date().toISOString();
+  const home = p.country;
+  const pool: NPC[] = [];
+  const stars: NPC[] = [];
+  const pages: NPC[] = [];
+  for (const n of npcs) {
+    if (n.role === 'artist') {
+      if (n.id.endsWith('_real')) { if (n.country === home && n.fame >= 40) stars.push(n); }
+      else if (n.country === home || n.relationshipScore >= 20) pool.push(n);
+    } else if ((n.role === 'fan_account' || n.role === 'media' || n.role === 'blogger') && (n.country === home || !n.country)) pages.push(n);
+  }
+  if (!pool.length) return;
+  const city = p.city || 'the city';
+  const bank: Record<SocialApp, string[]> = {
+    chirp: ['Industry is a movie. I\'m just watching.', 'Who\'s the best in the country right now? Wrong answers only.', 'Album 80% done. 👀', 'If you know, you know.', 'Some of y\'all need to listen more and talk less.', `${city} we outside this weekend?`],
+    snapgram: ['Studio flow 📸', 'New fit, new energy.', `${city} nights 🌃`, 'Grateful for the journey 🙏', 'Rehearsals. You\'re not ready.', 'Photo dump from the week 🗂️', 'Mood: unbothered.'],
+    clip: ['POV: you just finished the hook at 4am', 'Freestyle Friday 🎤', 'Tried the challenge. Rate it 1-10 😂', 'Tour diaries ep. 3', 'Studio session — guess the sample 👂', 'My producer when the beat drops 😭'],
+    circle: ['Day ones — new music Friday. You heard it here first.', 'Thank you for the love this month. Real talk. 🫂', 'Ask me anything for the next hour.', 'Voting on the next single — reply 1 or 2.', 'Members-only listening session Sunday.'],
+  };
+  const kindFor: Record<SocialApp, string> = { chirp: 'thought', snapgram: 'photo', clip: 'bts', circle: 'community' };
+  const apps: SocialApp[] = ['snapgram', 'clip', 'circle', 'chirp', 'snapgram', 'clip'];
+  const count = Math.min(6, Math.round(days * (1 + Math.random() * 2)));
+  for (let i = 0; i < count; i++) {
+    const app = apps[Math.floor(Math.random() * apps.length)];
+    const r = Math.random();
+    // A blog reporting on a real star, or a fan page edit.
+    if (r < 0.18 && stars.length && pages.length) {
+      const star = stars[Math.floor(Math.random() * stars.length)];
+      const page = pages[Math.floor(Math.random() * pages.length)];
+      const content = pick3([
+        `${star.name} spotted in the studio again 👀 something is coming`,
+        `${star.name} just posted a new photo and the comments are a mess 😭`,
+        `Rumour: ${star.name} has a big feature on the way.`,
+        `${star.name} live at the weekend — the crowd went crazy 🎥`,
+      ], `${page.id}|${star.id}|${serial}|${i}`);
+      state.socialPosts.unshift({
+        id: uuidv4(), platform: app === 'circle' ? 'chirp' : app, authorId: page.id, authorName: page.name, content,
+        likes: Math.round(300 + star.fame * 60 * Math.random()), shares: Math.round(20 + star.fame * 3), comments: [], timestamp: now,
+        isPlayerPost: false, trendingScore: 30 + star.fame / 3, daySerial: serial, kind: app === 'clip' ? 'bts' : 'thought',
+        views: app === 'clip' ? Math.round(3000 + star.fame * 800 * Math.random()) : undefined,
+      });
+      continue;
+    }
+    // A fan page posting about YOU, once you are somebody.
+    if (r < 0.26 && pages.length && blendedFame(p) >= 20) {
+      const page = pages[Math.floor(Math.random() * pages.length)];
+      const hit = state.songs.filter((x) => isSongReleased(x)).sort((a, b) => (b.weeklyStreams ?? 0) - (a.weeklyStreams ?? 0))[0];
+      const content = pick3(hit ? [
+        `${p.artistName} — "${hit.title}" on repeat all week 🔁`,
+        `Edit: ${p.artistName} x "${hit.title}" 🎬🔥`,
+        `Underrated: ${p.artistName}. That's the tweet.`,
+      ] : [`Keep an eye on ${p.artistName}. Trust me.`, `${p.artistName} is next up. Bookmark this.`], `${page.id}|${serial}|${i}`);
+      state.socialPosts.unshift({
+        id: uuidv4(), platform: app, authorId: page.id, authorName: page.name, content,
+        likes: Math.round(200 + blendedFame(p) * 40 * Math.random()), shares: Math.round(10 + blendedFame(p) * 2), comments: [], timestamp: now,
+        isPlayerPost: false, trendingScore: 30, daySerial: serial, relatedSongId: hit?.id, kind: kindFor[app],
+        views: app === 'clip' ? Math.round(2000 + blendedFame(p) * 400 * Math.random()) : undefined,
+        tags: [{ id: 'player', name: p.artistName }],
+      });
+      continue;
+    }
+    const who = pool[Math.floor(Math.random() * pool.length)];
+    const friendShout = who.relationshipScore >= 40 && Math.random() < 0.15;
+    const song = Math.random() < 0.3 ? state.npcSongs.find((x) => x.ownerId === who.id) : undefined;
+    const content = friendShout
+      ? `Shout out @${p.artistName.replace(/\s+/g, '')} — one of the realest in the game right now 🙌`
+      : song && app !== 'circle'
+        ? pick3([`"${song.title}" out now 🔥 run it up`, `Y'all slept on "${song.title}" 😴 wake up`, `"${song.title}" challenge — show me what you got 💃`], `${who.id}|${song.id}|${serial}`)
+        : bank[app][Math.floor(Math.random() * bank[app].length)];
+    const post: SocialPost = {
+      id: uuidv4(), platform: app, authorId: who.id, authorName: who.name, content,
+      likes: Math.round(150 + who.fame * 110 * (0.4 + Math.random())), shares: Math.round(10 + who.fame * 4), comments: [], timestamp: now,
+      isPlayerPost: false, trendingScore: 20 + who.fame / 3, daySerial: serial, kind: song && app === 'clip' ? 'challenge' : kindFor[app],
+      relatedSongId: song?.id,
+      views: app === 'clip' ? Math.round(2000 + who.fame * 900 * (0.3 + Math.random())) : undefined,
+      tags: friendShout ? [{ id: 'player', name: p.artistName }] : undefined,
+    };
+    post.comments = socialComments(post, 2 + Math.floor(Math.random() * 4), { fame: who.fame, reputation: 55, controversy: false, artistFriends: [], seed: `${serial}|${post.id}` }, now);
+    state.socialPosts.unshift(post);
+    if (friendShout) {
+      addMomentum(state, 1);
+      const stats = socialStatsOf(state);
+      stats.chirp.followers += Math.round(20 + who.fame * 8);
+      state.lastEventLog.unshift(`📣 ${who.name} gave you a shout-out.`);
+    }
+  }
+}
+
+/**
+ * An artist posts about a record you are both on, on every app, and tags you.
+ * Their audience finds you. Real-named artists get a reported line instead.
+ */
+function promoPosts(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'fame'>, title: string, songId: string, serial: number, theirs: boolean): void {
+  const p = state.player;
+  if (!p) return;
+  const tag = [{ id: 'player', name: p.artistName }];
+  const now = new Date().toISOString();
+  if (npc.id.endsWith('_real')) {
+    state.socialPosts.unshift({
+      id: uuidv4(), platform: 'chirp', authorId: 'scene_watch', authorName: 'Scene Watch',
+      content: `${npc.name} and ${p.artistName} link up on "${title}" — out now.`,
+      likes: Math.round(1000 + npc.fame * 300), shares: Math.round(100 + npc.fame * 30), comments: [], timestamp: now,
+      isPlayerPost: false, trendingScore: 60, daySerial: serial, relatedSongId: songId, tags: tag, kind: 'announce',
+    });
+  } else {
+    const handle = p.artistName.replace(/\s+/g, '');
+    const posts: [SocialApp, string, PostKind][] = theirs
+      ? [
+          ['chirp', `My new one "${title}" ft. @${handle} is OUT 🔥 he snapped on his verse`, 'announce'],
+          ['snapgram', `"${title}" ft. @${handle} 🖤 out now, link in bio`, 'cover'],
+          ['clip', `When @${handle}'s verse comes in on "${title}" 😮‍💨`, 'bts'],
+        ]
+      : [
+          ['chirp', `"${title}" with @${handle} is OUT NOW 🔥 go run it up`, 'announce'],
+          ['snapgram', `Me & @${handle} 🤝 "${title}" out everywhere. Link in bio.`, 'cover'],
+          ['clip', `Doing the "${title}" challenge with @${handle} 💃 your turn`, 'challenge'],
+        ];
+    for (const [app, content, kind] of posts) {
+      state.socialPosts.unshift({
+        id: uuidv4(), platform: app, authorId: npc.id, authorName: npc.name, content,
+        likes: Math.round(300 + npc.fame * 180), shares: Math.round(30 + npc.fame * 15), comments: [], timestamp: now,
+        isPlayerPost: false, trendingScore: 40 + npc.fame / 2, daySerial: serial, relatedSongId: songId, tags: tag, kind,
+        views: app === 'clip' ? Math.round(5000 + npc.fame * 1500) : undefined,
+      });
+    }
+  }
+  const stats = socialStatsOf(state);
+  stats.chirp.followers += Math.round(npc.fame * 10);
+  stats.snapgram.followers += Math.round(npc.fame * 25);
+  stats.clip.followers += Math.round(npc.fame * 20);
+}
+
+/** Everybody featured on your record posts about it. */
+function featureCrossPosts(state: GameState, song: Song, serial: number): void {
+  if (!state.player || !song.featuredArtists?.length) return;
+  for (const id of song.featuredArtists) {
+    const npc = state.npcs.find((n) => n.id === id);
+    if (npc) promoPosts(state, npc, song.title, song.id, serial, false);
+  }
+}
+
+// ─── BEATS & THE BUILDING: STORE SIDE ──────────────────────────────────────
+// The engine is `sim/beats.ts` and the building table lives in `sim/room.ts`.
+// This keeps the library, delivers what the team makes and what was ordered,
+// rotates the beat store weekly, and bills the building monthly.
+
+function beatsOf(state: GameState): BeatsState {
+  if (!state.beats || !Array.isArray(state.beats.library)) state.beats = emptyBeats();
+  if (!state.beats.lastDrop) state.beats.lastDrop = {};
+  if (!Array.isArray(state.beats.orders)) state.beats.orders = [];
+  if (!Array.isArray(state.beats.store)) state.beats.store = [];
+  return state.beats;
+}
+
+function refreshBeatStore(state: GameState, npcs: NPC[], serial: number): void {
+  const p = state.player;
+  if (!p) return;
+  const b = beatsOf(state);
+  const week = Math.floor(serial / 7);
+  if (b.storeWeek === week && b.store.length) return;
+  const producers: NPC[] = [];
+  for (const n of npcs) if ((n.role === 'producer' || n.role === 'engineer') && !n.id.endsWith('_real')) producers.push(n);
+  b.store = storeCatalogue({ producers, genre: p.genre, country: p.country, week, fame: blendedFame(p) });
+  b.storeWeek = week;
+}
+
+/** Keep the library from growing forever: unused beats first, newest first. */
+function trimLibrary(b: BeatsState): void {
+  if (b.library.length <= 60) return;
+  const unused = b.library.filter((x) => !x.usedOnSongId).slice(0, 45);
+  const used = b.library.filter((x) => x.usedOnSongId).slice(0, 15);
+  b.library = [...unused, ...used].sort((x, y) => y.acquiredSerial - x.acquiredSerial);
+}
+
+function deliverBeatOrder(state: GameState, o: BeatOrder, serial: number): void {
+  const b = beatsOf(state);
+  const npc = state.npcs.find((n) => n.id === o.producerId);
+  const crewMember = (state.crew ?? []).find((c) => c.npcId === o.producerId);
+  const skill = crewMember ? crewMember.skill : npc ? producerSkillOf(npc as NPC) : 50;
+  const quality = customBeatQuality(skill, Math.random(), !!o.redoOf);
+  const beat: OwnedBeat = {
+    id: `beat:order:${o.id}`,
+    name: beatName(`order|${o.id}`),
+    quality,
+    genre: o.genre,
+    bpm: o.bpm,
+    mood: o.mood,
+    producerId: o.producerId,
+    producerName: o.producerName,
+    source: 'custom',
+    license: o.inHouse ? 'inhouse' : 'exclusive',
+    acquiredSerial: serial,
+    price: o.fee || undefined,
+    forTitle: o.forTitle,
+    redos: o.redoOf ? (b.library.find((x) => x.id === o.redoOf)?.redos ?? 0) + 1 : 0,
+  };
+  b.library.unshift(beat);
+  pushNotification(state, {
+    kind: 'feature',
+    title: `${o.producerName} sent the beat${o.forTitle ? ` for "${o.forTitle}"` : ''}`,
+    body: `"${beat.name}" — ${beatGrade(quality)} (${quality}). ${o.redoOf ? 'The redo is in. Compare it with the first one.' : 'Built to your brief.'}`,
+    artSeed: `beat|${beat.id}`,
+  });
+  state.lastEventLog.unshift(`🎹 ${o.producerName} delivered "${beat.name}"${o.forTitle ? ` for "${o.forTitle}"` : ''} — ${beatGrade(quality)}.`);
+}
+
+function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
+  const p = state.player;
+  if (!p) return;
+  const b = beatsOf(state);
+  refreshBeatStore(state, npcs, serial);
+  const tier = buildingTier(state.studio?.levels);
+
+  // 1. The team's regular drops.
+  for (const c of state.crew ?? []) {
+    if (c.role !== 'producer' && c.role !== 'engineer') continue;
+    const every = dropInterval(c.role, tier.beatSpeed);
+    const last = b.lastDrop[c.id] ?? c.hiredSerial ?? serial;
+    const due = Math.min(3, Math.floor((serial - last) / every));
+    if (due <= 0) continue;
+    const made: OwnedBeat[] = [];
+    for (let k = 0; k < due; k++) {
+      // Mostly your lane; now and then something left-field.
+      const genre = Math.random() < 0.8 ? p.genre : (['afrobeats', 'hip_hop', 'drill', 'rnb', 'dancehall', 'amapiano'] as Genre[])[Math.floor(Math.random() * 6)];
+      made.push(teamBeat({ memberId: c.id, npcId: c.npcId, npcName: c.npcName, role: c.role, skill: c.skill, genre, serial: serial - k, roll: Math.random() }));
+    }
+    b.library.unshift(...made);
+    b.lastDrop[c.id] = serial;
+    const best = made.reduce((a, x) => (x.quality > a.quality ? x : a), made[0]);
+    state.lastEventLog.unshift(`🎹 ${c.npcName} sent ${made.length > 1 ? `${made.length} new beats` : 'a new beat'} — best is "${best.name}" (${beatGrade(best.quality)}).`);
+    if (best.quality >= 75) {
+      pushNotification(state, { kind: 'feature', title: `${c.npcName} made something special`, body: `"${best.name}" is ${beatGrade(best.quality).toLowerCase()}. It's in your beat library.`, artSeed: `beat|${best.id}` });
+    }
+  }
+
+  // 2. Orders that are ready.
+  const ready = b.orders.filter((o) => o.dueSerial <= serial);
+  for (const o of ready) deliverBeatOrder(state, o, serial);
+  if (ready.length) b.orders = b.orders.filter((o) => o.dueSerial > serial);
+  trimLibrary(b);
+
+  // 3. The building's monthly bills, and the rentals that offset them.
+  if (Math.floor(serial / 30) !== Math.floor((serial - days) / 30) && tier.level > 0) {
+    const upkeep = tier.upkeep;
+    const rent = state.studio?.rentOut ? rentOutIncome(tier, blendedFame(p), Math.random()) : 0;
+    p.career.money -= upkeep;
+    ledgerAdd('studio_upkeep', -upkeep);
+    if (rent) { p.career.money += rent; ledgerAdd('studio_rent', rent); }
+    state.lastEventLog.unshift(`🏠 ${tier.name}: $${upkeep.toLocaleString()} upkeep${rent ? `, $${rent.toLocaleString()} back from renting it out` : ''}.`);
+    // A real room brings people through the door.
+    if (state.studio?.rentOut && tier.level >= 3 && Math.random() < 0.5) {
+      const visitor = npcs.find((n) => n.role === 'artist' && n.country === p.country && !n.id.endsWith('_real') && Math.abs(n.fame - blendedFame(p)) < 20 && n.relationshipScore < 40 && Math.random() < 0.02);
+      if (visitor) {
+        const d = state.npcs.find((n) => n.id === visitor.id);
+        if (d) d.relationshipScore = Math.min(100, d.relationshipScore + 4);
+        state.lastEventLog.unshift(`🎚️ ${visitor.name} booked your room for a week. You got talking.`);
+      }
+    }
+  }
+}
+
 /** Daily: expire, wake follow-ups, and maybe somebody new reaches out. */
 function momentsTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
   if (!state.player) return;
@@ -5410,6 +6052,13 @@ export const useGameStore = create<GameState & GameActions>()(
           result = { ok: false, message: `Your ${slot.name.toLowerCase()} is already the best there is.` };
           return;
         }
+        // The room has to be able to take it.
+        const building = buildingTier(state.studio?.levels);
+        if (next.level > building.gearCap) {
+          const needs = HOME_STUDIO_TIERS.find((t) => t.gearCap >= next.level);
+          result = { ok: false, message: `A ${building.name.toLowerCase()} can't take the ${next.name}. Build a ${needs?.name.toLowerCase() ?? 'bigger room'} first.` };
+          return;
+        }
         if (state.player.career.money < next.price) {
           result = {
             ok: false,
@@ -5450,10 +6099,16 @@ export const useGameStore = create<GameState & GameActions>()(
         if (!title) return;
 
         const npcs = raw(state.npcs) as NPC[];
-        const producer = payload.producerId
-          ? npcs.find(n => n.id === payload.producerId) ?? null
+        // A beat from the library is already paid for and names its maker.
+        const libBeat = payload.libraryBeatId
+          ? (state.beats?.library ?? []).find((x) => x.id === payload.libraryBeatId && !x.usedOnSongId)
+          : undefined;
+        const producerIdUsed = libBeat ? libBeat.producerId ?? null : payload.producerId;
+        const producer = producerIdUsed
+          ? npcs.find(n => n.id === producerIdUsed) ?? null
           : null;
-        const producerSkill = producer ? producerSkillOf(producer) : null;
+        const libMember = libBeat ? (state.crew ?? []).find((c) => c.npcId === libBeat.producerId) : undefined;
+        const producerSkill = libMember ? libMember.skill : producer ? producerSkillOf(producer) : null;
 
         // Resolve the chosen beat from that producer's catalogue. If the id no
         // longer matches (roster regenerated, producer changed) fall back to
@@ -5461,7 +6116,9 @@ export const useGameStore = create<GameState & GameActions>()(
         const beatOptions = producer
           ? getProducerBeats(producer.id, producerSkill!)
           : getSelfProducedBeats();
-        const beat = beatOptions.find(b => b.id === payload.beatId) ?? beatOptions[0];
+        const beat = libBeat
+          ? { id: libBeat.id, name: libBeat.name, quality: libBeat.quality }
+          : beatOptions.find(b => b.id === payload.beatId) ?? beatOptions[0];
 
         // A record is tracked solo. Anyone else on it is negotiated later.
         const features: Array<{ npc: NPC; relationship: number }> = [];
@@ -5532,7 +6189,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // The engineer's session speed scales the studio time, because a
         // shorter session IS the saving — the room is billed by the day.
         const studioTime = Math.round(sessionCost(payload.effort) * crewFx.sessionCost);
-        const fee = producerSkill === null ? 0 : usedInHouse ? 0 : producerFee(producerSkill);
+        const fee = libBeat ? 0 : producerSkill === null ? 0 : usedInHouse ? 0 : producerFee(producerSkill);
         const roomFee = room?.price ?? 0;
         const cost = studioTime + fee + (ghostwriter?.fee ?? 0) + roomFee;
 
@@ -5673,6 +6330,12 @@ export const useGameStore = create<GameState & GameActions>()(
               );
             }
           }
+        }
+
+        // The beat is on a record now.
+        if (libBeat) {
+          const owned = state.beats?.library.find((x) => x.id === libBeat.id);
+          if (owned) { owned.usedOnSongId = song.id; owned.usedOnTitle = title; }
         }
 
         state.lastEventLog = state.lastEventLog.slice(0, 10);
@@ -5961,6 +6624,8 @@ export const useGameStore = create<GameState & GameActions>()(
 
         const { post: releasePost } = playerReleaseReactions(song, state.player, raw(state.npcs) as NPC[]);
         state.socialPosts.unshift(releasePost as SocialPost);
+        // Everybody on the record posts about it, on every app.
+        featureCrossPosts(state, song, dateToSerial(state.gameDate));
 
         state.headlines.unshift({
           id: uuidv4(),
@@ -8103,8 +8768,433 @@ export const useGameStore = create<GameState & GameActions>()(
     likePost: (postId) =>
       set((state) => {
         const post = state.socialPosts.find(p => p.id === postId);
-        if (post) post.likes += 1;
+        if (!post) return;
+        if (post.liked) { post.liked = false; post.likes = Math.max(0, post.likes - 1); return; }
+        post.liked = true;
+        post.likes += 1;
+        // Liking somebody's post is noticed — once per post.
+        if (!post.isPlayerPost && post.authorId !== 'player' && !post.authorId.startsWith('fan:')) {
+          const serial = dateToSerial(state.gameDate);
+          if (socialTouch(state, `like:${post.id}`, serial) === 1) bumpRel(state, post.authorId, 1, serial);
+        }
       }),
+
+    publishPost: (opts) => {
+      let result: { ok: boolean; message: string; viral?: boolean } = { ok: false, message: 'Nothing to post.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const content = opts.content.trim();
+        if (!content && !opts.songId) { result.message = 'Write something first.'; return; }
+        const apps = (opts.apps.length ? opts.apps : ['chirp']) as SocialApp[];
+        const serial = dateToSerial(state.gameDate);
+        const k0 = kindDef(opts.kind as PostKind);
+        const song = opts.songId ? state.songs.find((s) => s.id === opts.songId && isSongReleased(s)) : undefined;
+        if (k0.needsSong && !song) { result.message = `A ${k0.label.toLowerCase()} needs one of your released songs attached.`; return; }
+        const energy = k0.energy + (apps.length - 1);
+        if (!spendEnergy(state, energy, { admin: true })) { result.message = energyShortfallMessage(energy, p.energy); return; }
+
+        // Tags: up to five, each one a real person who will see it.
+        const tagged = (opts.tags ?? []).slice(0, 5).map((id) => state.npcs.find((n) => n.id === id)).filter(Boolean) as NPC[];
+        const today = state.postsToday && state.postsToday.serial === serial ? state.postsToday.count : 0;
+        state.postsToday = { serial, count: today + 1 };
+        const beefs = activeBeefIds(state);
+        const insulting = detectIntent(content) === 'insult';
+        const controversy = insulting || tagged.some((n) => beefs.has(n.id));
+        const stats = socialStatsOf(state);
+        const tagList = tagged.map((n) => ({ id: n.id, name: n.name }));
+        const now = new Date().toISOString();
+        let viralAny = false;
+        let lead: SocialPost | undefined;
+        const notes: string[] = [];
+
+        for (const app of apps) {
+          const kind = kindOnApp(k0.id, app, !!song);
+          const craft = kind === 'freestyle' ? p.stats.freestyle : kind === 'skit' ? p.stats.charisma : kind === 'challenge' ? p.stats.stagePresence : p.stats.marketing;
+          const r = postReach({
+            app, kind, followers: stats[app].followers, fame: blendedFame(p), momentum: p.career.momentum,
+            songQuality: song?.quality, postsToday: today, taggedFame: tagged.map((n) => n.fame), controversy, craft, roll: Math.random(),
+          });
+          const first = 0.35;
+          const post: SocialPost = {
+            id: uuidv4(), platform: app as SocialPost['platform'], authorId: 'player', authorName: p.artistName,
+            content: content || (song ? `"${song.title}" out now 🎧` : ''),
+            likes: Math.round(r.likes * first), shares: Math.round(r.shares * first), comments: [],
+            timestamp: now, relatedSongId: song?.id, isPlayerPost: true,
+            trendingScore: Math.round(10 + (r.viral ? 80 : 0) + (controversy ? 30 : 0)),
+            daySerial: serial, kind, tags: tagList.length ? tagList : undefined,
+            views: r.views ? Math.round(r.views * first) : undefined, viral: r.viral || undefined,
+            growth: { likes: Math.round(r.likes * (1 - first)), shares: Math.round(r.shares * (1 - first)), comments: Math.round(r.comments * 0.6), views: Math.round(r.views * (1 - first)), follows: Math.round(r.follows * 0.6), days: 3 },
+          };
+          post.comments = socialComments(post, Math.min(6, Math.ceil(r.comments * 0.4)), commentContext(state, controversy, `${serial}|${post.id}`), now);
+          stats[app].followers += Math.round(r.follows * 0.4);
+          stats[app].lastPostSerial = serial;
+          state.socialPosts.unshift(post);
+          if (!lead) lead = post;
+          if (r.note) notes.push(`${APP_META[app].name}: ${r.note}`);
+
+          // A Q&A or a community post builds the core.
+          if (kind === 'qa' || kind === 'community') p.career.reputation = Math.min(100, p.career.reputation + (kind === 'qa' ? 1 : 0.3));
+
+          if (r.viral) {
+            viralAny = true;
+            addMomentum(state, 5);
+            p.career.localFame = Math.min(100, p.career.localFame + 0.8);
+            p.career.nationalFame = Math.min(100, p.career.nationalFame + 0.3);
+            state.headlines.unshift({ id: uuidv4(), text: `${p.artistName}'s ${APP_META[app].name} ${kindDef(kind).label.toLowerCase()} is everywhere`, fullStory: `"${post.content.slice(0, 80)}" — ${r.views ? `${r.views.toLocaleString()} views` : `${r.likes.toLocaleString()} likes`} and climbing.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 6, category: 'general' });
+            if (song && (kind === 'challenge' || app === 'clip')) {
+              const st = state.platformStats?.[song.id];
+              const age = st ? Math.max(0, serial - st.release) : 0;
+              plantRevival(state, song.id, { power: 0.6 + Math.random() * 1.2, width: 10 + Math.floor(Math.random() * 15), reason: `Went viral on ${APP_META[app].name}` }, age);
+              notes.push(`"${song.title}" is getting pulled back up by the clip.`);
+            }
+          }
+        }
+
+        // The people you tagged see it.
+        for (const npc of tagged) {
+          const tr = tagResponse({ npc: npc as NPC, playerFame: blendedFame(p), beef: beefs.has(npc.id), insulting, roll: Math.random() });
+          bumpRel(state, npc.id, tr.rel, serial, `Tagged by you: "${content.slice(0, 40)}" (${tr.action})`);
+          if (tr.heat) nudgeBeef(state, npc.id, tr.heat, serial);
+          if (lead && tr.text) {
+            lead.comments.unshift({ id: uuidv4(), authorId: npc.id, authorName: npc.name, content: tr.text, likes: Math.round(100 + npc.fame * 40), timestamp: now, tone: tr.action === 'clapback' ? 'hater' : 'artist' });
+          }
+          if (lead && tr.action === 'repost') {
+            state.socialPosts.unshift({ ...lead, id: uuidv4(), authorId: npc.id, authorName: npc.name, isPlayerPost: false, repostOf: lead.id, comments: [], growth: undefined, likes: Math.round(lead.likes * 0.6 + npc.fame * 30), shares: lead.shares, trendingScore: 30 });
+            stats[lead.platform].followers += Math.round(20 + npc.fame * 12);
+          }
+          if (tr.action !== 'ignore') notes.push(`${npc.name} ${tr.action === 'clapback' ? 'clapped back' : tr.action === 'repost' ? 'reposted it' : tr.action === 'reply' ? 'replied' : 'liked it'}.`);
+          else notes.push(`${npc.name} didn't respond.`);
+          if (tr.action === 'clapback' && !beefs.has(npc.id) && npc.relationshipScore < -20) {
+            npcStartsBeef(state, npc as NPC, serial, 'you tagged them with something they did not like.');
+          }
+        }
+
+        addMomentum(state, controversy ? 2 : 1);
+        result = { ok: true, viral: viralAny, message: `Posted to ${apps.map((a) => APP_META[a].name).join(', ')}.${notes.length ? ' ' + notes.join(' ') : ''}` };
+      });
+      return result;
+    },
+
+    repostPost: (postId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Post not found.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const post = state.socialPosts.find((x) => x.id === postId);
+        if (!post) return;
+        if (post.reposted) { result.message = 'You already reposted that.'; return; }
+        post.reposted = true;
+        post.shares += 1;
+        const serial = dateToSerial(state.gameDate);
+        state.socialPosts.unshift({ ...post, id: uuidv4(), authorId: 'player', authorName: p.artistName, isPlayerPost: true, repostOf: post.id, comments: [], liked: false, reposted: false, growth: undefined, daySerial: serial, timestamp: new Date().toISOString(), likes: 0, shares: 0 });
+        if (!post.isPlayerPost && !post.authorId.startsWith('fan:')) {
+          bumpRel(state, post.authorId, post.relatedSongId ? 3 : 2, serial, 'You reposted them.');
+          if (activeBeefIds(state).has(post.authorId)) { result = { ok: true, message: 'You reposted your rival. The timeline is confused.' }; return; }
+        }
+        result = { ok: true, message: post.isPlayerPost ? 'Reposted.' : `Reposted ${post.authorName}. They noticed.` };
+      });
+      return result;
+    },
+
+    quotePost: (postId, text) => {
+      let result: FeatureActionResult = { ok: false, message: 'Post not found.' };
+      set((state) => {
+        const p = state.player;
+        if (!p || !text.trim()) return;
+        const post = state.socialPosts.find((x) => x.id === postId);
+        if (!post) return;
+        if (!spendEnergy(state, ENERGY_COSTS.socialPost, { admin: true })) { result.message = energyShortfallMessage(ENERGY_COSTS.socialPost, p.energy); return; }
+        const serial = dateToSerial(state.gameDate);
+        const insulting = detectIntent(text) === 'insult';
+        const stats = socialStatsOf(state);
+        const r = postReach({ app: 'chirp', kind: 'thought', followers: stats.chirp.followers, fame: blendedFame(p), momentum: p.career.momentum, postsToday: 0, taggedFame: [], controversy: insulting, craft: p.stats.charisma, roll: Math.random() });
+        const quote: SocialPost = {
+          id: uuidv4(), platform: 'chirp', authorId: 'player', authorName: p.artistName, content: text.trim(),
+          likes: Math.round(r.likes * 0.4), shares: Math.round(r.shares * 0.4), comments: [], timestamp: new Date().toISOString(),
+          isPlayerPost: true, trendingScore: insulting ? 60 : 15, daySerial: serial, quoteOf: post.id, kind: 'thought',
+          growth: { likes: Math.round(r.likes * 0.6), shares: Math.round(r.shares * 0.6), comments: Math.round(r.comments * 0.6), views: 0, follows: Math.round(r.follows * 0.5), days: 3 },
+        };
+        quote.comments = socialComments(quote, 3, commentContext(state, insulting, `${serial}|${quote.id}`), quote.timestamp);
+        state.socialPosts.unshift(quote);
+        const npc = !post.isPlayerPost && !post.authorId.startsWith('fan:') ? state.npcs.find((n) => n.id === post.authorId) : undefined;
+        if (npc) {
+          if (insulting) {
+            bumpRel(state, npc.id, -8, serial, 'You quote-tweeted them with an insult.');
+            nudgeBeef(state, npc.id, 10, serial);
+            if (npc.relationshipScore <= -25 && npc.role === 'artist') npcStartsBeef(state, npc as NPC, serial, 'you quote-tweeted them.');
+            result = { ok: true, message: `Quoted ${npc.name}. That's going to start something.` };
+            return;
+          }
+          bumpRel(state, npc.id, 1, serial, 'You quoted them.');
+        } else if (post.authorId.startsWith('fan:') && insulting) {
+          addMomentum(state, Math.random() < 0.5 ? 3 : -3);
+        }
+        result = { ok: true, message: 'Quoted.' };
+      });
+      return result;
+    },
+
+    commentOnPost: (postId, text, replyToCommentId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Post not found.' };
+      set((state) => {
+        const p = state.player;
+        if (!p || !text.trim()) return;
+        const post = state.socialPosts.find((x) => x.id === postId);
+        if (!post) return;
+        const serial = dateToSerial(state.gameDate);
+        const now = new Date().toISOString();
+        const mine: SocialComment = { id: uuidv4(), authorId: 'player', authorName: p.artistName, content: text.trim(), likes: Math.round(5 + blendedFame(p) * 3), timestamp: now };
+        const parent = replyToCommentId ? post.comments.find((c) => c.id === replyToCommentId) : undefined;
+        if (parent) (parent.replies ?? (parent.replies = [])).push(mine);
+        else post.comments.push(mine);
+        const intent = detectIntent(text);
+
+        // Replying to a fan.
+        const target = parent ?? (post.isPlayerPost ? undefined : post);
+        const targetId = parent ? parent.authorId : post.authorId;
+        if (parent && targetId.startsWith('fan:')) {
+          if (parent.tone === 'hater' || parent.tone === 'troll') {
+            const won = Math.random() + p.stats.charisma / 200 > 0.7;
+            addMomentum(state, won ? 2 : -2);
+            parent.replies!.push({ id: uuidv4(), authorId: targetId, authorName: parent.authorName, content: won ? 'ok that was funny 😭' : 'he really replied to me 😂😂 ratio', likes: won ? 40 : 300, timestamp: now });
+            result = { ok: true, message: won ? 'You cooked the hater. Fans are loving it.' : 'Replying to a hater made it worse. They are screenshotting it.' };
+          } else {
+            parent.replies!.push({ id: uuidv4(), authorId: targetId, authorName: parent.authorName, content: pick3(['HE REPLIED 😭😭😭', 'I\'m framing this', 'Best day of my life no cap 🫶'], `${serial}|${parent.id}`), likes: 120, timestamp: now });
+            addMomentum(state, 0.5);
+            const stats = socialStatsOf(state);
+            stats[post.platform].followers += 15;
+            result = { ok: true, message: 'The fan lost their mind. Fans love an artist who replies.' };
+          }
+          return;
+        }
+
+        // Commenting on (or replying to) an NPC.
+        const npc = targetId !== 'player' && !targetId.startsWith('fan:') ? state.npcs.find((n) => n.id === targetId) : undefined;
+        if (npc && target) {
+          const beef = activeBeefIds(state).has(npc.id);
+          const delta = intent === 'insult' ? -7 : intent === 'compliment' ? 2 : intent === 'apology' ? 3 : 1;
+          bumpRel(state, npc.id, delta, serial, `You commented: "${text.slice(0, 40)}"`);
+          if (intent === 'insult' || beef) nudgeBeef(state, npc.id, intent === 'insult' ? 8 : 3, serial);
+          const reply = chatReply(npc as NPC, text, { playerFame: blendedFame(p), sentToday: 0, beef, seed: `${serial}|${post.id}` }, Math.random());
+          if (reply.text) {
+            const holder = parent ?? mine;
+            (holder.replies ?? (holder.replies = [])).push({ id: uuidv4(), authorId: npc.id, authorName: npc.name, content: reply.text, likes: Math.round(50 + npc.fame * 20), timestamp: now, tone: 'artist' });
+          }
+          if (intent === 'insult' && npc.relationshipScore <= -25 && npc.role === 'artist') npcStartsBeef(state, npc as NPC, serial, 'you went at them in their comments.');
+          result = { ok: true, message: reply.text ? `${npc.name} replied.` : (reply.note ?? `${npc.name} hasn't replied.`) };
+          return;
+        }
+        result = { ok: true, message: 'Commented.' };
+      });
+      return result;
+    },
+
+    likeComment: (postId, commentId) =>
+      set((state) => {
+        const post = state.socialPosts.find((x) => x.id === postId);
+        if (!post) return;
+        const all = [...post.comments, ...post.comments.flatMap((c) => c.replies ?? [])];
+        const c = all.find((x) => x.id === commentId);
+        if (!c || c.liked) return;
+        c.liked = true;
+        c.likes += 1;
+        if (!c.authorId.startsWith('fan:') && c.authorId !== 'player') bumpRel(state, c.authorId, 1, dateToSerial(state.gameDate));
+      }),
+
+    setFanbaseName: (name) =>
+      set((state) => {
+        const n = name.trim().slice(0, 28);
+        if (n.length >= 2) state.fanbaseName = n;
+      }),
+
+    fanWarAction: (warId, action) => {
+      let result: FeatureActionResult = { ok: false, message: 'That war is over.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const war = (state.fanWars ?? []).find((w) => w.id === warId && w.status === 'active');
+        if (!war) return;
+        const serial = dateToSerial(state.gameDate);
+        if (war.lastSerial === serial && war.log[0]?.startsWith('You:')) { result.message = 'You already said something about this today.'; return; }
+        if (!spendEnergy(state, 4, { admin: true })) { result.message = energyShortfallMessage(4, p.energy); return; }
+        const m = fanWarMove(action, { intensity: war.intensity, edge: war.edge, charisma: p.stats.charisma, roll: Math.random() });
+        war.intensity = m.intensity;
+        war.edge = m.edge;
+        war.lastSerial = serial;
+        war.log = [`You: ${FANWAR_ACTIONS[action].label}. ${m.text}`, ...war.log].slice(0, 12);
+        addMomentum(state, m.momentum);
+        p.career.reputation = Math.max(0, Math.min(100, p.career.reputation + m.reputation));
+        p.career.localFame = Math.min(100, p.career.localFame + m.fame);
+        if (action === 'fuel') nudgeBeef(state, war.npcId, 6, serial);
+        if (action === 'peace') bumpRel(state, war.npcId, 4, serial, 'You told your fans to stop the war.');
+        state.socialPosts.unshift({
+          id: uuidv4(), platform: 'chirp', authorId: 'player', authorName: p.artistName,
+          content: action === 'rally' ? `${fanbaseNameOf(state)}, you already know what it is. 📢` : action === 'peace' ? `Love to my fans, but let's keep it about the music. Respect to ${war.theirFans}. 🕊️` : `Imagine being a ${war.npcName} fan and thinking this is a good point 😂`,
+          likes: Math.round(200 + blendedFame(p) * 60), shares: Math.round(20 + blendedFame(p) * 6), comments: [], timestamp: new Date().toISOString(),
+          isPlayerPost: true, trendingScore: 50, daySerial: serial, kind: 'thought',
+        });
+        result = { ok: true, message: m.text };
+      });
+      return result;
+    },
+
+    buyBeat: (listingId, license) => {
+      let result: FeatureActionResult = { ok: false, message: 'That beat is gone.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const b = beatsOf(state);
+        const l = b.store.find((x) => x.id === listingId);
+        if (!l || l.sold) return;
+        const price = license === 'lease' ? l.lease : l.exclusive;
+        if (p.career.money < price) { result.message = `That ${license} is $${price.toLocaleString()}. You have $${Math.floor(p.career.money).toLocaleString()}.`; return; }
+        p.career.money -= price;
+        l.sold = true;
+        const serial = dateToSerial(state.gameDate);
+        b.library.unshift({
+          id: `beat:${l.id}:${license}`,
+          name: l.name,
+          quality: license === 'lease' ? Math.max(15, l.quality - LEASE_PENALTY) : l.quality,
+          genre: l.genre, bpm: l.bpm, mood: l.mood,
+          producerId: l.producerId, producerName: l.producerName,
+          source: 'store', license, acquiredSerial: serial, price,
+        });
+        trimLibrary(b);
+        const npc = state.npcs.find((n) => n.id === l.producerId);
+        if (npc) npc.relationshipScore = Math.min(100, npc.relationshipScore + (license === 'exclusive' ? 3 : 1));
+        result = { ok: true, message: `"${l.name}" is yours (${license}, $${price.toLocaleString()}). It's in your beat library.` };
+      });
+      return result;
+    },
+
+    orderBeat: (opts) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nobody to make it.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const b = beatsOf(state);
+        const npc = state.npcs.find((n) => n.id === opts.producerId);
+        if (!npc) return;
+        const member = (state.crew ?? []).find((c) => c.npcId === npc.id && (c.role === 'producer' || c.role === 'engineer'));
+        const skill = member ? member.skill : producerSkillOf(npc as NPC);
+        if (b.orders.filter((o) => o.producerId === npc.id).length >= (member ? 2 : 1)) { result.message = `${npc.name} is already working on something for you.`; return; }
+        const q = orderQuote(skill, !!member);
+        const tier = buildingTier(state.studio?.levels);
+        const days = Math.max(1, Math.round(q.days / (member ? tier.beatSpeed : 1)));
+        if (!member) {
+          if (activeBeefIds(state).has(npc.id)) { result.message = `${npc.name} won't work with you right now.`; return; }
+          if (!takesOrder(npc as NPC, blendedFame(p), Math.random())) {
+            result.message = `${npc.name}'s team passed — "fully booked". Build the relationship first, or try someone closer to your level.`;
+            return;
+          }
+          if (p.career.money < q.fee) { result.message = `${npc.name} charges $${q.fee.toLocaleString()} for a custom beat.`; return; }
+          p.career.money -= q.fee;
+        }
+        const serial = dateToSerial(state.gameDate);
+        b.orders.push({
+          id: uuidv4(), producerId: npc.id, producerName: npc.name, genre: opts.genre, bpm: opts.bpm, mood: opts.mood,
+          forTitle: opts.forTitle?.trim() || undefined, fee: member ? 0 : q.fee, orderedSerial: serial, dueSerial: serial + days, inHouse: !!member,
+        });
+        result = { ok: true, message: `${npc.name} is on it${opts.forTitle ? ` — a beat for "${opts.forTitle.trim()}"` : ''}. Ready in ${days} day${days === 1 ? '' : 's'}${member ? ' (your team, no fee)' : ` ($${q.fee.toLocaleString()})`}.` };
+      });
+      return result;
+    },
+
+    redoBeat: (beatId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That beat is not in your library.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const b = beatsOf(state);
+        const beat = b.library.find((x) => x.id === beatId);
+        if (!beat || !beat.producerId) return;
+        if (beat.usedOnSongId) { result.message = 'That beat is already on a record.'; return; }
+        if (beat.source === 'store') { result.message = 'Store beats are sold as they are. Order a custom one instead.'; return; }
+        if (b.orders.some((o) => o.redoOf === beat.id)) { result.message = 'A redo is already on the way.'; return; }
+        const member = (state.crew ?? []).find((c) => c.npcId === beat.producerId);
+        const npc = state.npcs.find((n) => n.id === beat.producerId);
+        const skill = member ? member.skill : npc ? producerSkillOf(npc as NPC) : 50;
+        const q = orderQuote(skill, !!member);
+        const fee = member ? 0 : Math.round(q.fee * 0.5 / 10) * 10;
+        if (p.career.money < fee) { result.message = `A redo costs $${fee.toLocaleString()}.`; return; }
+        p.career.money -= fee;
+        // Asking for a third and fourth go wears on people.
+        if ((beat.redos ?? 0) >= 2 && npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - 2);
+        const serial = dateToSerial(state.gameDate);
+        const days = Math.max(1, Math.round(q.days * 0.6));
+        b.orders.push({ id: uuidv4(), producerId: beat.producerId, producerName: beat.producerName, genre: beat.genre, bpm: beat.bpm, mood: beat.mood, forTitle: beat.forTitle, fee, orderedSerial: serial, dueSerial: serial + days, inHouse: !!member, redoOf: beat.id });
+        result = { ok: true, message: `${beat.producerName} will take another pass. ${days} day${days === 1 ? '' : 's'}${fee ? `, $${fee.toLocaleString()}` : ''}.${(beat.redos ?? 0) >= 2 ? ' They are starting to sigh.' : ''}` };
+      });
+      return result;
+    },
+
+    discardBeat: (beatId) =>
+      set((state) => {
+        const b = beatsOf(state);
+        b.library = b.library.filter((x) => x.id !== beatId || !!x.usedOnSongId);
+      }),
+
+    upgradeStudioBuilding: () => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to build.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        if (!state.studio) state.studio = { levels: {} };
+        if (!state.studio.levels) state.studio.levels = {};
+        const cur = buildingLevel(state.studio.levels);
+        const next = HOME_STUDIO_TIERS[cur + 1];
+        if (!next) { result.message = 'You already own the best room in the country.'; return; }
+        if (p.career.money < next.build) { result.message = `The ${next.name} costs $${next.build.toLocaleString()} to build. You have $${Math.floor(p.career.money).toLocaleString()}.`; return; }
+        p.career.money -= next.build;
+        state.studio.levels.building = next.level;
+        if (next.level >= 3) {
+          p.career.reputation = Math.min(100, p.career.reputation + (next.level === 4 ? 4 : 2));
+          state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} opens a ${next.name.toLowerCase()}`, fullStory: `${p.artistName} has built ${next.level === 4 ? 'one of the biggest recording complexes in the country' : 'a full professional studio'}. Artists are already asking for time in it.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 5, category: 'business' });
+        }
+        state.lastEventLog.unshift(`🏗️ ${next.emoji} Your ${next.name.toLowerCase()} is built — $${next.build.toLocaleString()}. Upkeep is $${next.upkeep.toLocaleString()}/month.`);
+        result = { ok: true, message: `${next.emoji} ${next.name} built. ${next.perks.join(' · ')}. Upkeep $${next.upkeep.toLocaleString()} a month.` };
+      });
+      return result;
+    },
+
+    setStudioRentOut: (on) =>
+      set((state) => {
+        if (!state.studio) state.studio = { levels: {} };
+        state.studio.rentOut = on;
+      }),
+
+    sendGift: (npcId, tier) => {
+      let result: FeatureActionResult = { ok: false, message: 'They are not reachable.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (!npc) return;
+        const gifts = { flowers: { cost: 150, rel: 3, label: 'flowers and a note' }, bottle: { cost: 800, rel: 6, label: 'a bottle of something expensive' }, chain: { cost: 6000, rel: 12, label: 'a custom chain' } } as const;
+        const g = gifts[tier];
+        if (p.career.money < g.cost) { result.message = `That costs $${g.cost.toLocaleString()}.`; return; }
+        const serial = dateToSerial(state.gameDate);
+        // A gift is a gesture — the second one in a week is a bribe.
+        const recent = npc.lastReachOut !== undefined && serial - npc.lastReachOut < 7;
+        p.career.money -= g.cost;
+        const t = traitsOf(npc as NPC);
+        let delta = recent ? Math.round(g.rel / 3) : g.rel;
+        if (activeBeefIds(state).has(npc.id)) delta = Math.random() < 0.4 ? 6 : -2;
+        if (t.diva && tier === 'flowers') delta = 1;
+        npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + delta));
+        npc.lastReachOut = serial;
+        npc.memoryLog = [...(npc.memoryLog ?? []).slice(-9), `You sent ${g.label}.`];
+        const thread = state.dmThreads[npcId] ?? { npcId, messages: [], unread: 0 };
+        thread.messages.push({ id: uuidv4(), npcId, fromPlayer: true, content: `🎁 Sent ${g.label}.`, timestamp: new Date().toISOString(), read: true });
+        const reply = npc.id.endsWith('_real') ? null : delta >= 6 ? 'Yo this is too much 😭 thank you fr' : delta > 0 ? 'Appreciate it 🙏' : 'Is this supposed to fix things?';
+        if (reply) { thread.messages.push({ id: uuidv4(), npcId, fromPlayer: false, content: reply, timestamp: new Date().toISOString(), read: false }); thread.unread += 1; }
+        state.dmThreads[npcId] = thread;
+        result = { ok: true, message: recent ? `${npc.name} appreciated it, but a second gift this week reads as trying too hard (+${delta}).` : `${npc.name} got ${g.label} (${delta >= 0 ? '+' : ''}${delta}).` };
+      });
+      return result;
+    },
+
 
     // ─── THE FEED ───────────────────────────────────────────────────────
     //
@@ -8226,8 +9316,11 @@ export const useGameStore = create<GameState & GameActions>()(
           return;
         }
 
+        settleScenePosts(fresh, today);
         state.socialPosts.unshift(...fresh);
-        if (state.socialPosts.length > 150) state.socialPosts = state.socialPosts.slice(0, 150);
+        // And the other apps move too.
+        scenePosts(state, raw(state.npcs) as NPC[], today, 1);
+        trimFeed(state);
         state.trending = buildTrending(charts, state.player) as typeof state.trending;
         state.feedRefreshedAt = now;
 
@@ -12508,10 +13601,11 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         if (newSocial.length > 0) {
+          settleScenePosts(newSocial, dateToSerial(state.gameDate));
           state.socialPosts.unshift(...newSocial);
           // Keep the feed bounded.
-          if (state.socialPosts.length > 150) {
-            state.socialPosts = state.socialPosts.slice(0, 150);
+          if (state.socialPosts.length > 320) {
+            trimFeed(state);
           }
         }
 
@@ -12790,6 +13884,16 @@ export const useGameStore = create<GameState & GameActions>()(
         // People text you; your team walks in with problems. Decisions
         // with consequences, some of them weeks later.
         momentsTick(state, rawNPCs, targetSerial, days);
+
+        // ─── SOCIAL ───────────────────────────────────────────────────
+        // Posts keep collecting, the scene posts, fan wars burn, rivals
+        // hit back.
+        socialTick(state, rawNPCs, targetSerial, days);
+
+        // ─── BEATS & THE BUILDING ─────────────────────────────────────
+        // The team's beat drops, commissioned beats arriving, the weekly
+        // store, and the studio's monthly bills.
+        beatsTick(state, rawNPCs, targetSerial, days);
 
         // ─── INDUSTRY & LIFE TICK ─────────────────────────────────────
         const todaySerial = dateToSerial(state.gameDate);
@@ -13243,7 +14347,7 @@ export const useGameStore = create<GameState & GameActions>()(
           // a read-only `.find`), so the start-of-tick view is still exact.
           npcDeltas: collectNPCDeltas(rawNPCs),
           dmThreads: state.dmThreads,
-          socialPosts: state.socialPosts.slice(0, 100),
+          socialPosts: feedForSave(state.socialPosts),
           mailbox: state.mailbox,
           contracts: state.contracts,
           crew: state.crew,
@@ -13257,6 +14361,11 @@ export const useGameStore = create<GameState & GameActions>()(
           beefs: state.beefs,
           feedRefreshedAt: state.feedRefreshedAt,
           tagQuota: state.tagQuota,
+          socialStats: state.socialStats,
+          fanbaseName: state.fanbaseName,
+          fanWars: (state.fanWars ?? []).slice(0, 10),
+          postsToday: state.postsToday,
+          beats: state.beats,
           investments: state.investments,
           businesses: state.businesses,
           label: state.label ?? null,
@@ -13570,7 +14679,7 @@ export const useGameStore = create<GameState & GameActions>()(
         albums: state.albums,
         npcDeltas: collectNPCDeltas(raw(state.npcs) as NPC[]),
         dmThreads: state.dmThreads,
-        socialPosts: state.socialPosts.slice(0, 100),
+        socialPosts: feedForSave(state.socialPosts),
         mailbox: state.mailbox,
         contracts: state.contracts,
         crew: state.crew,
@@ -13584,6 +14693,11 @@ export const useGameStore = create<GameState & GameActions>()(
         beefs: state.beefs,
         feedRefreshedAt: state.feedRefreshedAt,
         tagQuota: state.tagQuota,
+        socialStats: state.socialStats,
+        fanbaseName: state.fanbaseName,
+        fanWars: (state.fanWars ?? []).slice(0, 10),
+        postsToday: state.postsToday,
+        beats: state.beats,
         investments: state.investments,
         businesses: state.businesses,
         label: state.label ?? null,

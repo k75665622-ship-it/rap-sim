@@ -1,179 +1,259 @@
+// ─── SOCIAL ────────────────────────────────────────────────────────────────
+// Four apps, one scene. Each app looks and behaves like itself — the Chirp
+// timeline, the Snapgram grid, Clip's vertical videos, the Circle community —
+// and they share one composer, one comment system, and one rivals page.
+
 import { useMemo, useState } from 'react';
-import { useGameStore, fanbaseOf, feedCooldown, tagsLeftToday } from '../../store/gameStore';
-import { Card, Button } from '../ui/Card';
 import { cn } from '@/utils/cn';
+import { compact } from '@/utils/format';
+import { useGameStore, fanbaseOf } from '../../store/gameStore';
+import { Button, Segmented } from '../ui/kit';
 import { dateToSerial } from '../../sim/gameClock';
-import type { NPC, Platform, SocialPost } from '../../types/game';
+import { APP_META, SOCIAL_APPS, seedFollowers, fanbaseNameFor, type SocialApp } from '../../sim/social';
+import type { GameScreen, Platform, SocialPost } from '../../types/game';
+import { AppMark, Avatar, ChirpRow, PhotoCard, ClipTile, CircleCard, FeedSection, handleOf, type PostCardProps } from '../social/shared';
+import { PostPanel } from '../social/PostPanel';
+import { Composer } from '../social/Composer';
+import { RivalsTab } from '../social/Rivals';
 
-const PLATFORM_INFO: Record<string, { name: string; mark: string; subtitle: string; placeholder: string; limit: number }> = {
-  chirp: { name: 'Chirp', mark: 'C', subtitle: 'What’s happening', placeholder: 'What’s happening?', limit: 280 },
-  snapgram: { name: 'Snapgram', mark: 'S', subtitle: 'Share your world', placeholder: 'Write a caption...', limit: 2200 },
-  clip: { name: 'Clip', mark: '▶', subtitle: 'Short-form video', placeholder: 'Describe your clip...', limit: 500 },
-  circle: { name: 'Circle', mark: 'O', subtitle: 'Communities', placeholder: 'Share something with your community...', limit: 5000 },
-};
-
-type Tab = 'home' | 'trending' | 'mentions' | 'profile';
-
-function initials(name: string) {
-  return name.trim().split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase() || '?';
-}
-
-function postAge(post: SocialPost, nowSerial: number): string {
-  if (typeof post.daySerial === 'number') {
-    const days = nowSerial - post.daySerial;
-    if (days <= 0) return 'now';
-    if (days === 1) return '1d';
-    if (days < 7) return `${days}d`;
-    return `${Math.floor(days / 7)}w`;
-  }
-  const mins = Math.floor((Date.now() - new Date(post.timestamp).getTime()) / 60000);
-  if (mins < 60) return `${Math.max(1, mins)}m`;
-  return `${Math.floor(mins / 60)}h`;
-}
-
-function Avatar({ name, large = false }: { name: string; large?: boolean }) {
-  return <div className={cn('rounded-full bg-ink text-bg font-bold flex items-center justify-center shrink-0', large ? 'w-12 h-12 text-sm' : 'w-10 h-10 text-xs')}>{initials(name)}</div>;
-}
-
-function ChirpPost({ post, nowSerial, onLike }: { post: SocialPost; nowSerial: number; onLike: () => void }) {
-  return (
-    <article className="px-4 py-4 border-b border-line hover:bg-white/[0.018] transition-colors">
-      <div className="flex gap-3">
-        <Avatar name={post.authorName} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[13px]">
-            <span className="font-bold text-ink truncate">{post.authorName}</span>
-            {post.authorId !== 'player' && <span className="text-amber">✓</span>}
-            <span className="text-ink3">@{post.authorName.toLowerCase().replace(/\s+/g, '_')}</span>
-            <span className="text-ink3">· {postAge(post, nowSerial)}</span>
-          </div>
-          <p className="text-[14px] text-ink mt-1.5 whitespace-pre-wrap leading-relaxed">{post.content}</p>
-          {post.relatedSongId && <div className="mt-3 rounded-xl border border-line bg-card p-3 text-[12px] text-ink2">Music · linked to a release in the catalogue</div>}
-          <div className="grid grid-cols-4 max-w-[520px] mt-3 text-ink3 text-[12px]">
-            <button className="text-left hover:text-ink">○ {post.comments.length}</button>
-            <button className="text-left hover:text-ink">↻ {post.shares}</button>
-            <button className="text-left hover:text-amber" onClick={onLike}>♡ {post.likes}</button>
-            <button className="text-left hover:text-ink">🔖</button>
-          </div>
-          {post.comments.length > 0 && (
-            <div className="mt-3 space-y-2">
-              {post.comments.slice(0, 2).map(c => (
-                <div key={c.id} className="flex gap-2 text-[12px]">
-                  <div className="w-6 h-6 rounded-full bg-card2 flex items-center justify-center text-[9px] font-bold text-ink2">{initials(c.authorName)}</div>
-                  <div><span className="font-semibold text-ink">{c.authorName}</span> <span className="text-ink2">{c.content}</span></div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function RealisticShell({ platform, children, right }: { platform: Platform; children: React.ReactNode; right: React.ReactNode }) {
-  const info = PLATFORM_INFO[platform];
-  return (
-    <div className="max-w-[1180px] mx-auto grid grid-cols-1 lg:grid-cols-[72px_minmax(0,640px)_300px] gap-0 lg:border-x border-line min-h-[calc(100vh-48px)]">
-      <aside className="hidden lg:block border-r border-line px-3 py-4">
-        <div className="w-12 h-12 rounded-full bg-amber text-black flex items-center justify-center font-black text-xl mb-8">{info.mark}</div>
-        <div className="space-y-4 text-center text-xl text-ink2">
-          <div className="font-bold text-ink">⌂</div><div>⌕</div><div>♧</div><div>♡</div><div>✉</div><div>☻</div>
-        </div>
-      </aside>
-      <main className="min-w-0 border-r border-line">
-        {children}
-      </main>
-      <aside className="hidden lg:block p-4 space-y-4">{right}</aside>
-    </div>
-  );
-}
+type Tab = 'feed' | 'mentions' | 'profile' | 'rivals';
+type Filter = 'all' | 'mine' | 'people';
 
 export function SocialScreen({ platform }: { platform: Platform }) {
-  const s = useGameStore();
-  const { player, socialPosts, trending, npcs } = s;
-  const [tab, setTab] = useState<Tab>('home');
-  const [postContent, setPostContent] = useState('');
-  const [flash, setFlash] = useState<string | null>(null);
-  const nowSerial = dateToSerial(s.gameDate);
-  const info = PLATFORM_INFO[platform] ?? PLATFORM_INFO.chirp;
-  const cooldown = feedCooldown(s);
-  const tagsLeft = tagsLeftToday(s);
-  const fanbase = player ? fanbaseOf(s) : 0;
-  const posts = useMemo(() => socialPosts.filter(p => p.platform === platform).slice(0, 50), [socialPosts, platform]);
+  const app = (SOCIAL_APPS.includes(platform as SocialApp) ? platform : 'chirp') as SocialApp;
+  const meta = APP_META[app];
+  const player = useGameStore((s) => s.player);
+  const socialPosts = useGameStore((s) => s.socialPosts);
+  const songs = useGameStore((s) => s.songs);
+  const npcSongs = useGameStore((s) => s.npcSongs);
+  const stats = useGameStore((s) => s.socialStats);
+  const gameDate = useGameStore((s) => s.gameDate);
+  const trending = useGameStore((s) => s.trending);
+  const fanWars = useGameStore((s) => s.fanWars);
+  const beefs = useGameStore((s) => s.beefs);
+  const fanbaseName = useGameStore((s) => s.fanbaseName);
+  const likePost = useGameStore((s) => s.likePost);
+  const repostPost = useGameStore((s) => s.repostPost);
+  const setScreen = useGameStore((s) => s.setScreen);
+  const setFanbaseName = useGameStore((s) => s.setFanbaseName);
+  const refreshFeed = useGameStore((s) => s.refreshFeed);
 
-  const mentions = useMemo(() => socialPosts.filter(p => player && !p.isPlayerPost && (p.content.toLowerCase().includes(player.artistName.toLowerCase()) || p.comments.some(c => c.content.toLowerCase().includes(player.artistName.toLowerCase())))).slice(0, 30), [socialPosts, player]);
-  const people = useMemo(() => {
-    if (!player) return [] as NPC[];
-    return npcs.filter(n => n.role === 'artist' && (n.country === player.country || n.relationshipScore !== 0)).slice(0, 12);
-  }, [npcs, player]);
+  const [tab, setTab] = useState<Tab>('feed');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
+  const [flash, setFlash] = useState<{ ok: boolean; message: string; viral?: boolean } | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const nowSerial = dateToSerial(gameDate);
+  // Derived and not cheap: once a game day, not on every clock tick.
+  const fanbaseTotal = useMemo(() => (player ? fanbaseOf(useGameStore.getState()).total : 0), [player, gameDate]);
 
-  function refresh() {
-    const r = s.refreshFeed();
-    setFlash(r.message);
+  const fanbase = player?.career.fanbase ?? 0;
+  const followers = (a: SocialApp) => stats?.[a]?.followers ?? seedFollowers(a, fanbase);
+  const myFans = fanbaseName ?? (player ? fanbaseNameFor(player.artistName, player.id) : 'Your fans');
+
+  const byId = useMemo(() => new Map(socialPosts.map((p) => [p.id, p])), [socialPosts]);
+  const songTitle = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of songs) m.set(s.id, s.title);
+    return (id?: string) => (id ? m.get(id) ?? npcSongs.find((x) => x.id === id)?.title : undefined);
+  }, [songs, npcSongs]);
+
+  const appPosts = useMemo(() => socialPosts.filter((p) => p.platform === app), [socialPosts, app]);
+  const feed = useMemo(() => {
+    const list = filter === 'mine' ? appPosts.filter((p) => p.isPlayerPost)
+      : filter === 'people' ? appPosts.filter((p) => !p.isPlayerPost && !p.authorId.startsWith('fan:') && !p.authorName.startsWith('@'))
+      : appPosts;
+    return list.slice(0, 60);
+  }, [appPosts, filter]);
+
+  const mentions = useMemo(() => {
+    if (!player) return [] as SocialPost[];
+    const name = player.artistName.toLowerCase();
+    const handle = '@' + player.artistName.replace(/\s+/g, '').toLowerCase();
+    return socialPosts.filter((p) => !p.isPlayerPost && ((p.tags ?? []).some((t) => t.id === 'player') || p.content.toLowerCase().includes(handle) || p.content.toLowerCase().includes(name))).slice(0, 40);
+  }, [socialPosts, player]);
+
+  const mine = useMemo(() => appPosts.filter((p) => p.isPlayerPost), [appPosts]);
+  const myLikes = mine.reduce((a, p) => a + p.likes, 0);
+  const liveRivals = (fanWars ?? []).filter((w) => w.status === 'active').length + beefs.filter((b) => !b.resolution).length;
+  const open = openId ? byId.get(openId) ?? null : null;
+
+  function cardProps(p: SocialPost): PostCardProps {
+    return {
+      post: p,
+      nowSerial,
+      songTitle: songTitle(p.relatedSongId),
+      repostedFrom: p.repostOf ? byId.get(p.repostOf) : undefined,
+      quoted: p.quoteOf ? byId.get(p.quoteOf) : undefined,
+      onOpen: () => setOpenId(p.id),
+      onLike: () => likePost(p.id),
+      onRepost: () => setFlash(p.authorId === 'player' ? { ok: false, message: 'That is your own post.' } : repostPost(p.id)),
+    };
   }
 
-  function post() {
-    if (!postContent.trim()) return;
-    s.createPost(platform, postContent.trim());
-    setPostContent('');
-    setFlash('Posted.');
+  function renderPost(p: SocialPost, asApp: SocialApp = app) {
+    const props = cardProps(p);
+    if (asApp === 'snapgram') return <PhotoCard key={p.id} {...props} />;
+    if (asApp === 'clip') return <ClipTile key={p.id} {...props} />;
+    if (asApp === 'circle') return <CircleCard key={p.id} {...props} />;
+    return <ChirpRow key={p.id} {...props} />;
   }
 
-  const rightRail = (
-    <>
-      <div className="relative">
-        <input placeholder="Search Chirp" className="w-full bg-card border border-line rounded-full px-4 py-2.5 text-[12px] text-ink outline-none focus:border-amber" />
+  const rail = (
+    <div className="space-y-3">
+      <div className="rounded-[14px] border border-line bg-card p-4">
+        <div className="text-[12px] font-semibold text-ink2 uppercase tracking-wider mb-3">Your accounts</div>
+        <div className="space-y-2">
+          {SOCIAL_APPS.map((a) => (
+            <button key={a} onClick={() => setScreen(`social_${a}` as GameScreen)} className={cn('w-full flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition', a === app ? 'bg-white/[0.05]' : 'hover:bg-white/[0.03]')}>
+              <AppMark app={a} size={22} />
+              <span className="flex-1 text-[13px] text-ink">{APP_META[a].name}</span>
+              <span className="text-[12px] text-ink2 num">{compact(followers(a))}</span>
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 pt-3 border-t border-line text-[11px] text-ink3">Fanbase <b className="text-ink2">{myFans}</b> · {compact(fanbaseTotal)} fans</div>
       </div>
-      <Card className="p-4">
-        <div className="font-black text-ink text-[15px]">What’s happening</div>
-        <div className="mt-3 space-y-4">
-          {(trending ?? []).slice(0, 5).map((t, i) => <div key={`${t.tag}-${i}`}><div className="text-[10px] text-ink3">Trending · {t.posts} posts</div><div className="text-[13px] font-bold text-ink mt-0.5">{t.tag}</div><div className="text-[11px] text-ink3 mt-0.5">{t.reason}</div></div>)}
-          {(trending ?? []).length === 0 && <div className="text-[12px] text-ink3">Trends are still forming around the scene.</div>}
+      <div className="rounded-[14px] border border-line bg-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[12px] font-semibold text-ink2 uppercase tracking-wider">Trending</div>
+          <button onClick={() => setFlash(refreshFeed())} className="text-[11px] text-ink3 hover:text-ink">Refresh</button>
         </div>
-      </Card>
-      <Card className="p-4">
-        <div className="font-black text-ink text-[15px]">Who to follow</div>
-        <div className="mt-3 space-y-3">
-          {people.slice(0, 4).map(n => <div key={n.id} className="flex items-center gap-2"><Avatar name={n.name} /><div className="min-w-0 flex-1"><div className="text-[12px] font-bold text-ink truncate">{n.name}</div><div className="text-[10px] text-ink3 truncate">{n.genre ?? 'artist'} · {n.city ?? n.country}</div></div><button className="rounded-full bg-ink text-bg px-3 py-1 text-[10px] font-bold">Follow</button></div>)}
+        <div className="space-y-3">
+          {(trending ?? []).slice(0, 5).map((t, i) => (
+            <div key={`${t.tag}-${i}`}><div className="text-[13px] font-semibold text-ink">{t.tag}</div><div className="text-[11px] text-ink3">{t.reason} · {compact(t.posts)} posts</div></div>
+          ))}
+          {(trending ?? []).length === 0 && <div className="text-[12px] text-ink3">Trends are forming.</div>}
         </div>
-      </Card>
-      <div className="text-[10px] text-ink3 leading-relaxed">RAP LIFE social · fictional network · {fanbase.toLocaleString()} player fans</div>
-    </>
+      </div>
+      {liveRivals > 0 && (
+        <button onClick={() => setTab('rivals')} className="w-full rounded-[14px] border border-fall/40 bg-fall/[0.06] p-4 text-left hover:bg-fall/[0.1] transition">
+          <div className="text-[13px] font-semibold text-ink">⚔️ {liveRivals} live rivalr{liveRivals === 1 ? 'y' : 'ies'}</div>
+          <div className="text-[11px] text-ink3 mt-0.5">Fan wars and beef need a decision.</div>
+        </button>
+      )}
+    </div>
   );
 
   return (
-    <RealisticShell platform={platform} right={rightRail}>
-      <header className="sticky top-0 z-10 backdrop-blur-xl bg-[#0A0B10]/90 border-b border-line">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <div><div className="text-[17px] font-black text-ink">{info.name}</div><div className="text-[10px] text-ink3">{info.subtitle}</div></div>
-          <div className="flex items-center gap-2"><Button size="sm" variant="secondary" onClick={refresh} disabled={!cooldown.ready}>{cooldown.ready ? 'Refresh' : `${cooldown.waitMinutes}m`}</Button></div>
+    <div className="max-w-[1120px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-4">
+        <AppMark app={app} size={40} />
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[24px] font-bold text-ink leading-tight">{meta.name}</h1>
+          <div className="text-[12px] text-ink3">{meta.tagline} · <span className="text-ink2 num">{compact(followers(app))}</span> followers</div>
         </div>
-        <div className="grid grid-cols-4">
-          {(['home','trending','mentions','profile'] as Tab[]).map(t => <button key={t} onClick={() => setTab(t)} className={cn('py-3 text-[11px] font-semibold border-b-2', tab === t ? 'text-ink border-amber' : 'text-ink3 border-transparent hover:text-ink')}>{t === 'home' ? 'For You' : t === 'trending' ? 'Trending' : t === 'mentions' ? 'Mentions' : 'Profile'}</button>)}
-        </div>
-      </header>
+        <Button variant="accent" accent={meta.color} onClick={() => setComposing(true)}>+ Post</Button>
+      </div>
 
-      {flash && <div className="mx-4 mt-3 rounded-xl border border-line bg-card px-3 py-2 text-[11px] text-ink2">{flash}</div>}
+      {/* App switcher (phones) */}
+      <div className="flex gap-2 overflow-x-auto pb-1 mb-3 lg:hidden">
+        {SOCIAL_APPS.map((a) => (
+          <button key={a} onClick={() => setScreen(`social_${a}` as GameScreen)} className={cn('flex items-center gap-1.5 h-8 px-3 rounded-full border text-[12px] font-semibold shrink-0', a === app ? 'text-black' : 'border-line text-ink2')} style={a === app ? { background: APP_META[a].color, borderColor: APP_META[a].color } : undefined}>
+            {APP_META[a].name} <span className="opacity-70 num">{compact(followers(a))}</span>
+          </button>
+        ))}
+      </div>
 
-      {tab === 'home' && (
-        <>
-          <div className="px-4 py-4 border-b border-line">
-            <div className="flex gap-3"><Avatar name={player?.artistName ?? 'Artist'} large /><div className="flex-1"><textarea value={postContent} onChange={e => setPostContent(e.target.value)} maxLength={info.limit} rows={platform === 'circle' ? 4 : 3} placeholder={info.placeholder} className="w-full bg-transparent outline-none resize-none text-[15px] text-ink placeholder:text-ink3" /><div className="flex items-center justify-between"><span className="text-[10px] text-ink3">{postContent.length}/{info.limit}</span><Button size="sm" variant="gold" onClick={post} disabled={!postContent.trim()}>Post</Button></div></div></div>
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <Segmented<Tab>
+          value={tab}
+          onChange={setTab}
+          options={[
+            { id: 'feed', label: 'Feed' },
+            { id: 'mentions', label: 'Mentions', badge: mentions.length ? String(mentions.length) : undefined },
+            { id: 'profile', label: 'Profile' },
+            { id: 'rivals', label: 'Rivals', badge: liveRivals ? String(liveRivals) : undefined },
+          ]}
+        />
+        {tab === 'feed' && (
+          <div className="flex gap-1.5">
+            {([['all', 'Everything'], ['people', 'Artists'], ['mine', 'Yours']] as [Filter, string][]).map(([f, l]) => (
+              <button key={f} onClick={() => setFilter(f)} className={cn('h-8 px-3 rounded-full text-[12px] font-semibold border', filter === f ? 'border-ink2 text-ink bg-white/[0.05]' : 'border-line text-ink3 hover:text-ink')}>{l}</button>
+            ))}
           </div>
-          {posts.length === 0 ? <div className="p-8 text-center text-[12px] text-ink3">No posts yet. The scene will populate as the world moves.</div> : posts.map(p => <ChirpPost key={p.id} post={p} nowSerial={nowSerial} onLike={() => s.likePost(p.id)} />)}
-        </>
+        )}
+      </div>
+
+      {flash && (
+        <div className={cn('mb-3 rounded-[12px] px-4 py-2.5 text-[12px] flex items-start justify-between gap-3', flash.viral ? 'bg-fall/10 text-fall border border-fall/30' : flash.ok ? 'bg-white/[0.04] text-ink2 border border-line' : 'bg-fall/10 text-fall border border-fall/30')}>
+          <span>{flash.viral ? '🔥 It went viral. ' : ''}{flash.message}</span>
+          <button onClick={() => setFlash(null)} className="text-ink3 hover:text-ink">✕</button>
+        </div>
       )}
 
-      {tab === 'trending' && <div className="p-4 space-y-3">{(trending ?? []).map((t,i) => <Card key={`${t.tag}-${i}`} className="p-4"><div className="text-[10px] text-ink3">Trending topic · #{i+1}</div><div className="text-[16px] font-black text-ink mt-1">{t.tag}</div><div className="text-[12px] text-ink2 mt-1">{t.reason}</div><div className="text-[10px] text-ink3 mt-2">{t.posts.toLocaleString()} posts</div></Card>)}</div>}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_290px] gap-4">
+        <div className={cn('min-w-0 rounded-[14px] border border-line bg-[#0C0D12] overflow-hidden', app === 'chirp' && tab !== 'rivals' ? '' : '')}>
+          {tab === 'feed' && (
+            <>
+              <button onClick={() => setComposing(true)} className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-white/[0.02]">
+                <Avatar name={player?.artistName ?? 'You'} seed="player" size={36} ring={meta.color} />
+                <span className="flex-1 text-[14px] text-ink3">{app === 'chirp' ? 'What\'s happening?' : app === 'snapgram' ? 'Share a photo…' : app === 'clip' ? 'Post a clip — a challenge, a freestyle…' : 'Say something to your day ones…'}</span>
+                <span className="text-[12px] font-semibold px-3 h-8 rounded-full flex items-center text-black" style={{ background: meta.color }}>Post</span>
+              </button>
+              {feed.length === 0
+                ? <div className="p-10 text-center text-[13px] text-ink3">{filter === 'mine' ? `You haven't posted on ${meta.name} yet.` : 'Nothing here yet. The scene fills in as days pass.'}</div>
+                : <FeedSection app={app}>{feed.map((p) => renderPost(p))}</FeedSection>}
+            </>
+          )}
 
-      {tab === 'mentions' && <div>{mentions.length ? mentions.map(p => <ChirpPost key={p.id} post={p} nowSerial={nowSerial} onLike={() => s.likePost(p.id)} />) : <div className="p-8 text-center text-[12px] text-ink3">No recent mentions of your artist.</div>}</div>}
+          {tab === 'mentions' && (
+            mentions.length === 0
+              ? <div className="p-10 text-center text-[13px] text-ink3">Nobody has tagged you yet. Tag people and they tag you back.</div>
+              : <div>{mentions.map((p) => (
+                  <div key={p.id} className="relative">
+                    <span className="absolute right-3 top-3 z-[1]"><AppMark app={(p.platform as SocialApp) in APP_META ? (p.platform as SocialApp) : 'chirp'} size={18} /></span>
+                    {renderPost(p, 'chirp')}
+                  </div>
+                ))}</div>
+          )}
 
-      {tab === 'profile' && player && <div>
-        <div className="h-28 bg-card2" />
-        <div className="px-4 pb-5 border-b border-line"><div className="-mt-7 mb-3"><Avatar name={player.artistName} large /></div><div className="flex items-start justify-between"><div><div className="text-xl font-black text-ink">{player.artistName}</div><div className="text-[12px] text-ink3">@{player.artistName.toLowerCase().replace(/\s+/g,'_')}</div></div><button className="rounded-full border border-line px-4 py-1.5 text-[11px] text-ink">Edit profile</button></div><p className="text-[12px] text-ink2 mt-3">{player.genre.replace('_',' ')} artist · {player.city}, {player.country}</p><div className="flex gap-5 mt-3 text-[11px]"><span><b className="text-ink">{fanbase.toLocaleString()}</b> <span className="text-ink3">followers</span></span><span><b className="text-ink">{posts.filter(p => p.isPlayerPost).length}</b> <span className="text-ink3">posts</span></span><span><b className="text-ink">{tagsLeft}</b> <span className="text-ink3">tags left today</span></span></div></div>
-        {posts.filter(p=>p.isPlayerPost).map(p => <ChirpPost key={p.id} post={p} nowSerial={nowSerial} onLike={() => s.likePost(p.id)} />)}
-      </div>}
-    </RealisticShell>
+          {tab === 'profile' && player && (
+            <div>
+              <div className="h-28" style={{ background: `linear-gradient(120deg, ${meta.color}55, transparent)` }} />
+              <div className="px-4 pb-4 border-b border-line">
+                <div className="-mt-9 mb-2"><Avatar name={player.artistName} seed="player" size={72} ring={meta.color} /></div>
+                <div className="text-[20px] font-bold text-ink">{player.artistName}</div>
+                <div className="text-[12px] text-ink3">{handleOf(player.artistName)} · {player.city}, {player.country}</div>
+                <div className="mt-3 flex gap-5 text-[12px]">
+                  <span><b className="text-ink num">{compact(followers(app))}</b> <span className="text-ink3">followers</span></span>
+                  <span><b className="text-ink num">{mine.length}</b> <span className="text-ink3">posts</span></span>
+                  <span><b className="text-ink num">{compact(myLikes)}</b> <span className="text-ink3">likes</span></span>
+                </div>
+                <div className="mt-3 flex items-center gap-2 text-[12px]">
+                  <span className="text-ink3">Your fans are called</span>
+                  {editingName ? (
+                    <>
+                      <input autoFocus value={nameDraft} maxLength={28} onChange={(e) => setNameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setFanbaseName(nameDraft); setEditingName(false); } }} className="h-7 rounded-[8px] bg-card border border-line px-2 text-[12px] text-ink outline-none" />
+                      <button className="text-amber" onClick={() => { setFanbaseName(nameDraft); setEditingName(false); }}>Save</button>
+                    </>
+                  ) : (
+                    <button onClick={() => { setNameDraft(myFans); setEditingName(true); }} className="font-semibold text-ink hover:text-amber">{myFans} ✎</button>
+                  )}
+                </div>
+                <div className="mt-3 grid grid-cols-4 gap-2">
+                  {SOCIAL_APPS.map((a) => (
+                    <div key={a} className="rounded-[10px] bg-white/[0.03] px-2 py-2 text-center">
+                      <div className="text-[10px] font-semibold" style={{ color: APP_META[a].color }}>{APP_META[a].name}</div>
+                      <div className="text-[14px] font-semibold text-ink num">{compact(followers(a))}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {mine.length === 0 ? <div className="p-10 text-center text-[13px] text-ink3">No posts on {meta.name} yet.</div> : <FeedSection app={app}>{mine.slice(0, 40).map((p) => renderPost(p))}</FeedSection>}
+            </div>
+          )}
+
+          {tab === 'rivals' && <RivalsTab onFlash={setFlash} />}
+        </div>
+        <aside className="hidden lg:block">{rail}</aside>
+      </div>
+
+      <PostPanel post={open} songTitle={songTitle(open?.relatedSongId)} nowSerial={nowSerial} onClose={() => setOpenId(null)} />
+      {composing && <Composer open={composing} app={app} onClose={() => setComposing(false)} onPosted={setFlash} />}
+    </div>
   );
 }

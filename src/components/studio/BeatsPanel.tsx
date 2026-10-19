@@ -11,6 +11,7 @@ import { producerSkillOf, producerPriceBand } from '../../sim/studio';
 import { GENRE_LIST, GENRE_BY_ID } from '../../data/genres';
 import { dateToSerial } from '../../sim/gameClock';
 import type { Genre, NPC, SongMood } from '../../types/game';
+import { isRealId } from '../../sim/realPeople';
 
 const MOODS: { id: SongMood; label: string; emoji: string }[] = [
   { id: 'aggressive', label: 'Aggressive', emoji: '😤' },
@@ -100,7 +101,7 @@ export function BeatsPanel({ onUseBeat, initialView = 'library' }: { onUseBeat: 
     const list: NPC[] = [];
     for (const n of npcs) {
       if (n.role !== 'producer' && n.role !== 'engineer') continue;
-      if (n.id.endsWith('_real')) continue;
+      if (isRealId(n.id)) continue;
       if (q ? !n.name.toLowerCase().includes(q) : n.country !== player?.country) continue;
       list.push(n);
       if (list.length >= 200) break;

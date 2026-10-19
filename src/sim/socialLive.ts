@@ -13,6 +13,7 @@
 import type { NPC, SocialPost } from '../types/game';
 import type { SocialApp } from './social';
 import { hashString } from './rng';
+import { isRealId } from './realPeople';
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -154,7 +155,7 @@ const STAR_FRAMES = ['📸', '🎥', '🌍', '✈️', '🏟️', '🎤', '🖤'
 
 /** A story somebody in the scene posts. Real-named artists post pictures, not words. */
 export function npcStory(npc: Pick<NPC, 'id' | 'name' | 'fame' | 'tier' | 'country' | 'role'>, minute: number, roll: number): Story {
-  const real = npc.id.endsWith('_real');
+  const real = isRealId(npc.id);
   const n = 1 + Math.floor(roll * 3);
   const frames: StoryFrame[] = [];
   const captions = ['studio tonight', 'on the road', 'new fit', 'rehearsals', 'soon 👀', 'grateful', 'city lights', 'with the team'];

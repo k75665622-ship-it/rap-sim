@@ -22,6 +22,23 @@
   --color-new: #4da3ff;
   --color-re: #b57bff;
 
+  /* The older screens were written against Tailwind's grey and yellow scales.
+     Mapping those scales onto the game's own palette makes every screen —
+     old and new — read as one design. */
+  --color-gray-950: #0a0b10;
+  --color-gray-900: #14161e;
+  --color-gray-800: #22252f;
+  --color-gray-700: #2d313d;
+  --color-gray-600: #6b7186;
+  --color-gray-500: #7f859a;
+  --color-gray-400: #9aa0b4;
+  --color-gray-300: #c3c7d3;
+  --color-gray-200: #dee1e9;
+  --color-yellow-300: #ffd666;
+  --color-yellow-400: #ffc633;
+  --color-yellow-500: #ffb800;
+  --color-yellow-600: #e0a200;
+
   --radius-card: 14px;
   --radius-input: 10px;
 

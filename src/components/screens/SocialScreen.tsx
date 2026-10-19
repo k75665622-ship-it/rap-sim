@@ -20,6 +20,7 @@ import { RivalsTab } from '../social/Rivals';
 import { StoriesBar, StoryViewer, StoryComposer } from '../social/Stories';
 import { SoundsList, GoLivePanel, type Sound } from '../social/ClipExtras';
 import { ActivityList } from '../social/Activity';
+import { isRealId } from '../../sim/realPeople';
 
 type Tab = 'feed' | 'activity' | 'profile' | 'rivals';
 type Filter = 'foryou' | 'following' | 'mine' | 'sounds';
@@ -93,7 +94,7 @@ export function SocialScreen({ platform }: { platform: Platform }) {
   const isVerified = (id: string) => {
     if (id === 'player') return !!verifiedMe;
     const n = npcById.get(id);
-    return !!n && (n.id.endsWith('_real') || n.fame >= 50 || ((n.role === 'media' || n.role === 'blogger') && n.fame >= 25));
+    return !!n && (isRealId(n.id) || n.fame >= 50 || ((n.role === 'media' || n.role === 'blogger') && n.fame >= 25));
   };
 
   const byId = useMemo(() => new Map(socialPosts.map((p) => [p.id, p])), [socialPosts]);

@@ -21,6 +21,7 @@ import { ManagerDesk } from '../moments/ManagerDesk';
 import { useMemo, useState } from 'react';
 import { useGameStore, isSongReleased } from '../../store/gameStore';
 import { assignmentsFor, currentAssignment } from '../../sim/assignments';
+import { specialSkillOf } from '../../sim/persona';
 import { PageTitle, SectionTitle, Panel, Tile, Button, Tag, Stat, SearchInput, EmptyState } from '../ui/kit';
 import { cn } from '@/utils/cn';
 import { money, moneyCompact, compact } from '@/utils/format';
@@ -810,6 +811,9 @@ function CrewRow({
               {growing ? `Growing · ceiling ${ceiling}` : `Topped out at ${ceiling}`}
             </Tag>
           </div>
+          {(() => { const sp = specialSkillOf(member.npcId, member.role, member.skill); return sp ? (
+            <div className="mt-1.5 text-[11px] leading-snug"><span className="text-amber font-semibold">{sp.emoji} {sp.label}</span> <span className="text-ink3">— {sp.blurb}</span></div>
+          ) : null; })()}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-[12px] font-semibold text-ink num">{money(member.monthlyWage)}/mo</span>

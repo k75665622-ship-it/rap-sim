@@ -12,6 +12,7 @@ import { crewBonuses } from '../../sim/roles';
 import { money } from '@/utils/format';
 import { GameClock } from './GameClock';
 import {
+  IconSparkle,
   IconBell,
   IconBird,
   IconBriefcase,
@@ -98,7 +99,7 @@ export function Sidebar() {
     { id: 'mailbox', label: 'Mailbox', icon: <IconMail />, badge: unreadMail, group: 'comms' },
     {
       id: 'news',
-      label: 'News Feed',
+      label: 'Updates',
       icon: <IconNews />,
       badge: (notifications ?? []).filter((n) => !n.read).length,
       group: 'comms',
@@ -112,6 +113,7 @@ export function Sidebar() {
     { id: 'lifestyle', label: 'Lifestyle', icon: <IconDiamond />, group: 'business' },
     { id: 'trophy_room', label: 'Trophy Room', icon: <IconTrophy />, group: 'business' },
     { id: 'retirement', label: 'Industry & Life', icon: <IconDiamond />, group: 'business' },
+    { id: 'ai', label: 'AI Brain', icon: <IconSparkle />, group: 'business' },
   ];
 
   const groups = [

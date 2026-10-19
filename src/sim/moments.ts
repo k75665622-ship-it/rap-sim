@@ -45,6 +45,10 @@ export interface MomentWorld {
   unreleased: Song[];
   hasUpcomingShow: boolean;
   activeBeefIds: Set<string>;
+  /** Life events need a little more of the player's life. */
+  hasLawyer?: boolean;
+  ownsCar?: boolean;
+  releasedTitles: string[];
 }
 
 export interface Resolution {
@@ -684,10 +688,304 @@ export function buildFeatureTwist(kind: 'late' | 'swap' | 'lead', req: { id: str
   };
 }
 
+// ─── LIFE: THINGS THAT HAPPEN TO YOU ───────────────────────────────────────
+// Not the industry — life. Family, the police, your phone, your health, the
+// power going off in the middle of a session.
+
+const familyMoney: Template = {
+  id: 'family_money', channel: 'life', weight: 1.4,
+  build: (w, seed) => {
+    if (w.money < 3000) return null;
+    const who = pick(['Your aunty', 'Your uncle', 'Your mum', 'Your cousin', 'Your grandmother'], seed);
+    const why = pick([['school fees for your little cousin', 1800], ['a hospital bill', 2500], ['funeral contributions back home', 1200], ['rent — they are three months behind', 2200], ['a small shop they want to open', 4000]] as [string, number][], seed + 'w');
+    const amt = r50(why[1] * (1 + w.playerFame / 60));
+    return {
+      kind: 'family_money', npcName: who, title: `${who} needs help`, data: { amt },
+      body: `${who} called. They need $${amt.toLocaleString()} for ${why[0]}. "We are proud of you. God will bless you."`,
+      options: [opt('all', `Send $${amt.toLocaleString()}`, 'Family is family', amt), opt('half', `Send $${r50(amt / 2).toLocaleString()}`, 'Help, within reason', r50(amt / 2)), opt('no', 'Not this time', 'They might tell the whole family')],
+      expiresSerial: w.serial + 3,
+    };
+  },
+  resolve: (m, o, _w, roll) => {
+    const amt = Number(m.data?.amt ?? 1000);
+    if (o === 'all') return { text: 'They cried on the phone. The whole family is talking about how you never forget where you came from.', effects: [{ k: 'money', v: -amt }, { k: 'reputation', v: 1 }, { k: 'stat', stat: 'discipline', v: 0.5 }] };
+    if (o === 'half') return { text: 'Half is better than nothing. They said thank you — mostly.', effects: [{ k: 'money', v: -r50(amt / 2) }] };
+    return roll < 0.35
+      ? { text: 'It got around the family WhatsApp group. Then a blog got hold of it: "Fame has changed him."', effects: [{ k: 'reputation', v: -2 }, { k: 'energy', v: -5 }] }
+      : { text: 'They understood. Awkward at the next family gathering, though.', effects: [{ k: 'energy', v: -3 }] };
+  },
+};
+
+const policeStop: Template = {
+  id: 'police_stop', channel: 'life', weight: 1,
+  build: (w) => ({
+    kind: 'police_stop', title: 'Stopped at a police checkpoint',
+    body: `It's late. An officer looks at your papers for a long time, then says: "Chairman, the boys are hungry o."${w.playerFame >= 25 ? ' Somebody across the road is filming.' : ''}`,
+    options: [opt('pay', 'Hand over $150', 'Quick — but someone is filming', 150), opt('wait', 'Stay calm and wait it out', 'Costs time and energy'), opt('lawyer', w.hasLawyer ? 'Call your lawyer' : 'Call a lawyer ($1,000)', w.hasLawyer ? 'Free — they\'re on the payroll' : 'Expensive, but clean', w.hasLawyer ? 0 : 1000)],
+    expiresSerial: w.serial + 1,
+    data: { famous: w.playerFame >= 25, lawyer: w.hasLawyer },
+  }),
+  resolve: (m, o, _w, roll) => {
+    if (o === 'pay') return m.data?.famous && roll < 0.45
+      ? { text: 'The video of you handing over cash is everywhere. "Is this the example we want?"', effects: [{ k: 'money', v: -150 }, { k: 'reputation', v: -4 }, { k: 'momentum', v: 1 }] }
+      : { text: 'Fifteen seconds and you were on your way.', effects: [{ k: 'money', v: -150 }] };
+    if (o === 'wait') return roll < 0.6 ? { text: 'Two hours on the roadside. They let you go when their shift ended.', effects: [{ k: 'energy', v: -15 }, { k: 'stat', stat: 'discipline', v: 0.5 }] } : { text: 'The officer recognised you, asked for a selfie, and waved you on.', effects: [{ k: 'energy', v: -5 }, { k: 'fans', v: 50 }] };
+    return { text: 'One phone call and it was over. Being connected pays.', effects: m.data?.lawyer ? [{ k: 'energy', v: -3 }] : [{ k: 'money', v: -1000 }, { k: 'energy', v: -3 }] };
+  },
+};
+
+const phoneStolen: Template = {
+  id: 'phone_stolen', channel: 'life', weight: 0.9,
+  build: (w) => ({
+    kind: 'phone_stolen', title: 'Your phone was snatched',
+    body: `Window down in traffic, phone in your hand — gone. ${w.unreleased.length ? `It has demos of "${w.unreleased[0].title}" on it.` : 'Your whole life is on it.'}`,
+    options: [opt('buy', 'Buy a new one and move on — $1,200', undefined, 1200), opt('track', 'Track it with the police', 'Long day, might get it back', 0, 15), opt('post', 'Post about it', 'Fans sympathise — and scammers notice')],
+    expiresSerial: w.serial + 2,
+    data: { demo: w.unreleased[0]?.title ?? '' },
+  }),
+  resolve: (m, o, _w, roll) => {
+    const leak = !!m.data?.demo && roll < 0.3;
+    if (o === 'buy') return { text: leak ? `New phone. Then a snippet of "${m.data?.demo}" appeared online. Someone went through the old one.` : 'New phone, same number. Lesson learnt.', effects: [{ k: 'money', v: -1200 }, ...(leak ? [{ k: 'momentum' as const, v: 2 }, { k: 'reputation' as const, v: -1 }] : [])] };
+    if (o === 'track') return roll < 0.4 ? { text: 'The police found it at a market stall. Cracked screen, everything still there.', effects: [{ k: 'energy', v: -15 }] } : { text: 'Hours at the station. The phone is long gone.', effects: [{ k: 'energy', v: -15 }, { k: 'money', v: -1200 }] };
+    return { text: 'Thousands of people sent love. A few hundred sent fake "I found your phone" messages.', effects: [{ k: 'momentum', v: 1 }, { k: 'fans', v: 120 }, { k: 'money', v: -1200 }] };
+  },
+};
+
+const hacked: Template = {
+  id: 'account_hacked', channel: 'life', weight: 0.7,
+  build: (w) => {
+    if (w.playerFame < 12) return null;
+    const fixer = crewOf(w, 'photographer', 'personal_assistant', 'publicist');
+    return {
+      kind: 'account_hacked', title: 'Your Snapgram got hacked',
+      body: 'Someone is posting a crypto giveaway from your account. Fans are DMing you that they sent money. The hacker wants $3,000 to give it back.',
+      options: [opt('pay', 'Pay the hacker — $3,000', 'Maybe they keep their word', 3000), opt('report', 'Report it to the app', 'Takes days'), ...(fixer ? [opt('crew', `Get ${fixer.npcName.split(' ')[0]} on it`, 'Your team handles it')] : [])],
+      expiresSerial: w.serial + 1,
+    };
+  },
+  resolve: (_m, o, _w, roll) => {
+    if (o === 'pay') return roll < 0.55 ? { text: 'They gave it back. You changed every password you own.', effects: [{ k: 'money', v: -3000 }] } : { text: 'They took the money and kept the account. Of course they did.', effects: [{ k: 'money', v: -3000 }, { k: 'reputation', v: -2 }, { k: 'fans', v: -400 }] };
+    if (o === 'report') return { text: 'Four days dark while the app investigated. Some fans lost money to the scam and blame you.', effects: [{ k: 'reputation', v: -2 }, { k: 'momentum', v: -2 }, { k: 'fans', v: -250 }] };
+    return { text: 'Your team got it back in a few hours and posted a warning. Crisis handled.', effects: [{ k: 'momentum', v: -1 }] };
+  },
+};
+
+const fanMob: Template = {
+  id: 'fan_mob', channel: 'life', weight: 1,
+  build: (w, seed) => {
+    if (w.playerFame < 18) return null;
+    const where = pick(['at the airport', 'at the mall', 'outside a restaurant', 'at a petrol station'], seed);
+    return {
+      kind: 'fan_mob', title: `Fans spotted you ${where}`,
+      body: `A crowd is forming ${where}. Phones are out. Someone is crying.`,
+      options: [opt('selfies', 'Stop for selfies with everyone', 'Takes an hour', 0, 10), opt('wave', 'Wave and keep moving'), opt('security', 'Let security clear a path', 'Fast — and cameras are rolling')],
+      expiresSerial: w.serial + 1,
+    };
+  },
+  resolve: (_m, o, w, roll) => {
+    if (o === 'selfies') return { text: 'An hour of selfies and hugs. The videos are all over the timeline: "so humble".', effects: [{ k: 'energy', v: -10 }, { k: 'fans', v: Math.round(150 + w.playerFame * 20) }, { k: 'momentum', v: 2 }, { k: 'reputation', v: 1 }] };
+    if (o === 'wave') return { text: 'A wave, a smile, gone. Some fans were disappointed.', effects: [{ k: 'fans', v: 30 }] };
+    return roll < 0.4 ? { text: 'A guard shoved a teenage fan. The clip has a million views and you\'re the villain in it.', effects: [{ k: 'reputation', v: -3 }, { k: 'momentum', v: 1 }] } : { text: 'In and out. Nobody got hurt.', effects: [] };
+  },
+};
+
+const oldFriend: Template = {
+  id: 'old_friend', channel: 'life', weight: 0.9,
+  build: (w, seed) => {
+    const name = pick(['Kwaku from the block', 'Tunde from secondary school', 'Yaw your childhood friend', 'Emeka from the old area', 'Kojo who used to rap with you'], seed);
+    return {
+      kind: 'old_friend', npcName: name, title: `${name} wants you to put him on`,
+      body: `"Bro, remember when we used to share one plate? I just need a chance. Let me be your hype man, carry your bags, anything."`,
+      options: [opt('hire', 'Put him on the team — $500/month', 'Loyalty, and a mouth to feed', 500), opt('help', 'Give him $800 and advice', undefined, 800), opt('no', 'Tell him you can\'t')],
+      expiresSerial: w.serial + 4,
+    };
+  },
+  resolve: (m, o, _w, roll) => {
+    if (o === 'hire') return roll < 0.7 ? { text: `${m.npcName} is the loudest person at every show now. The crowd loves him.`, effects: [{ k: 'money', v: -500 }, { k: 'stat', stat: 'stagePresence', v: 1 }, { k: 'reputation', v: 1 }] } : { text: `${m.npcName} got into a fight at your show. It's on every blog.`, effects: [{ k: 'money', v: -500 }, { k: 'reputation', v: -3 }, { k: 'momentum', v: 1 }] };
+    if (o === 'help') return { text: 'He hugged you for a long time. He said he won\'t forget it.', effects: [{ k: 'money', v: -800 }, { k: 'reputation', v: 1 }] };
+    return roll < 0.4 ? { text: 'He posted a long caption about how fame changes people. The old area is talking.', effects: [{ k: 'reputation', v: -2 }] } : { text: 'He understood. It still stung.', effects: [] };
+  },
+};
+
+const charity: Template = {
+  id: 'charity_visit', channel: 'life', weight: 0.8,
+  build: (w, seed) => {
+    if (w.money < 6000) return null;
+    const place = pick(['an orphanage', 'your old school', 'a children\'s hospital ward', 'a community library'], seed);
+    return {
+      kind: 'charity_visit', title: `Invitation from ${place}`, data: { place },
+      body: `${place[0].toUpperCase()}${place.slice(1)} wrote to you. The kids know all your songs. Would you visit — and maybe help?`,
+      options: [opt('visit', 'Visit and donate $5,000', 'Cameras will be there', 5000, 15), opt('quiet', 'Donate $5,000 quietly', 'No cameras', 5000), opt('no', 'Politely decline')],
+      expiresSerial: w.serial + 5,
+    };
+  },
+  resolve: (m, o) => {
+    if (o === 'visit') return { text: `The video of you singing with the kids at ${m.data?.place} made people cry. Respect.`, effects: [{ k: 'money', v: -5000 }, { k: 'energy', v: -15 }, { k: 'reputation', v: 4 }, { k: 'fans', v: 500 }, { k: 'momentum', v: 2 }] };
+    if (o === 'quiet') return { text: 'Nobody knows. The kids do. That\'s enough.', effects: [{ k: 'money', v: -5000 }, { k: 'reputation', v: 1 }, { k: 'stat', stat: 'discipline', v: 1 }] };
+    return { text: 'They understood.', effects: [] };
+  },
+};
+
+const awardPresenter: Template = {
+  id: 'award_presenter', channel: 'life', weight: 0.6,
+  build: (w) => {
+    if (w.playerFame < 25) return null;
+    return {
+      kind: 'award_presenter', title: 'Asked to present at an awards night',
+      body: 'The organisers want you on stage to present Best New Artist. Red carpet, cameras, everyone who matters in one room.',
+      options: [opt('go', 'Do it', 'Big night', 0, 15), opt('no', 'Decline')],
+      expiresSerial: w.serial + 4,
+    };
+  },
+  resolve: (_m, o, _w, roll) => {
+    if (o === 'no') return { text: 'They found someone else.', effects: [] };
+    return roll < 0.15 ? { text: 'You mispronounced the winner\'s name on live TV. The memes are merciless.', effects: [{ k: 'energy', v: -15 }, { k: 'momentum', v: 3 }, { k: 'reputation', v: -1 }] } : { text: 'Smooth on stage, sharp on the carpet. You met half the industry tonight.', effects: [{ k: 'energy', v: -15 }, { k: 'momentum', v: 3 }, { k: 'stat', stat: 'networking', v: 1.5 }, { k: 'fame', v: 0.5 }] };
+  },
+};
+
+const healthScare: Template = {
+  id: 'health_scare', channel: 'life', weight: 0.9,
+  build: (w, seed) => {
+    if (w.energy > 40) return null;
+    const what = pick(['a fever and chills — it might be malaria', 'chest pains after a long night', 'a voice that\'s almost gone'], seed);
+    return {
+      kind: 'health_scare', title: 'You\'re not well', data: { what },
+      body: `You woke up with ${what}.`,
+      options: [opt('doctor', 'See a doctor and rest — $600', undefined, 600), opt('pharmacy', 'Pharmacy tablets and carry on', 'Cheap. Risky'), opt('push', 'Ignore it')],
+      expiresSerial: w.serial + 1,
+    };
+  },
+  resolve: (_m, o, _w, roll) => {
+    if (o === 'doctor') return { text: 'Rest, medicine, three days off. You feel like yourself again.', effects: [{ k: 'money', v: -600 }, { k: 'energy', v: 45 }, { k: 'momentum', v: -1 }] };
+    if (o === 'pharmacy') return roll < 0.6 ? { text: 'The tablets worked. Lucky.', effects: [{ k: 'money', v: -40 }, { k: 'energy', v: 20 }] } : { text: 'It got worse. You ended up in hospital anyway — for longer.', effects: [{ k: 'money', v: -1500 }, { k: 'energy', v: 10 }, { k: 'momentum', v: -3 }] };
+    return roll < 0.5 ? { text: 'You collapsed backstage. Everyone saw.', effects: [{ k: 'energy', v: -30 }, { k: 'momentum', v: -2 }, { k: 'reputation', v: -1 }] } : { text: 'You pushed through. It passed. This time.', effects: [{ k: 'energy', v: -5 }] };
+  },
+};
+
+const dumsor: Template = {
+  id: 'power_cut', channel: 'life', weight: 0.8,
+  build: (w) => ({
+    kind: 'power_cut', title: 'Lights off again',
+    body: 'The power has gone off in the middle of a session. Again. Nobody knows when it\'s coming back.',
+    options: [opt('gen', 'Buy a proper generator — $2,500', 'Never again', 2500), opt('wait', 'Wait it out', 'There goes the night'), opt('studio', 'Book another studio tonight — $300', undefined, 300)],
+    expiresSerial: w.serial + 1,
+  }),
+  resolve: (_m, o) => {
+    if (o === 'gen') return { text: 'A big diesel generator now lives behind the studio. The neighbours hate the noise. You don\'t care.', effects: [{ k: 'money', v: -2500 }, { k: 'stat', stat: 'productionKnowledge', v: 0.5 }] };
+    if (o === 'studio') return { text: 'You finished the session somewhere else. Worth it.', effects: [{ k: 'money', v: -300 }, { k: 'stat', stat: 'songwriting', v: 0.5 }] };
+    return { text: 'Four hours in the dark, swatting mosquitoes. The vibe is dead.', effects: [{ k: 'energy', v: -10 }] };
+  },
+};
+
+const movieSync: Template = {
+  id: 'movie_sync', channel: 'life', weight: 0.6,
+  build: (w) => {
+    if (w.releasedTitles.length === 0) return null;
+    const song = w.releasedTitles[0];
+    const fee = r50(1500 + w.playerFame * 120);
+    return {
+      kind: 'movie_sync', title: 'A film wants your song', data: { fee, song },
+      body: `A film studio wants "${song}" for a big scene in their new movie. They're offering $${fee.toLocaleString()}.`,
+      options: [opt('yes', `Take $${fee.toLocaleString()}`), opt('more', 'Ask for double'), opt('no', 'Not for sale')],
+      expiresSerial: w.serial + 4,
+    };
+  },
+  resolve: (m, o, _w, roll) => {
+    const fee = Number(m.data?.fee ?? 2000);
+    if (o === 'yes') return { text: `"${m.data?.song}" plays over the movie's biggest scene. New people are finding it.`, effects: [{ k: 'money', v: fee }, { k: 'fans', v: 400 }, { k: 'momentum', v: 2 }] };
+    if (o === 'more') return roll < 0.45 ? { text: 'They paid double. You\'re learning.', effects: [{ k: 'money', v: fee * 2 }, { k: 'fans', v: 400 }, { k: 'stat', stat: 'businessKnowledge', v: 1 }] } : { text: 'They went with someone else\'s song.', effects: [] };
+    return { text: 'Your music, your rules.', effects: [] };
+  },
+};
+
+const scamPromoter: Template = {
+  id: 'scam_promoter', channel: 'life', weight: 0.7,
+  build: (w, seed) => {
+    if (w.playerFame < 15) return null;
+    const city = pick(['Dubai', 'London', 'Toronto', 'Johannesburg'], seed);
+    return {
+      kind: 'scam_promoter', title: `A ${city} show — $25,000`, data: { city },
+      body: `A promoter wants you in ${city} next month: $25,000, flights and hotel. They just need a $3,000 "booking deposit" to lock the date.`,
+      options: [opt('pay', 'Pay the deposit', undefined, 3000), opt('contract', 'Ask for a contract and references'), opt('no', 'Too good to be true')],
+      expiresSerial: w.serial + 3,
+    };
+  },
+  resolve: (m, o, w, roll) => {
+    if (o === 'pay') return roll < 0.8 ? { text: `The number is disconnected. There is no ${m.data?.city} show. $3,000 gone.`, effects: [{ k: 'money', v: -3000 }, { k: 'stat', stat: 'businessKnowledge', v: 1 }] } : { text: `It was real! ${m.data?.city} next month — and the deposit comes back off your fee.`, effects: [{ k: 'money', v: 22000 }, { k: 'fame', v: 1 }, { k: 'momentum', v: 2 }] };
+    if (o === 'contract') return w.hasLawyer || roll < 0.6 ? { text: 'The "references" didn\'t exist. You dodged a scam.', effects: [{ k: 'stat', stat: 'businessKnowledge', v: 1 }] } : { text: 'They sent a convincing contract. You still didn\'t pay. Probably wise.', effects: [] };
+    return { text: 'You ignored it. Two weeks later another artist posted that they got scammed by the same people.', effects: [{ k: 'stat', stat: 'businessKnowledge', v: 0.5 }] };
+  },
+};
+
+const viralMoment: Template = {
+  id: 'viral_wedding', channel: 'life', weight: 0.7,
+  build: (w, seed) => {
+    const where = pick(['dancing at your cousin\'s wedding', 'singing in traffic', 'buying waakye at a roadside stall', 'losing a FIFA game to a 12-year-old'], seed);
+    return {
+      kind: 'viral_wedding', title: 'You\'re going viral', data: { where },
+      body: `A video of you ${where} is everywhere. Two million views and climbing.`,
+      options: [opt('lean', 'Lean in — post your own version', undefined, 0, 5), opt('ignore', 'Let it ride')],
+      expiresSerial: w.serial + 2,
+    };
+  },
+  resolve: (_m, o, w) => {
+    if (o === 'lean') return { text: 'Your version did even bigger numbers. People like this side of you.', effects: [{ k: 'energy', v: -5 }, { k: 'momentum', v: 4 }, { k: 'fans', v: Math.round(300 + w.playerFame * 40) }] };
+    return { text: 'It ran its course. A nice bump.', effects: [{ k: 'momentum', v: 1 }, { k: 'fans', v: 150 }] };
+  },
+};
+
+const breakIn: Template = {
+  id: 'break_in', channel: 'life', weight: 0.5,
+  build: (w) => {
+    if (w.money < 40000) return null;
+    return {
+      kind: 'break_in', title: 'Someone broke into your place',
+      body: 'You came home to a broken window. A laptop, some jewellery and cash are gone.',
+      options: [opt('security', 'Install proper security — $4,000', 'Cameras, guard, the works', 4000), opt('police', 'File a police report'), opt('post', 'Post about it')],
+      expiresSerial: w.serial + 1,
+    };
+  },
+  resolve: (_m, o, _w, roll) => {
+    const lost: MomentEffect = { k: 'money', v: -2500 };
+    if (o === 'security') return { text: 'Cameras, a guard at night, new locks. You sleep better.', effects: [lost, { k: 'money', v: -4000 }, { k: 'energy', v: 5 }] };
+    if (o === 'police') return roll < 0.25 ? { text: 'The police caught them two weeks later. Most of it came back.', effects: [{ k: 'money', v: -500 }] } : { text: 'A report number and a shrug.', effects: [lost, { k: 'energy', v: -5 }] };
+    return { text: 'Fans sent love. A blog wrote about how much "you\'re worth now". Not ideal.', effects: [lost, { k: 'momentum', v: 1 }] };
+  },
+};
+
+const churchInvite: Template = {
+  id: 'church_invite', channel: 'life', weight: 0.6,
+  build: (w) => ({
+    kind: 'church_invite', title: 'Invited to perform at a crusade',
+    body: 'A big church wants you at their crusade this weekend. Thousands of people, no fee — "for the Kingdom".',
+    options: [opt('go', 'Perform', 'A different crowd', 0, 12), opt('no', 'Decline politely')],
+    expiresSerial: w.serial + 4,
+  }),
+  resolve: (_m, o, w) => o === 'go'
+    ? { text: 'The whole place sang along. Mothers are adding you to their playlists.', effects: [{ k: 'energy', v: -12 }, { k: 'fans', v: Math.round(250 + w.playerFame * 15) }, { k: 'reputation', v: 2 }] }
+    : { text: 'They prayed for you anyway.', effects: [] },
+};
+
+const carTrouble: Template = {
+  id: 'car_trouble', channel: 'life', weight: 0.8,
+  build: (w) => ({
+    kind: 'car_trouble', title: w.ownsCar ? 'Your car broke down' : 'Your ride broke down',
+    body: `${w.ownsCar ? 'Your car' : 'The car you were in'} died on the highway. Smoke from the bonnet. You have somewhere to be.`,
+    options: [opt('tow', 'Tow and repair — $800', undefined, 800), opt('okada', 'Jump on the back of an okada', 'Fast, dangerous, very online'), opt('wait', 'Wait for a mechanic', 'Slow')],
+    expiresSerial: w.serial + 1,
+  }),
+  resolve: (_m, o, w, roll) => {
+    if (o === 'tow') return { text: 'Fixed. Expensive, but fixed.', effects: [{ k: 'money', v: -800 }] };
+    if (o === 'okada') return roll < 0.5 && w.playerFame >= 15 ? { text: 'Someone filmed you weaving through traffic on an okada. Internet loves it.', effects: [{ k: 'momentum', v: 2 }, { k: 'fans', v: 120 }] } : { text: 'You made it. Your heart is still racing.', effects: [{ k: 'energy', v: -5 }] };
+    return { text: 'Three hours by the roadside. The mechanic charged you double because he recognised you.', effects: [{ k: 'energy', v: -12 }, { k: 'money', v: -300 }] };
+  },
+};
+
 export const TEMPLATES: Template[] = [
   studioInvite, partyInvite, dissBait, dissTrack, moneyAsk, repay, collabIdea, blogTip, fanDM, cashGig, beatOffer, bringOut, openerAsk,
   brandDeal, badPress, burnout, leakThreat, crewRaise, teamFeud, stylistDesigner,
   featureLate, featureSwap, featureLead,
+  familyMoney, policeStop, phoneStolen, hacked, fanMob, oldFriend, charity, awardPresenter, healthScare, dumsor, movieSync, scamPromoter, viralMoment, breakIn, churchInvite, carTrouble,
 ];
 
 const BY_ID = new Map(TEMPLATES.map((t) => [t.id, t]));

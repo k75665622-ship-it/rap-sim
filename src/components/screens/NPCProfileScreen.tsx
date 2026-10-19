@@ -20,6 +20,8 @@ import { HIDDEN_TRAITS, VISIBLE_TRAITS } from '../../sim/traits';
 import { IconVerified } from '../icons';
 import { Avatar } from '../social/shared';
 import type { NPC } from '../../types/game';
+import { isRealId } from '../../sim/realPeople';
+import { personaOf, specialSkillOf } from '../../sim/persona';
 
 const REVEAL_HIDDEN_AT = 55;
 const PAGE_SIZE = 40;
@@ -44,7 +46,7 @@ const ROLE_INFO: Record<string, { emoji: string; label: string }> = {
 };
 const roleLabel = (r: string) => ROLE_INFO[r]?.label ?? r.replace(/_/g, ' ');
 const roleEmoji = (r: string) => ROLE_INFO[r]?.emoji ?? '👤';
-const isVerified = (n: NPC) => n.id.endsWith('_real') || n.fame >= 50;
+const isVerified = (n: NPC) => isRealId(n.id) || n.fame >= 50;
 const TIER_CLS: Record<string, string> = { international: 'bg-amber/15 text-amber', national: 'bg-[#4DA3FF]/15 text-[#4DA3FF]', local: 'bg-white/10 text-ink3' };
 
 function Chip({ children, cls }: { children: React.ReactNode; cls?: string }) {
@@ -280,6 +282,34 @@ export function NPCProfileScreen() {
                 <div className="rounded-[10px] bg-white/[0.04] px-3 py-2"><div className="text-ink3">You are</div><div className="text-ink font-medium capitalize">{selected.relationshipStage}</div></div>
               </div>
             </Section>
+            {!isRealId(selected.id) && (() => {
+              const pz = personaOf(selected);
+              const special = cv ? specialSkillOf(selected.id, selected.role, cv.skill) : null;
+              return (
+                <Section title="Personality" right={<span className="text-[12px] font-semibold text-ink2">{pz.temperament}</span>}>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(selected.personality ?? []).map((w) => <Chip key={w} cls="bg-white/[0.06] text-ink2 capitalize">{w.replace(/_/g, ' ')}</Chip>)}
+                    {pz.tags.map((t) => <Chip key={t} cls="bg-amber/10 text-amber">{t}</Chip>)}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                    {[['On time', pz.punctuality], ['Forgiving', pz.forgiveness], ['Ego', pz.ego], ['Warmth', pz.warmth]].map(([l, v]) => (
+                      <div key={l as string} className="rounded-[10px] bg-white/[0.04] px-3 py-2">
+                        <div className="text-[11px] text-ink3">{l}</div>
+                        <div className="h-1.5 rounded-full bg-white/[0.06] mt-1.5 overflow-hidden"><div className="h-full bg-amber" style={{ width: `${Math.round((v as number) * 100)}%` }} /></div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[12px] text-ink3 mt-2 leading-snug">This decides how they text, whether they turn up on time, and how they take it when you bail.</p>
+                  {special && (
+                    <div className="mt-3 rounded-[12px] border border-amber/30 bg-amber/[0.06] px-3 py-2.5">
+                      <div className="text-[10px] uppercase tracking-wider text-amber font-semibold">Special skill</div>
+                      <div className="text-[14px] font-semibold text-ink mt-0.5">{special.emoji} {special.label}</div>
+                      <div className="text-[12px] text-ink2 leading-snug mt-0.5">{special.blurb}</div>
+                    </div>
+                  )}
+                </Section>
+              );
+            })()}
             <Section title="Characteristics" right={<span className="text-[11px] text-ink3">{traits.visible.length} visible</span>}>
               {traits.visible.length === 0 ? <p className="text-[12px] text-ink3">Nothing stands out yet.</p> : (
                 <div className="grid sm:grid-cols-2 gap-2">

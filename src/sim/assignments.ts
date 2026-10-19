@@ -83,7 +83,38 @@ export interface WorkResult {
 }
 
 /** A week of work. `skill` 0-100, `morale` 0-100. Only the EXTRA from the assignment; the role's base effect is applied elsewhere. */
-export function weekOfWork(role: string, assignment: string | undefined, skill: number, morale: number, ctx: { fame: number; weeklyStreamIncome: number; studioLevel: number; npcName: string }): WorkResult | null {
+export function weekOfWork(role: string, assignment: string | undefined, skill: number, morale: number, ctx: { fame: number; weeklyStreamIncome: number; studioLevel: number; npcName: string; special?: string }): WorkResult | null {
+  const base = baseWeek(role, assignment, skill, morale, ctx);
+  return base && ctx.special ? withSpecial(base, role, currentAssignment(role, assignment)?.id ?? '', ctx.special, skill, morale, ctx) : base;
+}
+
+/** What their special skill adds on top of the week. */
+function withSpecial(r: WorkResult, role: string, job: string, special: string, skill: number, morale: number, ctx: { weeklyStreamIncome: number; studioLevel: number; npcName: string }): WorkResult {
+  const out: WorkResult = { ...r, stats: { ...(r.stats ?? {}) } };
+  const q = (skill / 100) * (0.6 + morale / 250);
+  const mult = (k: 'money' | 'rep' | 'followers' | 'momentum', m: number) => { if (out[k]) out[k] = Math.round((out[k] as number) * m * 10) / 10; };
+  const addStat = (k: string, v: number) => { out.stats![k] = (out.stats![k] ?? 0) + v; };
+  switch (`${special}:${role}:${job}`) {
+    case 'shark:lawyer:royalties': mult('money', 1.6); break;
+    case 'spin_doctor:publicist:damage': mult('rep', 2); break;
+    case 'hype_machine:publicist:buzz': out.momentum = (out.momentum ?? 0) + 1; break;
+    case 'deal_closer:stylist:brands': mult('money', 1.4); break;
+    case 'viral_eye:photographer:socials': mult('followers', 1.5); break;
+    case 'hitmaker:producer:placements': mult('money', 1.4); break;
+    case 'golden_ears:engineer:rentals': mult('money', 1.4); break;
+    case 'hook_genius:songwriter:pitch': mult('money', 1.5); break;
+  }
+  if (special === 'tax_wizard') { const m = Math.round(ctx.weeklyStreamIncome * 0.015); if (m > 0) { out.money = (out.money ?? 0) + m; out.line += ` Clawed back $${m.toLocaleString()} in tax.`; } }
+  if (special === 'studio_hustler' && job !== 'rentals' && ctx.studioLevel >= 2) { const m = Math.round((100 + skill * 5) * (0.6 + q)); out.money = (out.money ?? 0) + m; out.line += ` Rented your room out on the side: $${m.toLocaleString()}.`; }
+  if (special === 'ghost_pen') { addStat('songwriting', 0.25 * q); addStat('lyricism', 0.25 * q); }
+  if (special === 'voice_doctor') { addStat('vocalAbility', 0.3 * q); addStat('delivery', 0.25 * q); }
+  if (special === 'drill_sergeant') { addStat('stagePresence', 0.3 * q); addStat('performance', 0.25 * q); }
+  if (special === 'cover_artist') addStat('creativity', 0.25 * q);
+  if (!Object.keys(out.stats!).length) delete out.stats;
+  return out;
+}
+
+function baseWeek(role: string, assignment: string | undefined, skill: number, morale: number, ctx: { fame: number; weeklyStreamIncome: number; studioLevel: number; npcName: string }): WorkResult | null {
   const a = currentAssignment(role, assignment);
   if (!a) return null;
   const q = (skill / 100) * (0.6 + morale / 250);

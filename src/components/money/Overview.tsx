@@ -10,7 +10,7 @@ import { dateToSerial } from '../../sim/gameClock';
 import { Button } from '../ui/kit';
 import { CallBadge, Card, Chart, Delta, Label, px, usd } from './shared';
 
-export type MoneyTab = 'overview' | 'shares' | 'crypto' | 'business' | 'property' | 'casino';
+export type MoneyTab = 'overview' | 'shares' | 'crypto' | 'business' | 'property' | 'betting' | 'casino';
 
 const SLICES = [
   { k: 'cash', label: 'Cash', color: '#ffb800' },
@@ -140,15 +140,16 @@ export function Overview({ go }: { go: (t: MoneyTab) => void }) {
         )}
       </Card>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
           { t: 'shares' as MoneyTab, e: '📈', l: 'Shares', s: '14 companies' },
           { t: 'crypto' as MoneyTab, e: '🪙', l: 'Crypto', s: 'Coins & memes' },
           { t: 'business' as MoneyTab, e: '🏪', l: 'Businesses', s: `${(ventures ?? []).filter((v) => !v.closed).length} running` },
           { t: 'property' as MoneyTab, e: '🏗️', l: 'Property', s: `${(projects ?? []).filter((p) => p.stage !== 'sold').length} owned` },
-          { t: 'casino' as MoneyTab, e: '🎰', l: 'Casino', s: 'Tables & sports' },
+          { t: 'betting' as MoneyTab, e: '⚽', l: 'Betting', s: 'World football' },
+          { t: 'casino' as MoneyTab, e: '🎰', l: 'Casino', s: 'Cards, wheel, slots' },
         ].map((x) => (
-          <button key={x.t} onClick={() => go(x.t)} className="text-left rounded-[14px] border border-line bg-card p-3.5 hover:bg-cardhover transition last:col-span-2 sm:last:col-span-1">
+          <button key={x.t} onClick={() => go(x.t)} className="text-left rounded-[14px] border border-line bg-card p-3.5 hover:bg-cardhover transition">
             <div className="text-[22px]">{x.e}</div>
             <div className="text-[14px] font-semibold text-ink mt-1">{x.l}</div>
             <div className="text-[11px] text-ink3">{x.s}</div>

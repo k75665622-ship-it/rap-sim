@@ -9,6 +9,7 @@ import { MarketPanel } from '../money/Markets';
 import { BusinessesPanel } from '../money/Businesses';
 import { PropertyPanel } from '../money/Property';
 import { CasinoPanel } from '../money/Casino';
+import { SportsbookPanel } from '../money/Sportsbook';
 import { usd } from '../money/shared';
 
 const TABS: { id: MoneyTab; label: string; emoji: string }[] = [
@@ -17,6 +18,7 @@ const TABS: { id: MoneyTab; label: string; emoji: string }[] = [
   { id: 'crypto', label: 'Crypto', emoji: '🪙' },
   { id: 'business', label: 'Businesses', emoji: '🏪' },
   { id: 'property', label: 'Property', emoji: '🏗️' },
+  { id: 'betting', label: 'Betting', emoji: '⚽' },
   { id: 'casino', label: 'Casino', emoji: '🎰' },
 ];
 
@@ -65,6 +67,7 @@ export function MoneyScreen() {
         {tab === 'crypto' && <MarketPanel kind="coin" />}
         {tab === 'business' && <BusinessesPanel />}
         {tab === 'property' && <PropertyPanel />}
+        {tab === 'betting' && <SportsbookPanel />}
         {tab === 'casino' && <CasinoPanel />}
       </div>
     </div>

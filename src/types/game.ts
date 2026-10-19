@@ -7,6 +7,7 @@ import type { MarketState, Portfolio } from '../sim/markets';
 import type { Venture } from '../sim/ventures';
 import type { DevProject } from '../sim/realestate';
 import type { BlackjackHand, Fixture, SportsBet } from '../sim/casino';
+import type { FootballState } from '../sim/football';
 
 export type Background = 'broke_hustler' | 'middle_class' | 'industry_connect';
 export type Gender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say';
@@ -632,6 +633,14 @@ export interface DMMessage {
   read: boolean;
   /** A message that wants a decision — the options live on the moment. */
   momentId?: string;
+  /** A grey line in the chat (what happened, "Seen"), not a bubble. */
+  system?: boolean;
+  /** Small outcome chips under a system line: "+$500", "Kofi +6". */
+  chips?: string[];
+  /** Written by the AI rather than the built-in lines. */
+  ai?: boolean;
+  /** An appointment card in the chat. */
+  appointmentId?: string;
 }
 
 export interface DMThread {
@@ -640,6 +649,39 @@ export interface DMThread {
   unread: number;
   /** Messages the player sent today — double-texting has a cost. */
   sentToday?: { serial: number; count: number };
+  /** Waiting on an AI reply (real ms when asked), for a chat message or a decision. */
+  pendingAI?: { since: number; momentId?: string; optionId?: string };
+  /** They have stopped answering you until this day serial. */
+  mutedUntil?: number;
+}
+
+/** A message that arrives later on the game clock (a follow-up after being left on read). */
+export interface PendingDM {
+  id: string;
+  npcId: string;
+  text: string;
+  /** Absolute game minute: day serial × 1440 + minute of day. */
+  atMinute: number;
+}
+
+/** A plan with somebody at a time on the game clock. */
+export interface Appointment {
+  id: string;
+  npcId: string;
+  npcName: string;
+  kind: 'studio' | 'linkup' | 'party' | 'meeting';
+  title: string;
+  place: string;
+  /** Absolute game minute. */
+  atMinute: number;
+  from: 'npc' | 'player';
+  /** 'proposed' waits for your answer; 'confirmed' is in the diary. */
+  status: 'proposed' | 'confirmed' | 'live' | 'done' | 'missed' | 'cancelled';
+  createdSerial: number;
+  /** How late they turn up, decided when it starts. */
+  lateBy?: number;
+  outcome?: string;
+  chips?: string[];
 }
 
 // ─── FEATURE NEGOTIATION ──────────────────────────────────────────────────
@@ -1637,7 +1679,8 @@ export type MomentEffect =
 export interface Moment {
   id: string;
   kind: string;
-  channel: 'dm' | 'team';
+  /** dm: a text. team: your people need a decision. life: something happening to you. */
+  channel: 'dm' | 'team' | 'life';
   npcId?: string;
   npcName?: string;
   crewRole?: string;
@@ -2046,6 +2089,7 @@ export type GameScreen =
   | 'training'
   | 'jobs'
   | 'interviews'
+  | 'ai'
   | 'shows'
   | 'investments'
   | 'trophy_room'
@@ -2359,6 +2403,14 @@ export interface GameState {
   casino?: CasinoState;
   /** Net worth, once a week, for the chart. */
   wealthHistory?: { serial: number; net: number }[];
+  /** The world football sports book. */
+  football?: FootballState;
+  /** Follow-ups and late replies waiting for their minute. */
+  pendingDMs?: PendingDM[];
+  /** Plans on the clock: studio sessions, link-ups. */
+  appointments?: Appointment[];
+  /** The plan happening right now (the modal is open). */
+  activeAppointment?: string | null;
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

@@ -6,6 +6,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { NPC, Song, Platform, SocialPost, SocialComment, ChartEntry, Player } from '../types/game';
+import { isRealId } from './realPeople';
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -71,7 +72,7 @@ export function npcArtistPosts(npc: NPC, ownSongs: Song[]): SocialPost[] {
 
   // Real artists post a picture or a record sticker — the game never puts
   // words in a real person's mouth.
-  if (npc.id.endsWith('_real')) {
+  if (isRealId(npc.id)) {
     content = recent ? `🎵 "${recent.title}"` : pick(['📸', '🎥', '🌍', '🖤', '🔥', '🙏🏾', '🎤']);
     posts.push(makePost(npc, content, pick(['snapgram', 'clip', 'chirp'] as Platform[]), npc.fame, recent?.id));
     return posts;

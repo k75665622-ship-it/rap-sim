@@ -20,6 +20,7 @@
 import type { NPC, SocialPost, SocialComment } from '../types/game';
 import { hashString } from './rng';
 import { traitsOf } from './offers';
+import { isRealId } from './realPeople';
 
 export type SocialApp = 'chirp' | 'snapgram' | 'clip' | 'circle';
 export const SOCIAL_APPS: SocialApp[] = ['chirp', 'snapgram', 'clip', 'circle'];
@@ -229,7 +230,7 @@ export type TagAction = 'reply' | 'repost' | 'like' | 'ignore' | 'clapback';
 
 export function tagResponse(opts: { npc: NPC; playerFame: number; beef: boolean; insulting: boolean; roll: number }): { action: TagAction; text?: string; rel: number; heat: number } {
   const { npc, playerFame, beef, insulting, roll } = opts;
-  const real = npc.id.endsWith('_real');
+  const real = isRealId(npc.id);
   const t = traitsOf(npc);
   const rel = npc.relationshipScore;
   const gap = npc.fame - playerFame;

@@ -3,13 +3,13 @@
 // edge is the house edge.
 
 import { useState } from 'react';
-import { useGameStore } from '../../store/gameStore';
-import { handTotal, isRed, tableLimit, vipTier, type Card as PlayingCard, type RouletteBet, type DiceBet } from '../../sim/casino';
+import { useGameStore, casinoLimitOf } from '../../store/gameStore';
+import { handTotal, isRed, vipTier, type Card as PlayingCard, type RouletteBet, type DiceBet } from '../../sim/casino';
 import { dateToSerial } from '../../sim/gameClock';
 import { Button } from '../ui/kit';
 import { Card, Chips, Flash, Label, usd } from './shared';
 
-type Game = 'blackjack' | 'roulette' | 'slots' | 'dice' | 'sports';
+type Game = 'blackjack' | 'roulette' | 'slots' | 'dice';
 type Msg = { ok: boolean; message: string } | null;
 
 export function CasinoPanel() {
@@ -24,7 +24,8 @@ export function CasinoPanel() {
   const serial = dateToSerial(gameDate);
   const inside = casino?.visitSerial === serial;
   const vip = casino?.vipPoints ?? 0;
-  const limit = tableLimit(vip);
+  const crew = useGameStore((s) => s.crew);
+  const limit = casinoLimitOf({ crew, casino });
   const today = casino?.day.serial === serial ? casino.day.net : 0;
   const stakes = [10, 50, 100, 500, 1000, 5000, 10_000, 50_000, 250_000].filter((s) => s <= limit);
 
@@ -46,7 +47,7 @@ export function CasinoPanel() {
         {!inside && (
           <div className="mt-4 flex items-center gap-3">
             <Button disabled={energy < 3} onClick={() => setMsg(enterCasino())}>Walk in · ⚡3</Button>
-            <span className="text-[12px] text-ink2">The sports book works from your phone — no need to go in.</span>
+            <span className="text-[12px] text-ink2">Football betting is in the ⚽ Betting tab — no need to go in.</span>
           </div>
         )}
       </div>
@@ -57,7 +58,6 @@ export function CasinoPanel() {
           { id: 'roulette' as Game, label: '🎡 Roulette' },
           { id: 'slots' as Game, label: '🎰 Slots' },
           { id: 'dice' as Game, label: '🎲 Dice' },
-          { id: 'sports' as Game, label: `⚽ Sports book${(casino?.bets ?? []).filter((b) => !b.settled).length ? ` · ${(casino?.bets ?? []).filter((b) => !b.settled).length}` : ''}` },
         ]}
         value={game}
         onChange={(g) => { setGame(g); setMsg(null); }}
@@ -70,13 +70,12 @@ export function CasinoPanel() {
 
       <Flash msg={msg} onClose={() => setMsg(null)} />
 
-      {game !== 'sports' && !inside ? (
+      {!inside ? (
         <Card className="p-6 text-center text-[13px] text-ink2">Walk in to sit at the tables.</Card>
       ) : game === 'blackjack' ? <Blackjack stake={stake} onMsg={setMsg} />
         : game === 'roulette' ? <Roulette stake={stake} onMsg={setMsg} />
         : game === 'slots' ? <Slots stake={stake} onMsg={setMsg} />
-        : game === 'dice' ? <Dice stake={stake} onMsg={setMsg} />
-        : <SportsBook stake={stake} onMsg={setMsg} />}
+        : <Dice stake={stake} onMsg={setMsg} />}
 
       {(casino?.history ?? []).length > 0 && (
         <Card className="p-4">
@@ -209,42 +208,5 @@ function Dice({ stake, onMsg }: { stake: number; onMsg: (m: Msg) => void }) {
         <Button variant="secondary" onClick={() => go('over')}>Over 7<span className="text-[10px] opacity-60 ml-1">1:1</span></Button>
       </div>
     </Card>
-  );
-}
-
-function SportsBook({ stake, onMsg }: { stake: number; onMsg: (m: Msg) => void }) {
-  const casino = useGameStore((s) => s.casino);
-  const place = useGameStore((s) => s.placeSportsBet);
-  const fixtures = casino?.fixtures ?? [];
-  const open = (casino?.bets ?? []).filter((b) => !b.settled);
-  return (
-    <div className="space-y-3">
-      <Card className="p-4">
-        <Label className="mb-1">Tomorrow's matches</Label>
-        <div className="text-[11px] text-ink3 mb-3">Tap the odds to bet {usd(stake)}. Matches play overnight; winnings land in your account.</div>
-        <div className="space-y-3">
-          {fixtures.length === 0 && <div className="text-[13px] text-ink3">No matches listed yet — check back tomorrow.</div>}
-          {fixtures.map((f) => (
-            <div key={f.id} className="rounded-[12px] border border-line p-3">
-              <div className="text-[13px] font-semibold text-ink mb-2 truncate">{f.home} <span className="text-ink3 font-normal">v</span> {f.away}</div>
-              <div className="grid grid-cols-3 gap-2">
-                {(['home', 'draw', 'away'] as const).map((pick) => (
-                  <button key={pick} disabled={!!f.result} onClick={() => onMsg(place(f.id, pick, stake))} className="h-12 rounded-[10px] bg-sidebar border border-line hover:border-amber transition disabled:opacity-40">
-                    <div className="text-[10px] text-ink3 uppercase tracking-wider">{pick === 'home' ? '1 · Home' : pick === 'draw' ? 'X · Draw' : '2 · Away'}</div>
-                    <div className="text-[15px] font-bold text-amber num">{f.odds[pick].toFixed(2)}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-      {open.length > 0 && (
-        <Card className="p-4">
-          <Label className="mb-2">Open bets</Label>
-          {open.map((b) => <div key={b.id} className="text-[12px] text-ink2 py-1 flex justify-between gap-2"><span className="truncate">{b.label}</span><span className="text-amber num shrink-0">→ {usd(b.stake * b.odds)}</span></div>)}
-        </Card>
-      )}
-    </div>
   );
 }

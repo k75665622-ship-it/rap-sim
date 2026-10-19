@@ -11,6 +11,7 @@
 import type { NPC } from '../types/game';
 import { hashString } from './rng';
 import { archetypeOf, traitsOf } from './offers';
+import { isRealId } from './realPeople';
 
 export type ChatIntent = 'greet' | 'compliment' | 'collab' | 'money' | 'insult' | 'apology' | 'flirt' | 'show' | 'sign' | 'question' | 'other';
 
@@ -142,7 +143,7 @@ export interface ChatReply {
 }
 
 function isRealName(npc: NPC): boolean {
-  return npc.id.endsWith('_real');
+  return isRealId(npc.id);
 }
 
 export function chatReply(npc: NPC, message: string, ctx: ChatContext, roll: number): ChatReply {

@@ -177,6 +177,48 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 ### Artist pages
 - The Artists directory and profile were rebuilt for phones: search, country/role/tier filters, cards with the full name and verified tick; the profile has a banner, the name in full, followers and listeners, and tabs for overview, music, relationship, team and hiring.
 
+## 2026-10-19 (f) — AI brain, real DMs, plans on the clock, a real clothing brand, world football, life events, redesigns
+
+### AI brain (optional — Claude API)
+- New **AI Brain** page (sidebar → Business). Paste a Claude API key and the game's fictional people write their own words:
+  - **Chats**: type anything in PingChat and they answer in their own voice, from their personality, your relationship and your history. They can invite you to the studio or a link-up (a card with a time appears), agree to meet when you ask, offer you a verse — or stop replying if you're rude.
+  - **Replies to your decisions** in the DMs, **comments under your posts** (fans, jokers, haters, friends reacting to what you actually wrote), **live interview hosts** who react to your last answer, and **people acting on their own** once a game day (texts, posts, invites, gossip from bloggers).
+- Built so it doesn't burn through the key: Claude Haiku 5.5 by default (Sonnet/Opus selectable), short answers, thinking off, the game's rules cached, one request at a time, a daily call cap (default 300) with usage and estimated cost on the page. Anything that fails falls back to the built-in writing silently.
+- The key stays in that browser (never in saves). Set a spend limit in the Claude Console.
+- Real people are protected: the AI is never asked to write for a real artist or their real team, and any answer naming one is thrown away. This also fixed an old gap — most real artists' ids don't end in `_real`, so the "never put words in a real person's mouth" checks now go through one lookup (`sim/realPeople.ts`).
+
+### DMs that read like DMs
+- Answering a request no longer posts the button text as your message. You send a natural line; they reply in their voice; a small grey line shows what it led to (+$, relationship, reputation).
+- **Ignoring** sends nothing — they see "Seen". Depending on who they are, they may follow up later ("saw you online btw 👀", "So you can't even reply? Ok").
+- Quick replies sit under their message, a typing indicator shows while they answer, chats fill the phone screen with the composer always visible, songs attach from a button, and each header shows their temperament.
+
+### Plans on the clock
+- "Pull up to the studio tonight" → yes puts it in your diary at **8:00 PM**, with a card in the chat (move it, cancel it). When the clock gets there you're **at the studio**: record together, just vibe, play them your unreleased songs, or leave early — or bail. Running late, sleeping through it, or skipping the day all count. How they take it depends on who they are (punctual or always late, forgiving or holds grudges, private or takes it public).
+- You can make plans with anyone from their chat (📅): studio, link-up, party or meeting, any day and hour. They accept or decline by relationship, fame gap and personality.
+
+### Personalities and special skills
+- Every person has a temperament and readable tags (always on time / always late, holds grudges, takes it public, big ego, warm…) on their profile and in chat; they drive texting style, lateness and reactions.
+- Hireable staff can have a **special skill** with a real effect: Market reader (+15 advisor skill), Tax wizard, Haggler (extra discounts), Shark, Fixer, Spin doctor, Hype machine, Trendsetter, Brand closer, Viral eye, Cover artist, Hitmaker, Fast hands, Golden ears, Studio hustler, Hook genius, Ghost pen, Voice doctor, Drill sergeant, Stamina coach, Organized (never miss a plan), The plug (double casino limits). Shown on profiles and the Team page.
+
+### Your clothing brand is a real operation
+- Design products (tees, hoodies, caps, joggers, jackets, jerseys, bags, sneakers) in basic/premium/luxury; ride a current trend; collab with an artist friend (fee + 25% of sales); make limited one-run drops. Design quality comes from your creativity, your stylist and luck.
+- Order stock from an overseas factory (cheap, 4 weeks, more faults, customs delays), a local workshop (fast, dear), a premium mill (level 2) or your own factory line (level 3). Set every price against what fans think is fair.
+- Weekly sales react to price, design, trends (which heat up and cool down), seasons (hoodies in harmattan, everything in December), your fame, reputation, hype, channels and fakes. Pop-ups (L2), stores (L4), wholesale (L5), warehouse space, staff, marketing, sales, influencer seeding, clearing old stock.
+- Things happen: a piece goes viral, a footballer wears it, fakes flood the market (a lawyer stops it), customs holds a shipment, a van gets robbed, faulty batches come back as refunds.
+
+### World football
+- A new **Betting** tab (Money): daily matches from England, Spain, Italy, Germany, France, a European cup, Ghana and Nigeria (club names are fictional, named after real cities). Kickoffs on the game clock, live scores and minutes, results, league tables. Markets: 1X2, over/under 2.5, both teams to score; singles and accumulators with a bet slip. Odds come from the same model the matches are played with, minus a ~6% margin.
+
+### Life happens
+- 16 new life events on the dashboard: family asking for money, a police checkpoint, your phone snatched, your account hacked, fans mobbing you, an old friend asking to be put on, charity visits, presenting at an awards night, falling ill, power cuts mid-session, a film licensing your song, a scam promoter, going viral, a break-in, a church crusade, your car breaking down — each with choices and consequences.
+
+### Redesigns (phone and laptop)
+- **Dashboard**: hero with your stats and energy, shortcuts with unread counts, life events, what's waiting on you, streaming, diary, net worth, storylines and a feed.
+- **Shows**: a step-by-step planner (where, room, night, occasion, price) with the estimate beside it and a sticky Announce bar on phones.
+- **Mailbox**: a proper mail app — search, filters, unread, delete, mark all read; offers and feature negotiations restyled.
+- **Updates** (was News Feed): notifications grouped by day with filters, headlines, trending posts and storylines.
+- The older screens now share the same palette and buttons.
+
 ## How to run
 
 ```

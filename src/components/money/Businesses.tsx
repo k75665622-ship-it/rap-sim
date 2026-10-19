@@ -4,10 +4,11 @@
 // something.
 
 import { useState } from 'react';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, dealDiscountOf } from '../../store/gameStore';
 import { VENTURES, VENTURE_BY_TYPE, STAFF_TIERS, ventureValue, dropCost, type Venture, type VentureType, type PricePoint, type DropPlan } from '../../sim/ventures';
 import { dateToSerial } from '../../sim/gameClock';
 import { Button } from '../ui/kit';
+import { ClothingBrandCard } from './ClothingBrand';
 import { Card, Chips, Flash, Label, Spark, usd } from './shared';
 
 type Msg = { ok: boolean; message: string } | null;
@@ -24,7 +25,7 @@ export function BusinessesPanel() {
   const closed = (ventures ?? []).filter((v) => v.closed);
   const lastMonth = live.reduce((a, v) => a + (v.months.filter((m) => m.note !== 'Collection drop').slice(-1)[0]?.profit ?? 0), 0);
   const worth = live.reduce((a, v) => a + ventureValue(v), 0);
-  const dealer = (crew ?? []).some((c) => c.role === 'accountant' && c.assignment === 'deals');
+  const off = dealDiscountOf({ crew });
 
   return (
     <div className="space-y-4">
@@ -35,16 +36,16 @@ export function BusinessesPanel() {
       </div>
       <Flash msg={msg} onClose={() => setMsg(null)} />
 
-      {live.map((v) => <VentureCard key={v.id} v={v} onMsg={setMsg} />)}
+      {live.map((v) => v.type === 'clothing' ? <ClothingBrandCard key={v.id} v={v} onMsg={setMsg} /> : <VentureCard key={v.id} v={v} onMsg={setMsg} />)}
 
       <section>
         <div className="flex items-end justify-between mb-2">
           <div className="text-[16px] font-semibold text-ink">Start a business</div>
-          {dealer && <span className="text-[11px] text-rise">Your accountant haggles 8% off</span>}
+          {off > 0 && <span className="text-[11px] text-rise">Your accountant haggles {Math.round(off * 100)}% off</span>}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {VENTURES.filter((d) => !live.some((v) => v.type === d.type)).map((d) => {
-            const cost = Math.round(d.startCost * (dealer ? 0.92 : 1));
+            const cost = Math.round(d.startCost * (1 - off));
             const risk = d.volatility >= 0.4 ? 'Wild' : d.volatility >= 0.25 ? 'Risky' : d.volatility >= 0.15 ? 'Medium' : 'Steady';
             return (
               <Card key={d.type} className={`p-4 ${starting === d.type ? 'border-amber' : ''}`}>
@@ -143,8 +144,8 @@ function VentureCard({ v, onMsg }: { v: Venture; onMsg: (m: Msg) => void }) {
   const monthly = v.months.filter((m) => m.note !== 'Collection drop');
   const last = monthly[monthly.length - 1];
   const next = def.levels[v.level];
-  const dealer = (crew ?? []).some((c) => c.role === 'accountant' && c.assignment === 'deals');
-  const nextCost = next ? Math.round(next.cost * (dealer ? 0.92 : 1)) : 0;
+  const off = dealDiscountOf({ crew });
+  const nextCost = next ? Math.round(next.cost * (1 - off)) : 0;
   const serial = dateToSerial(gameDate);
   const cooldown = v.lastSpecialSerial !== undefined ? Math.max(0, 30 - (serial - v.lastSpecialSerial)) : 0;
   const value = ventureValue(v);

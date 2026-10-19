@@ -35,6 +35,9 @@ import { ArtistPageScreen } from './components/screens/ArtistPageScreen';
 import { SongScreen } from './components/screens/SongScreen';
 import { CreateVideoScreen } from './components/screens/CreateVideoScreen';
 import { useGameClock } from './hooks/useGameClock';
+import { useAIRunner } from './hooks/useAIRunner';
+import { AISettingsScreen } from './components/screens/AISettingsScreen';
+import { AppointmentModal } from './components/moments/AppointmentModal';
 import type { Platform } from './types/game';
 
 function GameLayout({ children }: { children: React.ReactNode }) {
@@ -47,15 +50,18 @@ function GameLayout({ children }: { children: React.ReactNode }) {
       {/* Overlays live above every screen, so a report raised by the clock is
           visible whichever page the player pressed it from. */}
       <TurnReportModal />
+      <AppointmentModal />
     </div>
   );
 }
 
 export default function App() {
-  const { screen, player } = useGameStore();
+  const screen = useGameStore((s) => s.screen);
+  const player = useGameStore((s) => s.player);
 
   // One interval for the whole app: the world moves whichever page is open.
   useGameClock();
+  useAIRunner();
 
   // Full-screen screens (no sidebar)
   if (screen === 'splash') return <SplashScreen />;
@@ -84,6 +90,7 @@ export default function App() {
       case 'shows': return <ShowsScreen />;
       case 'npc_profile': return <NPCProfileScreen />;
       case 'interviews': return <InterviewsScreen />;
+      case 'ai': return <AISettingsScreen />;
       case 'investments': return <MoneyScreen />;
       case 'trophy_room': return <TrophyRoomScreen />;
       case 'news': return <NewsScreen />;

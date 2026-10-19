@@ -10,6 +10,8 @@
 //
 // Pure: no store. Rolls are passed in.
 
+import { inventoryValue, type BrandState } from './clothing';
+
 export type VentureType = 'clothing' | 'restaurant' | 'nightclub' | 'carwash' | 'salon' | 'liquor' | 'events' | 'gym' | 'app' | 'sneakers';
 export type PricePoint = 'budget' | 'standard' | 'premium';
 
@@ -94,6 +96,8 @@ export interface Venture {
   /** Months in a row losing money. */
   redMonths: number;
   closed?: boolean;
+  /** Clothing brands run a real merch operation — see `sim/clothing.ts`. */
+  brand?: BrandState;
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -206,7 +210,8 @@ export function ventureValue(v: Venture): number {
   const assets = def.startCost * 0.5 + def.levels.slice(1, v.level).reduce((a, l) => a + l.cost, 0) * 0.55;
   const earnings = Math.max(0, avg) * (v.type === 'app' ? 36 : 22) * (0.7 + v.reputation / 170);
   const hypeValue = v.type === 'app' ? def.revenue * Math.pow(2.05, v.level - 1) * (v.hype / 10) * 6 : 0;
-  return Math.round((assets + earnings + hypeValue) * (v.type === 'app' ? v.ownership : 1));
+  const stock = v.brand ? inventoryValue(v.brand) * 0.8 : 0;
+  return Math.round((assets + earnings + hypeValue + stock) * (v.type === 'app' ? v.ownership : 1));
 }
 
 // ─── THE BIG MOVES ─────────────────────────────────────────────────────────

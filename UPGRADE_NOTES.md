@@ -257,6 +257,48 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - The **Champions Cup** has four groups on Tuesday/Wednesday nights (September–December), then quarter-finals in March, semis in late April/May and a final at the end of May. Knockout draws go to penalties.
 - **June** is the international window (national team friendlies) and **July** is pre-season. Seasons end with champions crowned (notification) and **past champions** kept on the tables page. A new career starts mid-season with the season so far already played.
 
+## 2026-10-19 (h) — Career modes, feature deals that make sense, the courthouse, award seasons, a living social world, home and the bank, and a logic pass
+
+### Retiring actually works
+- **Industry & Life** now opens with **Your career**: Full-time artist, Semi-retired (drop a single when you feel like it), Business focus (your companies earn more and handle trouble better) and Retired (the catalogue keeps paying; a post-career role gives you something to do). Each mode changes what reaches you — offers, asks, shows, press — and how fast fans drift.
+- **Comebacks**: announce one and your first release within 45 days gets a nostalgia bump.
+
+### Feature deals with honest money
+- Every verse deal has **payment terms**: paid up front, half now / half on delivery, or free. The money you're owed is shown, and what you've been paid is a real receipt — so nobody chases you about a verse they "paid for" when they didn't.
+- Agree to a verse in your DMs and the song lands in **Studio → Features** with its due date. Open it, choose the effort, and write it.
+- Paid for someone's verse and it never came? **Chase** them, ask for a **refund**, or **sue**. How they answer depends on who they are: some are just late, some ignore you, some pay back.
+
+### The courthouse
+- Lawsuits both ways: unpaid verses, unpaid balances, walking out on a show, defamation, uncleared samples, defaulted loans. Cases are **served**, answered (pay, settle, fight or ignore) and heard on the game clock.
+- **Lawyers**: one on your team, or hire legal aid, a practice or a top firm for the case. Go to court and testify, or let your lawyer handle it. Verdicts move money, reputation and the news, and go in your journal.
+
+### Award seasons
+- Local and international award bodies with their own calendars: nominations, a voting window, then the ceremony night. **Follow** an award to get the news; campaign and rally your fans to vote when you're nominated.
+- **Award night**: red carpet (your drip is judged), perform if they ask you, open the envelopes, give a speech if you win. Winners trend on social, and everything lands in your journal.
+
+### A social world that talks back
+- Your posts **get comments** as the hours pass, even small ones, and **fans post** about you: your new release, your nominations, your court case, your beef — and about the rest of the scene. Fans who mention you show up in Activity.
+- **Big artists roll their releases out**: an announcement a few days before ("🗓️ out Friday"), then the drop. Real artists only appear as cards (no words in their mouth). Artists now space their releases out like real people instead of dropping every week.
+- **Tap any name or face** on Chirp, Snapgram, Clip or Circle and you get **their social page**: bio, followers, following, likes, their posts on each app, their replies, what they've liked and the people you both know. Message, follow, block, their music and their contact card are one tap away. Fan accounts and award bodies have pages too.
+
+### Home & Life (new page)
+- Everybody lives somewhere. You start in the **family house** and can move to a single room, an apartment, a gated apartment, a villa or a mansion — **rented or bought**. Prices follow your country, and in **Ghana and Nigeria landlords want a year up front**, like in real life.
+- **Monthly bills** (food, power, data, transport, upkeep on what you own) come out every month. Fall behind on rent and you get **30 days' notice**, then you're back at your mum's — and if you're famous, the blogs hear about it.
+- Where you sleep matters: better places raise your **max energy**. Film a **house tour** once per place. Let out homes you own for rent income.
+- Cars, a jet membership, a yacht and art now **cost money to keep** and can be **sold** for what they're worth today. Jewellery and watches live in Drip & Ink.
+
+### The bank (Money → Bank)
+- A **credit score** built from what you earn, how long you've earned it, what you own and whether you pay. **Personal loans** and **mortgages** (20% down) at rates that depend on your country and your score.
+- Payments come out monthly. Miss one and there's a late fee; miss three and the bank calls the loan in, **repossesses the house** for a mortgage, and **takes you to court** for the rest.
+
+### Logic pass
+- **Streams were counted seven times**: lifetime streams, fan growth and fame were adding the weekly figure every day. Fixed — a career now grows at a believable pace (a good Ghanaian newcomer reaches tens of thousands of fans in months, not a million).
+- **Momentum fades** day by day and posting alone can't make you hot; it now reflects what's happening right now. Three quiet weeks and people start forgetting you.
+- **Reputation no longer drains on its own**: unanswered collab offers were "escalating" forever and costing reputation. Only real trouble escalates now, and old storylines close themselves.
+- Feature asks you never answer **expire after two weeks** instead of sitting open forever.
+- Nobody offers you shows, cash gigs, bring-outs or fan letters about songs you haven't released; blogs only blackmail people worth a headline; rewards for viral moments scale with how famous you are.
+- Show fees follow local ticket prices. Headlines read properly ("New Music: X releases …"). Notifications for court, awards, features and home open the right page. The sidebar and dashboard show the same fame number. Real artists' DMs come through their team.
+
 ## How to run
 
 ```

@@ -14,6 +14,7 @@
 // snapshot taken when the player asked for it, so the number they acted on is
 // the number they can still read back after a reload.
 
+import { TERMS_LABEL } from '../../sim/deals';
 import { useState } from 'react';
 import { useGameStore, blendedFame } from '../../store/gameStore';
 import { Button, Badge } from '../ui/Card';
@@ -35,7 +36,8 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
     quoteInboundVerse,
     acceptInboundOffer,
     declineInboundRequest,
-    sendInboundVerse,
+    acceptFreeAsk,
+    openStudioAt,
   } = useGameStore();
 
   const [askDraft, setAskDraft] = useState('');
@@ -69,8 +71,8 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
     setNotice(res.message);
   };
 
-  const send = () => {
-    const res = sendInboundVerse(r.id);
+  const free = () => {
+    const res = acceptFreeAsk(r.id);
     setNotice(res.message);
   };
 
@@ -192,9 +194,15 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
           )}
 
           <div className="flex gap-3 flex-wrap">
-            <Button variant="gold" size="sm" onClick={take}>
-              Take ${r.offer.toLocaleString()}
-            </Button>
+            {r.offer > 0 ? (
+              <Button variant="gold" size="sm" onClick={take}>
+                Take ${r.offer.toLocaleString()}
+              </Button>
+            ) : (
+              <Button variant="gold" size="sm" onClick={free}>
+                Do it for the love
+              </Button>
+            )}
             {roundsLeft > 0 && (
               <>
                 <input
@@ -231,24 +239,28 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
       {r.status === 'agreed' && (
         <div className="space-y-3">
           <p className="text-xs text-gray-300">
-            ${(r.agreedFee ?? r.offer).toLocaleString()} is in the account. They are waiting on the verse —
-            write it and it goes on their record.
+            {(r.agreedFee ?? 0) > 0
+              ? <>Deal: ${(r.agreedFee ?? 0).toLocaleString()} — {TERMS_LABEL[r.payTerms ?? 'half'].toLowerCase()}. {(r.paidSoFar ?? 0) > 0 ? `$${(r.paidSoFar ?? 0).toLocaleString()} has been paid to you.` : 'Nothing has been paid yet.'}</>
+              : 'No fee — you\'re doing it for the love.'}{' '}
+            The song is in your studio. Add your verse there.
           </p>
-          <Button variant="gold" size="sm" onClick={send}>
-            ✍️ Write the verse
+          <Button variant="gold" size="sm" onClick={() => openStudioAt('guest')}>
+            🎙️ Open in Studio → Features
           </Button>
         </div>
       )}
 
       {r.status === 'delivered' && (
         <p className="text-xs text-green-300">
-          Done. Your verse is on “{r.npcSongTitle}” and the money is banked.
+          Done. Your verse is on “{r.npcSongTitle}”.{(r.balanceDue ?? 0) > 0 ? ` $${(r.balanceDue ?? 0).toLocaleString()} is still owed to you.` : (r.agreedFee ?? 0) > 0 ? ' Paid in full.' : ''}
         </p>
       )}
       {r.status === 'withdrawn' && (
         <p className="text-xs text-red-300">
-          {r.lapsed
-            ? `You never sent it. ${r.npcName} paid for that verse and gave up waiting — the fee is still yours, the goodwill is not.`
+          {r.lapsed && r.agreedFee === undefined && !r.agreedDate
+            ? `You never answered, so ${r.npcName} gave the verse to someone else.`
+            : r.lapsed
+            ? ((r.paidSoFar ?? 0) > 0 ? `You never sent it. ${r.npcName} paid $${(r.paidSoFar ?? 0).toLocaleString()} for that verse and gave up waiting.` : `You never sent it, and ${r.npcName} moved on.`)
             : 'They walked away from your number. The record goes out without you.'}
         </p>
       )}

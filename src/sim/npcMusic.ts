@@ -6,6 +6,7 @@
 import { ROSTER_GENRES } from '../data/genres';
 import { v4 as uuidv4 } from 'uuid';
 import type { NPC, Song, Genre, GameDate } from '../types/game';
+import { dateToSerial, serialOf } from './gameClock';
 
 // Title fragments — combined to produce a large, varied pool of plausible titles.
 const TITLE_OPENERS = [
@@ -248,7 +249,8 @@ export function npcReleaseTick(
   npcs: NPC[],
   existing: Song[],
   date: GameDate,
-  turnCount: number
+  turnCount: number,
+  pending: Iterable<string> = [],
 ): { songs: Song[]; events: string[] } {
   const songs: Song[] = [];
   const events: string[] = [];
@@ -265,10 +267,17 @@ export function npcReleaseTick(
 
   // Only hold a handful of recent songs per artist so the field stays readable.
   const countByOwner = new Map<string, number>();
+  const lastByOwner = new Map<string, number>();
+  const today = dateToSerial(date);
   for (const s of existing) {
     if (!s.ownerId) continue;
     countByOwner.set(s.ownerId, (countByOwner.get(s.ownerId) ?? 0) + 1);
+    const at = serialOf(s.releaseDate, 0);
+    if (at > (lastByOwner.get(s.ownerId) ?? -1)) lastByOwner.set(s.ownerId, at);
   }
+  // Nobody drops a single a week. Stars space them out; locals put one out
+  // when they can. `pending` is anything announced and not yet out.
+  for (const id of pending) lastByOwner.set(id, today);
 
   const headroom = MAX_LIVE_NPC_SONGS - existing.length;
   if (headroom <= 0) return { songs, events };
@@ -284,6 +293,9 @@ export function npcReleaseTick(
     // Bigger artists release more often; complete unknowns rarely chart.
     const baseChance = (0.02 + (npc.fame / 100) * 0.24) * weeklyScale;
     if (Math.random() > baseChance) continue;
+
+    const gap = npc.fame >= 75 ? 35 : npc.fame >= 50 ? 24 : 16;
+    if (today - (lastByOwner.get(npc.id) ?? -999) < gap) continue;
 
     const owned = countByOwner.get(npc.id) ?? 0;
     // How many records an artist keeps in play scales with who they are.

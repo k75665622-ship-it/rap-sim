@@ -264,7 +264,12 @@ export function generateHeadline(eventType: string, artistName: string, detail: 
     ],
     chart: [
       `${artistName} Debuts at #${detail} — Fans Go Wild`,
-      `"${detail}" by ${artistName} Storms the Charts`,
+      `${artistName} Climbs to #${detail}`,
+    ],
+    release: [
+      `${artistName} Drops "${detail}" — First Reactions Are In`,
+      `New Music: ${artistName} Releases "${detail}"`,
+      `"${detail}": ${artistName} Is Back`,
     ],
     beef: [
       `${artistName} vs ${detail}: The Beef That Has Everyone Talking`,

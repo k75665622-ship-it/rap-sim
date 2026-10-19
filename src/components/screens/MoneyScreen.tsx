@@ -1,6 +1,6 @@
 // ─── MONEY ─────────────────────────────────────────────────────────────────
 // Everything that can make you rich or broke outside the music: shares,
-// crypto, businesses you run, property you build, and the casino.
+// crypto, the bank, businesses you run, property you build, and the casino.
 
 import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
@@ -10,10 +10,12 @@ import { BusinessesPanel } from '../money/Businesses';
 import { PropertyPanel } from '../money/Property';
 import { CasinoPanel } from '../money/Casino';
 import { SportsbookPanel } from '../money/Sportsbook';
+import { BankPanel } from '../money/Bank';
 import { usd } from '../money/shared';
 
 const TABS: { id: MoneyTab; label: string; emoji: string }[] = [
   { id: 'overview', label: 'Overview', emoji: '💼' },
+  { id: 'bank', label: 'Bank', emoji: '🏦' },
   { id: 'shares', label: 'Shares', emoji: '📈' },
   { id: 'crypto', label: 'Crypto', emoji: '🪙' },
   { id: 'business', label: 'Businesses', emoji: '🏪' },
@@ -63,6 +65,7 @@ export function MoneyScreen() {
 
       <div key={tab} className="rl-fade">
         {tab === 'overview' && <Overview go={go} />}
+        {tab === 'bank' && <BankPanel />}
         {tab === 'shares' && <MarketPanel kind="stock" />}
         {tab === 'crypto' && <MarketPanel kind="coin" />}
         {tab === 'business' && <BusinessesPanel />}

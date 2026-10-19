@@ -11,7 +11,7 @@ import { ROLE_SPECS } from '../../sim/roles';
 import type { OwnedBeat } from '../../sim/beats';
 import { BeatTile } from './BeatsPanel';
 
-type Go = 'single' | 'beats' | 'room' | 'vault' | 'album' | 'remix' | 'order';
+type Go = 'single' | 'beats' | 'room' | 'vault' | 'album' | 'remix' | 'order' | 'guest';
 
 const STUDIO_ROLES = ['producer', 'engineer', 'songwriter', 'vocal_coach'] as const;
 const ROLE_DOES: Record<string, string> = {
@@ -28,6 +28,8 @@ export function StudioHome({ go, onUseBeat }: { go: (to: Go) => void; onUseBeat:
   const studio = useGameStore((s) => s.studio);
   const workItems = useGameStore((s) => s.workItems);
   const setScreen = useGameStore((s) => s.setScreen);
+  const inbound = useGameStore((s) => s.inboundRequests);
+  const outbound = useGameStore((s) => s.featureRequests);
 
   const fresh = useMemo(() => (beats?.library ?? []).filter((b) => !b.usedOnSongId).sort((a, b) => b.quality - a.quality).slice(0, 3), [beats]);
   const unmixed = songs.filter((s) => s.masterStatus === 'recorded' && !s.archivedAt).length;
@@ -35,6 +37,8 @@ export function StudioHome({ go, onUseBeat }: { go: (to: Go) => void; onUseBeat:
   const recording = (workItems ?? []).filter((w) => w.kind === 'record');
   const tier = buildingTier(studio?.levels);
   const team = (crew ?? []).filter((c) => (STUDIO_ROLES as readonly string[]).includes(c.role));
+  const owed = inbound.filter((r) => r.status === 'agreed').length;
+  const coming = outbound.filter((r) => r.status === 'paid_waiting' || r.status === 'verse_ready').length;
 
   return (
     <div className="space-y-5">
@@ -52,6 +56,7 @@ export function StudioHome({ go, onUseBeat }: { go: (to: Go) => void; onUseBeat:
             { k: 'beats' as Go, emoji: '🎹', label: 'Beats', value: (beats?.library ?? []).filter((b) => !b.usedOnSongId).length, sub: (beats?.orders ?? []).length ? `${beats!.orders.length} on order` : 'in your library' },
             { k: 'album' as Go, emoji: '💿', label: 'Projects', value: null, sub: 'EP, album, mixtape' },
             { k: 'room' as Go, emoji: tier.emoji, label: 'My studio', value: `+${gearBonus(studio?.levels)}`, sub: tier.name },
+            { k: 'guest' as Go, emoji: '🤝', label: 'Features', value: owed + coming, sub: owed ? `${owed} verse${owed > 1 ? 's' : ''} to write` : coming ? `${coming} coming to you` : 'Verse deals' },
           ].map((t) => (
             <button key={t.label} onClick={() => go(t.k)} className="text-left rounded-[14px] border border-line bg-card p-4 hover:bg-cardhover transition">
               <div className="flex items-center justify-between"><span className="text-[20px]">{t.emoji}</span>{t.value !== null && <span className="text-[18px] font-bold text-ink num">{t.value}</span>}</div>

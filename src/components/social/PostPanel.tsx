@@ -9,7 +9,7 @@ import { compact } from '@/utils/format';
 import { SlidePanel, Button } from '../ui/kit';
 import { useGameStore } from '../../store/gameStore';
 import { APP_META, kindDef, type PostKind, type SocialApp } from '../../sim/social';
-import { liveCounts, minutesAgo } from '../../sim/socialLive';
+import { visibleComments, liveCounts, minutesAgo } from '../../sim/socialLive';
 import type { SocialComment, SocialPost } from '../../types/game';
 import { IconVerified } from '../icons';
 import { Avatar, RichText, ToneTag, handleOf } from './shared';
@@ -20,7 +20,7 @@ function CommentRow({
   c: SocialComment; depth: number; onLike: (id: string) => void; onReply: (c: SocialComment) => void; onOpenArtist: (id: string) => void; blocked: Set<string>;
 }) {
   if (blocked.has(c.authorId)) return null;
-  const person = !c.authorId.startsWith('fan:') && c.authorId !== 'player';
+  const person = c.authorId !== 'player';
   return (
     <div className={cn('flex gap-2.5', depth > 0 && 'ml-9 mt-2.5')}>
       <button onClick={() => person && onOpenArtist(c.authorId)} className={cn(!person && 'cursor-default')}><Avatar name={c.authorName} seed={c.authorId} size={depth ? 24 : 30} /></button>
@@ -40,14 +40,13 @@ function CommentRow({
   );
 }
 
-export function PostPanel({ post, songTitle, onClose, now, verified }: { post: SocialPost | null; songTitle?: string; onClose: () => void; now: number; verified: boolean }) {
+export function PostPanel({ post, songTitle, onClose, now, verified, onOpenProfile }: { post: SocialPost | null; songTitle?: string; onClose: () => void; now: number; verified: boolean; onOpenProfile: (id: string) => void }) {
   const likePost = useGameStore((s) => s.likePost);
   const repostPost = useGameStore((s) => s.repostPost);
   const quotePost = useGameStore((s) => s.quotePost);
   const commentOnPost = useGameStore((s) => s.commentOnPost);
   const likeComment = useGameStore((s) => s.likeComment);
   const loadMoreComments = useGameStore((s) => s.loadMoreComments);
-  const openArtist = useGameStore((s) => s.openArtist);
   const following = useGameStore((s) => s.following);
   const blockedList = useGameStore((s) => s.blocked);
   const followAccount = useGameStore((s) => s.followAccount);
@@ -66,6 +65,7 @@ export function PostPanel({ post, songTitle, onClose, now, verified }: { post: S
   const k = kindDef(post.kind as PostKind);
   const person = post.authorId !== 'player' && !post.authorId.startsWith('fan:') && post.authorId !== 'scene_watch';
   const live = liveCounts(post, now);
+  const shown = visibleComments(post.comments, now);
   const isFollowing = (following ?? []).includes(post.authorId);
   const blocked = new Set(blockedList ?? []);
   const isBlocked = blocked.has(post.authorId);
@@ -113,7 +113,7 @@ export function PostPanel({ post, songTitle, onClose, now, verified }: { post: S
     >
       <div className="p-4 border-b border-line">
         <div className="flex items-center gap-3">
-          <button onClick={() => person && (close(), openArtist(post.authorId))} className={cn(!person && 'cursor-default')}><Avatar name={post.authorName} seed={post.authorId} size={44} /></button>
+          <button onClick={() => post.authorId !== 'player' && (close(), onOpenProfile(post.authorId))} className={cn(post.authorId === 'player' && 'cursor-default')}><Avatar name={post.authorName} seed={post.authorId} size={44} /></button>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1 text-[15px] font-semibold text-ink truncate">{post.authorId === 'player' ? `${post.authorName} (you)` : post.authorName}{verified && <IconVerified size={15} className="text-[#4DA3FF] shrink-0" />}</div>
             <div className="text-[12px] text-ink3">{handleOf(post.authorName)}</div>
@@ -129,7 +129,7 @@ export function PostPanel({ post, songTitle, onClose, now, verified }: { post: S
               <button onClick={() => setMenu((m) => !m)} className="w-8 h-8 rounded-full border border-line text-ink2 hover:text-ink" aria-label="More">⋯</button>
               {menu && (
                 <div className="absolute right-0 top-10 z-10 w-44 rounded-[12px] border border-line bg-sidebar shadow-xl overflow-hidden">
-                  <button onClick={() => { setMenu(false); close(); openArtist(post.authorId); }} className="w-full text-left px-3 py-2.5 text-[13px] text-ink hover:bg-white/5">View profile</button>
+                  <button onClick={() => { setMenu(false); close(); onOpenProfile(post.authorId); }} className="w-full text-left px-3 py-2.5 text-[13px] text-ink hover:bg-white/5">View profile</button>
                   {isBlocked
                     ? <button onClick={() => { unblockAccount(post.authorId); setMenu(false); setFlash({ ok: true, message: `Unblocked ${post.authorName}.` }); }} className="w-full text-left px-3 py-2.5 text-[13px] text-ink hover:bg-white/5">Unblock</button>
                     : <button onClick={() => { setFlash(blockAccount(post.authorId)); setMenu(false); }} className="w-full text-left px-3 py-2.5 text-[13px] text-fall hover:bg-white/5">Block {post.authorName.split(' ')[0]}</button>}
@@ -143,7 +143,7 @@ export function PostPanel({ post, songTitle, onClose, now, verified }: { post: S
         {songTitle && <div className="mt-3 inline-flex items-center gap-2 rounded-[10px] border border-line bg-white/[0.03] px-3 py-2 text-[13px] text-ink2"><span className="text-amber">♫</span> {songTitle}</div>}
         {post.tags && post.tags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {post.tags.map((t) => <button key={t.id} onClick={() => t.id !== 'player' && (close(), openArtist(t.id))} className="px-2 h-6 rounded-full bg-[#4DA3FF]/12 text-[#4DA3FF] text-[11px] font-semibold">@{t.name}</button>)}
+            {post.tags.map((t) => <button key={t.id} onClick={() => t.id !== 'player' && (close(), onOpenProfile(t.id))} className="px-2 h-6 rounded-full bg-[#4DA3FF]/12 text-[#4DA3FF] text-[11px] font-semibold">@{t.name}</button>)}
           </div>
         )}
         <div className="mt-4 grid grid-cols-4 gap-2 text-center">
@@ -172,13 +172,13 @@ export function PostPanel({ post, songTitle, onClose, now, verified }: { post: S
           <div className="text-[12px] font-semibold text-ink2 uppercase tracking-wider">Comments · {compact(live.comments)}</div>
           <div className="text-[11px] text-ink3">Top first</div>
         </div>
-        {post.comments.length === 0 && <div className="text-[13px] text-ink3">No comments yet.</div>}
-        {[...post.comments].sort((a, b) => (b.authorId === 'player' ? 1 : 0) - (a.authorId === 'player' ? 1 : 0) || b.likes - a.likes).map((c) => (
-          <CommentRow key={c.id} c={c} depth={0} blocked={blocked} onLike={(id) => likeComment(post.id, id)} onReply={(c2) => { setReplyTo(c2); setQuoting(false); }} onOpenArtist={(id) => { close(); openArtist(id); }} />
+        {shown.length === 0 && <div className="text-[13px] text-ink3">No comments yet — they usually start within minutes.</div>}
+        {[...shown].sort((a, b) => (b.authorId === 'player' ? 1 : 0) - (a.authorId === 'player' ? 1 : 0) || b.likes - a.likes).map((c) => (
+          <CommentRow key={c.id} c={c} depth={0} blocked={blocked} onLike={(id) => likeComment(post.id, id)} onReply={(c2) => { setReplyTo(c2); setQuoting(false); }} onOpenArtist={(id) => { close(); onOpenProfile(id); }} />
         ))}
-        {live.comments > post.comments.length && post.comments.length < 80 && (
+        {live.comments > shown.length && post.comments.length < 80 && (
           <button onClick={() => loadMoreComments(post.id)} className="w-full h-9 rounded-[10px] border border-line text-[12px] text-ink2 hover:text-ink hover:bg-white/[0.03]">
-            View more comments ({compact(live.comments - post.comments.length)} more)
+            View more comments ({compact(live.comments - shown.length)} more)
           </button>
         )}
       </div>

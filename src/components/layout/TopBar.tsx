@@ -5,6 +5,7 @@
 
 import { Portrait } from '../avatar/Portrait';
 import type { ReactNode } from 'react';
+import { openNotificationAction } from '../notificationRoute';
 import { useGameStore } from '../../store/gameStore';
 import { cn } from '@/utils/cn';
 import { CountrySelect } from '../ui/CountrySelect';
@@ -109,14 +110,11 @@ const KIND_LABEL: Record<GameNotification['kind'], string> = {
 };
 
 export function NotificationPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const {
-    notifications,
-    markNotificationRead,
-    markAllNotificationsRead,
-    clearNotifications,
-    setScreen,
-    selectNPC,
-  } = useGameStore();
+  // Selectors, not the whole store: this panel shouldn't re-render on every tick.
+  const notifications = useGameStore((s) => s.notifications);
+  const markNotificationRead = useGameStore((s) => s.markNotificationRead);
+  const markAllNotificationsRead = useGameStore((s) => s.markAllNotificationsRead);
+  const clearNotifications = useGameStore((s) => s.clearNotifications);
 
   const nowSerial = dateToSerial(useGameStore((s) => s.gameDate));
   const list = notifications ?? [];
@@ -126,20 +124,7 @@ export function NotificationPanel({ open, onClose }: { open: boolean; onClose: (
     markNotificationRead(n.id);
     const a = n.action;
     if (!a) return;
-    if (a.type === 'artist') selectNPC(a.id);
-    setScreen(
-      a.type === 'chart'
-        ? 'charts'
-        : a.type === 'platform'
-          ? 'streaming'
-          : a.type === 'video'
-            ? 'watch'
-            : a.type === 'inbound'
-              ? 'mailbox'
-              : a.type === 'artist'
-                ? 'npc_profile'
-                : 'studio',
-    );
+    openNotificationAction(a);
     onClose();
   };
 

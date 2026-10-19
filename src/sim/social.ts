@@ -138,7 +138,9 @@ export function postReach(i: ReachInput): Reach {
   const audience = (i.app === 'clip' ? views : base * viralMult);
   const likes = Math.max(2, Math.round(audience * meta.rate * (i.app === 'clip' ? 1 : 1.2)));
   const shares = Math.round(likes * meta.share * (i.controversy ? 1.8 : 1));
-  const comments = Math.max(1, Math.round(likes * (i.kind === 'qa' ? 0.25 : i.controversy ? 0.12 : 0.045)));
+  // Even a small account has friends, family and the first few fans in the comments.
+  const floor = 2 + Math.round(Math.log2(1 + Math.max(0, i.followers) / 120));
+  const comments = Math.max(floor, Math.round(likes * (i.kind === 'qa' ? 0.25 : i.controversy ? 0.12 : 0.045)));
   const follows = Math.round(likes * (viral ? 0.35 : 0.04) + (i.kind === 'qa' || i.kind === 'community' ? likes * 0.02 : 0));
 
   const note = viral

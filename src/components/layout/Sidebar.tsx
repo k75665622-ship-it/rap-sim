@@ -4,7 +4,7 @@
 // drawer behind a hamburger.
 
 import { useState, useMemo, type ReactNode } from 'react';
-import { useGameStore } from '../../store/gameStore';
+import { blendedFame, useGameStore } from '../../store/gameStore';
 import { cn } from '@/utils/cn';
 import type { GameScreen } from '../../types/game';
 import { energyColor, energyLabel, needsRest, restRefusal, restOutcomeLine, REST_OPTIONS } from '../../sim/energy';
@@ -15,6 +15,7 @@ import { Portrait } from '../avatar/Portrait';
 import { currentAccount } from '../../store/accounts';
 import {
   IconSparkle,
+  IconScale,
   IconShirt,
   IconJournal,
   IconUser,
@@ -29,6 +30,7 @@ import {
   IconDumbbell,
   IconFilm,
   IconHome,
+  IconKey,
   IconInterview,
   IconMail,
   IconMenu,
@@ -58,6 +60,7 @@ interface NavItem {
 export function Sidebar() {
   const { screen, setScreen, player, dmThreads, mailbox, notifications, rest, label } = useGameStore();
   const crew = useGameStore((s) => s.crew);
+  const cases = useGameStore((s) => s.cases);
   // A personal assistant makes a nap worth more. The control says what it will
   // actually give back rather than what it would give back alone.
   const restMult = useMemo(() => crewBonuses(crew).energyRecovery, [crew]);
@@ -73,6 +76,13 @@ export function Sidebar() {
     ? label.roster.filter((s) => s.demand || s.rivalOffer || s.status === 'dispute' || s.status === 'expiring').length +
       (label.submissions ?? []).filter((x) => x.status === 'pending').length
     : 0;
+
+  const awardSeasons = useGameStore((s) => s.awardSeasons);
+  // Award seasons where the player is nominated and the night hasn't happened.
+  const awardAlerts = Object.values(awardSeasons ?? {}).filter((x) => x.phase === 'nominations' && x.categories.some((c) => c.nominees.some((n) => n.isPlayer))).length;
+  // Cases that need the player: an answer due, an offer on the table.
+  const courtAlerts = (cases ?? []).filter((c) => (c.side === 'defendant' && c.status === 'served') || c.offers.some((o) => o.status === 'open' && o.from === 'them')).length;
+  const rentDue = useGameStore((s) => (s.home?.due ? 1 : 0));
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <IconHome />, group: 'main' },
@@ -117,7 +127,9 @@ export function Sidebar() {
     { id: 'interviews', label: 'Interviews', icon: <IconInterview />, group: 'business' },
     { id: 'label', label: 'My Label', icon: <IconDisc />, badge: labelAlerts, group: 'business' },
     { id: 'investments', label: 'Money', icon: <IconTrend />, group: 'business' },
-    { id: 'lifestyle', label: 'Lifestyle', icon: <IconDiamond />, group: 'business' },
+    { id: 'lifestyle', label: 'Home & Life', icon: <IconKey />, badge: rentDue, group: 'main' },
+    { id: 'court', label: 'Courthouse', icon: <IconScale />, badge: courtAlerts, group: 'business' },
+    { id: 'awards', label: 'Awards', icon: <IconTrophy />, badge: awardAlerts, group: 'world' },
     { id: 'trophy_room', label: 'Trophy Room', icon: <IconTrophy />, group: 'business' },
     { id: 'retirement', label: 'Industry & Life', icon: <IconDiamond />, group: 'business' },
     { id: 'ai', label: 'AI Brain', icon: <IconSparkle />, group: 'business' },
@@ -235,7 +247,7 @@ export function Sidebar() {
               </div>
               <div className="text-[10px] text-ink3 mt-1 num">
                 {Math.round(player.energy)} / {Math.round(player.maxEnergy)}
-                {player.maxEnergy > 100 ? <span className="text-rise"> · trained</span> : null}
+                {player.maxEnergy !== 100 ? <span className={player.maxEnergy > 100 ? 'text-rise' : 'text-amber'}> · {player.maxEnergy > 100 ? 'max up' : 'max down'}</span> : null}
               </div>
             </div>
 
@@ -281,12 +293,12 @@ export function Sidebar() {
             <div>
               <div className="flex justify-between text-[11px] mb-1">
                 <span className="text-ink3">Fame</span>
-                <span className="text-ink num">{Math.round(player.career.localFame)}</span>
+                <span className="text-ink num">{Math.round(blendedFame(player))}</span>
               </div>
               <div className="bg-line rounded-full h-1.5">
                 <div
                   className="bg-amber h-1.5 rounded-full"
-                  style={{ width: `${Math.max(0, Math.min(100, player.career.localFame))}%` }}
+                  style={{ width: `${Math.max(0, Math.min(100, blendedFame(player)))}%` }}
                 />
               </div>
             </div>

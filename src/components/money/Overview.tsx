@@ -10,7 +10,7 @@ import { dateToSerial } from '../../sim/gameClock';
 import { Button } from '../ui/kit';
 import { CallBadge, Card, Chart, Delta, Label, px, usd } from './shared';
 
-export type MoneyTab = 'overview' | 'shares' | 'crypto' | 'business' | 'property' | 'betting' | 'casino';
+export type MoneyTab = 'overview' | 'bank' | 'shares' | 'crypto' | 'business' | 'property' | 'betting' | 'casino';
 
 const SLICES = [
   { k: 'cash', label: 'Cash', color: '#ffb800' },

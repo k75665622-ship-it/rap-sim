@@ -24,7 +24,7 @@ export function ActivityList({ items, now, onOpenPost, onOpenArtist }: { items: 
           className={cn('w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-white/[0.02]', !a.read && 'bg-[#4DA3FF]/[0.05]')}
         >
           <div className="relative">
-            {a.actorName ? <Avatar name={a.actorName} seed={a.actorId ?? a.actorName} size={38} /> : <div className="w-[38px] h-[38px] rounded-full bg-white/[0.06] flex items-center justify-center text-[16px]">{ICON[a.kind]}</div>}
+            {a.actorName ? <span role="link" onClick={(e) => { if (a.actorId) { e.stopPropagation(); onOpenArtist(a.actorId); } }}><Avatar name={a.actorName} seed={a.actorId ?? a.actorName} size={38} /></span> : <div className="w-[38px] h-[38px] rounded-full bg-white/[0.06] flex items-center justify-center text-[16px]">{ICON[a.kind]}</div>}
             <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center text-black" style={{ background: COLOR[a.kind] }}>{ICON[a.kind]}</span>
           </div>
           <div className="min-w-0 flex-1">

@@ -542,12 +542,13 @@ export function extendRuns(
 // ─── CERTIFICATIONS ────────────────────────────────────────────────────────
 
 export function certLevelFor(lifetimeUnits: number): { level: GlobalCertification['level']; multiplier: number; label: string } | null {
+  // Each tier counts in its own multiples: 20M is 2x diamond, not "20x diamond".
   if (lifetimeUnits >= CERT_THRESHOLDS.legendary) {
-    const m = Math.floor(lifetimeUnits / CERT_THRESHOLDS.platinum);
-    return { level: 'legendary', multiplier: m, label: 'LEGENDARY' };
+    const m = Math.floor(lifetimeUnits / CERT_THRESHOLDS.legendary);
+    return { level: 'legendary', multiplier: m, label: m > 1 ? `${m}x LEGENDARY` : 'LEGENDARY' };
   }
   if (lifetimeUnits >= CERT_THRESHOLDS.diamond) {
-    const m = Math.floor(lifetimeUnits / CERT_THRESHOLDS.platinum);
+    const m = Math.floor(lifetimeUnits / CERT_THRESHOLDS.diamond);
     return { level: 'diamond', multiplier: m, label: m > 1 ? `${m}x DIAMOND` : 'DIAMOND' };
   }
   if (lifetimeUnits >= CERT_THRESHOLDS.platinum) {

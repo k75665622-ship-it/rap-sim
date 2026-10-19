@@ -319,6 +319,7 @@ import {
   formatGameDate as formatDateString,
   parseGameDate,
   serialToDate,
+  formatWeekEnding,
 } from '../sim/gameClock';
 import {
   buildSongChart,
@@ -3074,6 +3075,8 @@ interface GameActions {
   setHomeRentedOut: (id: string, on: boolean) => FeatureActionResult;
   /** Film a house tour for Clip — once per place. */
   houseTour: () => FeatureActionResult;
+  /** Post from your record label's page (not yours). */
+  postAsLabel: (o: { apps: SocialApp[]; kind: PostKind; content: string; songId?: string }) => FeatureActionResult;
 
   // Mailbox
   readMail: (mailId: string) => void;
@@ -4492,6 +4495,33 @@ function labelSigneeIds(label: PlayerLabel): Set<string> {
   );
 }
 
+/** How many people follow the label's pages: its roster's audience, and its name. */
+export function labelFollowers(label: PlayerLabel, npcs: NPC[]): number {
+  const byId = new Map(npcs.map((n) => [n.id, n]));
+  const roster = label.roster.reduce((a, s) => { const n = byId.get(s.npcId); return a + (n ? audienceOf(n) * 0.12 : 0); }, 0);
+  return Math.round(400 + roster + label.reputation * 120 + label.roster.length * 300);
+}
+
+/**
+ * The label posts from its own account. Your page is yours; the label has a
+ * page of its own, and the office runs it.
+ */
+function labelPost(state: GameState, label: PlayerLabel, posts: [SocialApp, string, PostKind][], songId?: string, tagNpcId?: string): void {
+  const npcs = raw(state.npcs) as NPC[];
+  const audience = labelFollowers(label, npcs);
+  const tag = tagNpcId ? npcs.find((n) => n.id === tagNpcId) : undefined;
+  const minute = gameMinute(state);
+  posts.forEach(([app, content, kind], i) => {
+    const post: SocialPost = {
+      id: uuidv4(), platform: app, authorId: `label:${label.id}`, authorName: label.name, content,
+      likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 40,
+      daySerial: dateToSerial(state.gameDate), kind, relatedSongId: songId, tags: tag ? [{ id: tag.id, name: tag.name }] : undefined,
+    };
+    livenPost(state, post, { at: minute + 20 + i * 40, audience, heat: 1 });
+    state.socialPosts.unshift(post);
+  });
+}
+
 function labelEvent(label: PlayerLabel, serial: number, text: string, tone: LabelEvent['tone'] = 'neutral'): void {
   label.events.unshift({ serial, text, tone });
   if (label.events.length > 100) label.events.length = 100;
@@ -4718,24 +4748,11 @@ function releaseLabelRecord(
     artSeed: `song|${lead.id}`,
     action: { type: 'song', id: lead.id },
   });
+  // The label announces it on the label's own pages — not yours.
   if (state.player && how === 'release') {
-    state.socialPosts.unshift({
-      id: uuidv4(),
-      platform: 'chirp',
-      authorId: 'player',
-      authorName: state.player.artistName,
-      content: rec.kind === 'album'
-        ? `${s.name}'s new project "${albumTitle}" is out now on ${label.name}. ${made.length} tracks. Front to back. 💿`
-        : `New music from ${s.name} on ${label.name}. "${lead.title}" out now. Go run it up. 💿`,
-      likes: Math.round(40 + s.fame * 30),
-      shares: Math.round(5 + s.fame * 4),
-      comments: [],
-      timestamp: new Date().toISOString(),
-      relatedSongId: lead.id,
-      isPlayerPost: true,
-      trendingScore: 10 + s.fame / 3,
-      daySerial: serial,
-    });
+    labelPost(state, label, rec.kind === 'album'
+      ? [['chirp', `OUT NOW 💿 ${s.name} — "${albumTitle}". ${made.length} tracks. Front to back.`, 'announce'], ['snapgram', `${s.name} · "${albumTitle}" · out everywhere`, 'cover']]
+      : [['chirp', `New music from ${s.name} 🔥 "${lead.title}" is out now. Go run it up.`, 'announce'], ['snapgram', `${s.name} — "${lead.title}" · out now`, 'cover']], lead.id, s.npcId);
   }
   return made;
 }
@@ -4859,6 +4876,7 @@ function publishLabelVideo(state: GameState, label: PlayerLabel, s: LabelSignee,
   song.hasVideo = true;
   s.mood = Math.min(100, s.mood + 3);
   labelEvent(label, serial, `${s.name}'s video for "${song.title}" is up — quality ${shoot.quality}.`, shoot.quality >= 60 ? 'good' : 'neutral');
+  labelPost(state, label, [['clip', `${s.name} — "${song.title}" (Official Video) 🎬 out now`, 'bts']], song.id, s.npcId);
   log.push(`🎬 ${label.name}: ${s.name}'s "${song.title}" video is live.`);
   pushNotification(state, {
     kind: 'business',
@@ -5321,6 +5339,8 @@ function momentWorld(state: GameState, npcs: NPC[], serial: number): MomentWorld
   const home = p.country;
   return {
     serial,
+    country: p.country,
+    homeTier: state.home?.tier ?? 'family',
     playerName: p.artistName,
     playerFame: fame,
     money: p.career.money,
@@ -5451,14 +5471,64 @@ function applyMomentEffects(state: GameState, effects: MomentEffect[], serial: n
           state.npcSongs.push(song);
         }
         if (state.inboundRequests.some((r) => r.npcId === n.id && (r.status === 'open' || r.status === 'agreed'))) break;
-        const req = openInboundAsk(state, n as NPC, song, e.free
-          ? `${n.name} sent you "${song.title}". No money talk — they just want you on it.`
-          : `${n.name} wants you on "${song.title}" and is ready to pay for it.`);
-        if (e.free) {
-          req.offer = 0;
-          req.openingOffer = 0;
-          req.ceiling = Math.round(req.ceiling * 0.3);
-        }
+        // You already said yes in the chat: no second ask, it goes straight to the studio.
+        // (The chat already has their answer and the outcome — no extra lines.)
+        if (e.free) { agreeInboundVerse(state, n as NPC, song, 'free', 0, true); break; }
+        openInboundAsk(state, n as NPC, song, pickLine([`Let's do it properly then. What's your number for a verse on "${song.title}"?`, `Business is business. Send me your price for "${song.title}" 🤝🏾`], song.id));
+        break;
+      }
+      case 'tradeVerse': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        if (!n) break;
+        // Their tape: a record of theirs that wants your verse on it.
+        const song = createNPCSong(n as NPC, state.gameDate);
+        if (n.role !== 'artist') song.title = `${song.title} (${n.name.split(' ')[0]} Tape)`;
+        state.npcSongs.push(song);
+        agreeInboundVerse(state, n as NPC, song, 'trade', e.value, true);
+        break;
+      }
+      case 'beat': {
+        const b = state.beats ?? (state.beats = emptyBeats());
+        const g = state.player?.genre ?? 'hip_hop';
+        const beat: OwnedBeat = {
+          id: `beat:dm:${uuidv4()}`, name: beatName(`dm|${e.npcId}|${serial}`), quality: e.quality, genre: g,
+          bpm: 88 + (hashString(e.npcId) % 50), mood: (['aggressive', 'melancholy', 'celebratory', 'introspective', 'sensual', 'defiant'] as SongMood[])[hashString(e.npcId + serial) % 6],
+          producerId: e.npcId, producerName: e.npcName, source: 'custom', license: 'exclusive', acquiredSerial: serial, price: e.price || undefined,
+        };
+        b.library.unshift(beat);
+        pushNotification(state, { kind: 'feature', title: `🎹 "${beat.name}" is in your beats`, body: `From ${e.npcName}${e.how === 'traded' ? ', traded for a verse' : ''}. ${beatGrade(beat.quality)} — record on it in the Studio.`, artSeed: `beat|${beat.id}` });
+        break;
+      }
+      case 'guestVerse': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        const song = (state.songs ?? []).filter((x) => !isSongReleased(x) && !x.archivedAt).sort((a, b) => b.quality - a.quality)[0];
+        if (!n || !song) break;
+        if (state.featureRequests.some((r) => r.songId === song.id && r.npcId === n.id && r.status !== 'declined')) break;
+        const plan = planDelivery(personaOf(n as NPC), Math.random(), Math.random());
+        state.featureRequests.push({
+          id: uuidv4(), songId: song.id, songTitle: song.title, npcId: n.id, npcName: n.name, status: 'paid_waiting',
+          sentDate: formatGameDate(state.gameDate), dueDate: formatGameDate(state.gameDate), fee: 0, freeVerse: true,
+          reason: `${n.name} heard "${song.title}" and offered a verse, free.`, paid: true,
+          verseDueSerial: serial + plan.days, delivery: { outcome: plan.outcome === 'ghost' ? 'late' : plan.outcome, lateBy: plan.lateBy },
+        } as FeatureRequest);
+        pushNotification(state, { kind: 'feature', title: `${n.name} is on "${song.title}"`, body: 'A free verse — it lands in Studio → Features when they send it.', artSeed: `npc|${n.id}`, action: { type: 'features', id: song.id } });
+        break;
+      }
+      case 'dripGift': {
+        const d = dripOf(state);
+        const pickable = d.shop.filter((x) => !d.wardrobe.some((w) => w.id === x.id) && (x.slot === 'top' || x.slot === 'shoes' || x.slot === 'bottom'));
+        const item = pickable.sort((a, b) => b.hype - a.hype)[hashString(`${serial}|gift`) % Math.max(1, Math.min(4, pickable.length))];
+        if (!item) break;
+        d.wardrobe.unshift({ ...item, bought: serial, paid: 0 });
+        pushNotification(state, { kind: 'business', title: `🎁 ${item.name} is in your wardrobe`, body: `A gift from ${e.from}. Wear it in Drip & Ink.`, artSeed: `drip|${item.id}` });
+        break;
+      }
+      case 'gig': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        if (!n) break;
+        const now = nowMinuteOf(state);
+        const at = Math.max(e.atMinute, now + 45);
+        createAppointment(state, n as NPC, 'gig', at, 'npc', 'confirmed', { fee: e.fee, bringOut: e.bringOut, place: e.place, title: e.bringOut ? `${n.name}'s show — they bring you out` : `Cash gig at ${e.place}` });
         break;
       }
       case 'featureFree': {
@@ -5678,12 +5748,12 @@ function followingOf(state: GameState, npcs: NPC[]): string[] {
  * Give a post live numbers: where it ends up (from who posted it) and the
  * minute it went up, plus a comment section to match its size.
  */
-function livenPost(state: GameState, post: SocialPost, opts: { npcs?: NPC[]; at?: number; heat?: number; viral?: boolean; minComments?: number } = {}): void {
+function livenPost(state: GameState, post: SocialPost, opts: { npcs?: NPC[]; at?: number; heat?: number; viral?: boolean; minComments?: number; audience?: number } = {}): void {
   if (post.target && post.postedMinute !== undefined) return;
   const at = opts.at ?? gameMinute(state);
   const list = opts.npcs ?? (raw(state.npcs) as NPC[]);
   const npc = npcIndex(list).get(post.authorId);
-  const audience = npc ? audienceOf(npc) : Math.max(800, post.likes * 40);
+  const audience = opts.audience ?? (npc ? audienceOf(npc) : Math.max(800, post.likes * 40));
   const app = (SOCIAL_APPS.includes(post.platform as SocialApp) ? post.platform : 'chirp') as SocialApp;
   const t = postTarget({ audience, app, heat: opts.heat ?? (post.trendingScore >= 60 ? 1 : 0), roll: Math.random(), viral: opts.viral });
   post.target = t;
@@ -6602,6 +6672,45 @@ function moneyTick(state: GameState, serial: number, days: number, log: string[]
   }
 }
 
+/**
+ * The social media manager posts for you through the week: what's going on in
+ * your career right now, in your name, marked as run by your team. Your pages
+ * stay active and the comments get answered.
+ */
+function teamPosts(state: GameState, manager: string, n: number, serial: number): void {
+  const p = state.player;
+  if (!p) return;
+  const stats = socialStatsOf(state);
+  const released = state.songs.filter((x) => isSongReleased(x));
+  const latest = released[released.length - 1];
+  const fresh = latest && (latest.weeksOut ?? 9) <= 4 ? latest : undefined;
+  const show = (state.scheduledShows ?? []).find((x) => x.serial >= serial);
+  const nom = Object.values(state.awardSeasons ?? {}).find((x) => x.phase === 'nominations' && x.categories.some((c) => c.nominees.some((m) => m.isPlayer)));
+  const nomBody = nom ? bodiesFor(state).find((b) => b.id === nom.bodyId) : undefined;
+  const ideas: [SocialApp, string, PostKind, string?][] = [];
+  if (fresh) ideas.push(['chirp', `"${fresh.title}" is still out everywhere 🎧 thank you for the love`, 'announce', fresh.id], ['snapgram', `"${fresh.title}" 🖤`, 'cover', fresh.id], ['clip', `Doing the "${fresh.title}" challenge — your turn 💃`, 'challenge', fresh.id]);
+  if (show) ideas.push(['snapgram', `${show.city ?? 'Next show'} — see you soon 🎟️ link in bio`, 'photo']);
+  if (nomBody) ideas.push(['chirp', `Nominated at the ${nomBody.name} 🙏🏾 vote if you've got love for us`, 'thought']);
+  ideas.push(['snapgram', 'Studio flow 📸', 'photo'], ['clip', 'Behind the scenes this week 🎬', 'bts'], ['circle', 'Day ones — what do you want to hear next? Reply below 👇🏾', 'community'], ['chirp', 'Grateful for every one of you. More coming.', 'thought']);
+  const minute = gameMinute(state);
+  for (let i = 0; i < n; i++) {
+    const [app, content, kind, songId] = ideas[(serial + i * 3) % ideas.length];
+    const post: SocialPost = {
+      id: uuidv4(), platform: app, authorId: 'player', authorName: p.artistName, content, likes: 0, shares: 0, comments: [],
+      timestamp: new Date().toISOString(), isPlayerPost: true, trendingScore: 15, daySerial: serial, kind, relatedSongId: songId, byTeam: manager,
+    };
+    // Spread through the week, at the hours people actually scroll.
+    const at = minute + i * Math.round(1440 * 7 / Math.max(1, n)) / 2 + 60;
+    const t = postTarget({ audience: Math.max(200, stats[app].followers), app, heat: 0.3, roll: Math.random() });
+    post.target = t; post.postedMinute = Math.round(at); post.likes = t.likes; post.shares = t.shares; if (t.views) post.views = t.views;
+    post.comments = socialComments(post, Math.max(2, Math.min(8, t.comments)), commentContext(state, false, `${post.id}|team`), new Date().toISOString());
+    const when = commentMinutes(post.postedMinute, post.comments.length, hashString(post.id) >>> 0);
+    post.comments.forEach((c, k) => { c.minute = when[k]; });
+    state.socialPosts.unshift(post);
+    stats[app].lastPostSerial = serial;
+  }
+}
+
 /** Weekly: everybody on the payroll does what you have them on. */
 function teamWorkTick(state: GameState, serial: number, days: number, weeklyStreamIncome: number, log: string[]): void {
   const p = state.player;
@@ -6615,6 +6724,7 @@ function teamWorkTick(state: GameState, serial: number, days: number, weeklyStre
     if (res.momentum) addMomentum(state, res.momentum);
     if (res.rep) p.career.reputation = Math.min(100, p.career.reputation + res.rep);
     if (res.followers) { const st = socialStatsOf(state); st.snapgram.followers += Math.round(res.followers * 0.5); st.clip.followers += Math.round(res.followers * 0.3); st.chirp.followers += Math.round(res.followers * 0.2); }
+    if (res.posts) teamPosts(state, c.npcName, res.posts, serial);
     for (const [k, v] of Object.entries(res.stats ?? {})) {
       const stats = p.stats as unknown as Record<string, number>;
       if (typeof stats[k] === 'number') stats[k] = Math.min(100, stats[k] + v);
@@ -6682,6 +6792,27 @@ function pushDM(state: GameState, npcId: string, msg: Omit<DMMessage, 'id' | 'np
   return m;
 }
 
+/**
+ * What they actually text back about a verse. The story ("X's people came back
+ * with a number…") is narration — it goes in as a small note, never as a
+ * bubble from them.
+ */
+function featureVoice(kind: 'free' | 'terms' | 'declined' | 'took' | 'counter' | 'final' | 'off' | 'hold', fee: number, seed: string): string {
+  const f = `$${Math.round(fee).toLocaleString()}`;
+  const lines: Record<typeof kind, string[]> = {
+    free: ['I\'m in. No fee — send the stems 🔥', 'For you? Free. Send it over', 'Say less. I got you, no charge 🙏🏾'],
+    terms: [`I'm down. ${f} for the verse, I keep my publishing.`, `Love the record. My rate is ${f}.`, `${f} and it's done. Send the stems when you're ready.`],
+    declined: ['Not for me this time, respect 🙏🏾', 'Locked in on my own project right now. Can\'t.', 'It\'s not my lane. Keep pushing though'],
+    took: [`${f} works. Deal 🤝🏾`, `Cool, ${f} it is. Send the stems.`, `Fine — ${f}. Let's work.`],
+    counter: [`Can't do that. ${f} and we're good.`, `Meet me at ${f}.`, `${f} — that's as low as I go right now.`],
+    final: [`${f}. Final answer.`, `Last time: ${f} or I'm out.`],
+    off: ['Nah. That offer was disrespectful. Forget it.', 'I\'m good. Find someone else.'],
+    hold: [`Come again? ${f} is the price.`, `Be serious. ${f}.`],
+  };
+  const list = lines[kind];
+  return list[hashString(seed) % list.length];
+}
+
 function scheduleDM(state: GameState, npcId: string, text: string, atMinute: number): void {
   const list = state.pendingDMs ?? (state.pendingDMs = []);
   list.push({ id: uuidv4(), npcId, text, atMinute });
@@ -6701,17 +6832,19 @@ function deliverPendingDMs(state: GameState, now: number): void {
 }
 
 /** Put a plan in the diary, with a card in your chat with them. */
-function createAppointment(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'city'>, kind: Appointment['kind'], atMinute: number, from: Appointment['from'], status: Appointment['status'] = 'confirmed'): Appointment {
+function createAppointment(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'city'>, kind: Appointment['kind'], atMinute: number, from: Appointment['from'], status: Appointment['status'] = 'confirmed', extra: Partial<Pick<Appointment, 'place' | 'title' | 'fee' | 'bringOut'>> = {}): Appointment {
   const list = state.appointments ?? (state.appointments = []);
   const a: Appointment = {
     id: uuidv4(), npcId: npc.id, npcName: npc.name, kind,
     title: `${KIND_LABEL[kind].label} with ${npc.name}`,
-    place: placeFor(npc, kind, buildingLevel(state.studio?.levels) >= 2),
+    // You meet where you are — they come through. A gig is at their venue.
+    place: placeFor(kind === 'gig' || !state.player ? npc : { ...npc, city: state.player.city }, kind, buildingLevel(state.studio?.levels) >= 2),
     atMinute, from, status, createdSerial: dateToSerial(state.gameDate),
+    ...extra,
   };
   list.push(a);
   if (list.length > 40) state.appointments = list.filter((x, i) => x.status === 'confirmed' || x.status === 'live' || i >= list.length - 25);
-  pushDM(state, npc.id, { fromPlayer: false, system: true, content: `${KIND_LABEL[kind].emoji} ${status === 'proposed' ? `${npc.name.split(' ')[0]} invited you: ` : ''}${KIND_LABEL[kind].label} · ${whenLabel(atMinute, nowMinuteOf(state))} · ${a.place}`, appointmentId: a.id, read: status !== 'proposed' });
+  pushDM(state, npc.id, { fromPlayer: false, system: true, content: `${KIND_LABEL[kind].emoji} ${status === 'proposed' ? `${npc.name.split(' ')[0]} invited you: ` : ''}${a.bringOut ? 'Their show — they bring you out' : KIND_LABEL[kind].label} · ${whenLabel(atMinute, nowMinuteOf(state))} · ${a.place}${a.fee ? ` · $${a.fee.toLocaleString()} cash after the set` : ''}`, appointmentId: a.id, read: status !== 'proposed' });
   return a;
 }
 
@@ -6920,7 +7053,7 @@ function startAppointment(state: GameState, a: Appointment, playerLate: number):
   if (!npc) { a.status = 'cancelled'; return; }
   const persona = personaOf(npc);
   a.status = 'live';
-  a.lateBy = Math.max(0, lateness(persona, a.id) - playerLate);
+  a.lateBy = a.kind === 'gig' ? 0 : Math.max(0, lateness(persona, a.id) - playerLate);
   if (playerLate > 10) a.outcome = `You're ${playerLate} minutes late.`;
   state.activeAppointment = a.id;
   state.clockPaused = true;
@@ -6933,7 +7066,7 @@ function autoAttendOrMiss(state: GameState, a: Appointment, reason: 'slept' | 's
   const persona = personaOf(npc);
   const assistant = crewWithSkill(state.crew, 'organized');
   if (reason === 'skip' && (p.energy >= 12 || assistant)) {
-    const choice = a.kind === 'studio' ? (p.energy >= 25 ? 'record' : 'vibe') : a.kind === 'party' ? 'network' : 'vibe';
+    const choice = a.kind === 'studio' ? (p.energy >= 25 ? 'record' : 'vibe') : a.kind === 'party' ? 'network' : a.kind === 'gig' ? (p.energy >= 15 ? 'perform' : 'short') : 'vibe';
     const best = (state.songs ?? []).filter((s) => !isSongReleased(s) && !s.archivedAt).reduce((m, s) => Math.max(m, s.quality), 0);
     const res = resolveScene(a, choice, persona, { rel: npc.relationshipScore, unreleasedQuality: best, playerFame: blendedFame(p) }, Math.random());
     finishAppointment(state, a, res, 'done', assistant && p.energy < 12 ? `${assistant.npcName.split(' ')[0]} got you there. ` : '');
@@ -7000,6 +7133,31 @@ function sealInboundDeal(state: GameState, req: InboundRequest, fee: number): vo
     pushDM(state, req.npcId, { fromPlayer: false, system: true, content: terms === 'free' ? `🤝 Deal: a verse on "${req.npcSongTitle}", no fee. Due in ${VERSE_DEADLINE_DAYS} days.` : `🤝 Deal: $${fee.toLocaleString()} for your verse on "${req.npcSongTitle}", paid when you deliver. Due in ${VERSE_DEADLINE_DAYS} days.` });
   }
   pushNotification(state, { kind: 'feature', title: `"${req.npcSongTitle}" is in your studio`, body: `Add your verse in Studio → Features. Due in ${VERSE_DEADLINE_DAYS} days.`, artSeed: `npc|${req.npcId}`, action: { type: 'features', id: req.id } });
+}
+
+/**
+ * A verse you've already agreed to in the chat: no second ask, no letter. The
+ * record goes straight into Studio → Features with its due date, and the chat
+ * gets their line and a small deal note.
+ */
+function agreeInboundVerse(state: GameState, npc: NPC, song: Song, terms: 'free' | 'trade', value: number, quiet = false): InboundRequest {
+  const serial = dateToSerial(state.gameDate);
+  const req: InboundRequest = {
+    id: uuidv4(), npcSongId: song.id, npcSongTitle: song.title, songQuality: song.quality,
+    npcId: npc.id, npcName: npc.name, status: 'agreed', sentDate: formatGameDate(state.gameDate),
+    openingOffer: 0, offer: 0, ceiling: 0, reason: '', negotiationRound: 0,
+    agreedFee: 0, agreedDate: formatGameDate(state.gameDate), payTerms: terms,
+    // A trade is paid in kind: what they gave you is what they'd want back if you never deliver.
+    paidSoFar: terms === 'trade' ? value : 0,
+    dueSerial: serial + VERSE_DEADLINE_DAYS,
+  };
+  state.inboundRequests.push(req);
+  if (!quiet && !isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: pickLine(terms === 'trade'
+    ? [`Sending the beat now. Tape drops soon — need your verse on "${song.title}" 🙏🏾`, `Beat's yours. Just bless "${song.title}" for me 🔥`]
+    : [`Sending "${song.title}" now 🔥 take your time with it`, `Here it is — "${song.title}". Can't wait to hear you on it`], req.id) });
+  if (!quiet) pushDM(state, npc.id, { fromPlayer: false, system: true, content: `🤝 ${terms === 'trade' ? 'Trade' : 'Deal'}: your verse on "${song.title}"${terms === 'trade' ? ', for the beat' : ', no fee'}. In Studio → Features — due in ${VERSE_DEADLINE_DAYS} days.` });
+  pushNotification(state, { kind: 'feature', title: `"${song.title}" is in your studio`, body: `Add your verse in Studio → Features. Due in ${VERSE_DEADLINE_DAYS} days.`, artSeed: `npc|${npc.id}`, action: { type: 'features', id: req.id } });
+  return req;
 }
 
 /** Days and quality for the three ways to write a guest verse. */
@@ -7227,7 +7385,9 @@ function featureDealsTick(state: GameState, serial: number, log: string[]): void
       const paid = r.paidSoFar ?? 0;
       if (left <= 4 && !r.chased && npc && !isRealId(npc.id) && persona) {
         r.chased = true;
-        pushDM(state, npc.id, { fromPlayer: false, content: chaseLine(persona, paid, Math.max(0, left), hashString(r.id) >>> 0) });
+        pushDM(state, npc.id, { fromPlayer: false, content: r.payTerms === 'trade'
+          ? pickLine([`You've had the beat a while 👀 how far with my verse on "${r.npcSongTitle}"?`, `Tape's nearly done. Just need your verse on "${r.npcSongTitle}".`], r.id)
+          : chaseLine(persona, paid, Math.max(0, left), hashString(r.id) >>> 0) });
         log.push(`⏳ ${r.npcName} is asking about the verse for "${r.npcSongTitle}".`);
       }
       if (left < -GRACE_DAYS && !r.refundDemanded) {
@@ -7237,8 +7397,9 @@ function featureDealsTick(state: GameState, serial: number, log: string[]): void
           npc.memoryLog = [...(npc.memoryLog ?? []).slice(-9), `[Feature] ${p.artistName} never sent the verse${paid > 0 ? ' I paid for' : ''}.`];
         }
         if (paid > 0) {
-          if (npc && !isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: `Forget the verse. Send back my $${paid.toLocaleString()}.` });
-          pushNotification(state, { kind: 'feature', title: `${r.npcName} wants their money back`, body: `$${paid.toLocaleString()} for a verse you never sent. Refund it from Studio → Features.`, artSeed: `npc|${r.npcId}`, action: { type: 'features', id: r.id } });
+          const trade = r.payTerms === 'trade';
+          if (npc && !isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: trade ? `Forget the verse. You kept my beat — pay me the $${paid.toLocaleString()} for it.` : `Forget the verse. Send back my $${paid.toLocaleString()}.` });
+          pushNotification(state, { kind: 'feature', title: trade ? `${r.npcName} wants paying for the beat` : `${r.npcName} wants their money back`, body: trade ? `You took the beat and never sent the verse. $${paid.toLocaleString()} — settle it from Studio → Features.` : `$${paid.toLocaleString()} for a verse you never sent. Refund it from Studio → Features.`, artSeed: `npc|${r.npcId}`, action: { type: 'features', id: r.id } });
         } else {
           r.status = 'withdrawn';
           r.lapsed = true;
@@ -7251,7 +7412,7 @@ function featureDealsTick(state: GameState, serial: number, log: string[]): void
         r.status = 'withdrawn';
         r.lapsed = true;
         if (npc && persona && suesForUndelivered(persona, paid, Math.random())) {
-          const c = npcSues(state, npc, 'refund', Math.round(paid * 1.5), 82, [`${npc.name} paid you $${paid.toLocaleString()} for a verse on "${r.npcSongTitle}" (${TERMS_LABEL[r.payTerms ?? 'upfront'].toLowerCase()}).`, `The verse was due ${formatGameDate(serialToDate(r.dueSerial))} and never came.`, `They asked for the money back; you didn't return it.`], r.id);
+          const c = npcSues(state, npc, 'refund', Math.round(paid * 1.5), 82, [r.payTerms === 'trade' ? `${npc.name} gave you a beat worth $${paid.toLocaleString()} in exchange for a verse on "${r.npcSongTitle}".` : `${npc.name} paid you $${paid.toLocaleString()} for a verse on "${r.npcSongTitle}" (${TERMS_LABEL[r.payTerms ?? 'upfront'].toLowerCase()}).`, `The verse was due ${formatGameDate(serialToDate(r.dueSerial))} and never came.`, `They asked for the money back; you didn't return it.`], r.id);
           r.caseId = c.id;
           log.push(`⚖️ ${r.npcName} is suing you over the verse.`);
         } else {
@@ -9976,6 +10137,7 @@ export const useGameStore = create<GameState & GameActions>()(
           roll: Math.random(),
         });
 
+        const askedBefore = req.fee;
         req.originalFee = req.originalFee ?? req.fee;
         req.negotiationRound = round;
         req.lastOffer = counter;
@@ -9998,14 +10160,10 @@ export const useGameStore = create<GameState & GameActions>()(
           timestamp: new Date().toISOString(),
           read: true,
         });
-        thread.messages.push({
-          id: uuidv4(),
-          npcId: req.npcId,
-          fromPlayer: false,
-          content: out.reason,
-          timestamp: new Date().toISOString(),
-          read: false,
-        });
+        // Their answer in their words; the read of it as a small note.
+        const how = out.refused ? (out.final && out.fee > counter && out.fee < askedBefore ? 'final' : 'off') : out.fee <= counter ? 'took' : out.fee >= askedBefore ? 'hold' : 'counter';
+        if (!isRealId(req.npcId)) thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, content: featureVoice(how, out.fee, `${req.id}|${counter}`), timestamp: new Date().toISOString(), read: false });
+        thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, system: true, content: out.reason, timestamp: new Date().toISOString(), read: true });
         thread.unread += 1;
         state.dmThreads[req.npcId] = thread;
 
@@ -10499,14 +10657,17 @@ export const useGameStore = create<GameState & GameActions>()(
         if (!p || !req || req.status !== 'agreed') return;
         const paid = req.paidSoFar ?? 0;
         if (paid > p.career.money) { result.message = `You need $${paid.toLocaleString()} to pay them back.`; return; }
-        if (paid > 0) { p.career.money -= paid; p.career.totalEarnings = Math.max(0, p.career.totalEarnings - paid); }
+        const trade = req.payTerms === 'trade';
+        // A trade was paid in kind: you pay for the beat instead. It wasn't earnings.
+        if (paid > 0) { p.career.money -= paid; if (!trade) p.career.totalEarnings = Math.max(0, p.career.totalEarnings - paid); }
         req.status = 'withdrawn';
         req.lapsed = true;
         const npc = state.npcs.find((n) => n.id === req.npcId);
         if (npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - (req.refundDemanded ? 2 : 4));
-        if (paid > 0) receipt(state, req.npcId, -paid, `↩️ You refunded ${req.npcName} $${paid.toLocaleString()} and called off the verse on "${req.npcSongTitle}".`, { notify: false, memory: `You refunded ${req.npcName} and called off the verse on "${req.npcSongTitle}".` });
+        if (paid > 0 && trade) receipt(state, req.npcId, -paid, `↩️ You paid ${req.npcName} $${paid.toLocaleString()} for the beat instead of the verse on "${req.npcSongTitle}".`, { notify: false, memory: `You paid ${req.npcName} for the beat instead of doing their tape.` });
+        else if (paid > 0) receipt(state, req.npcId, -paid, `↩️ You refunded ${req.npcName} $${paid.toLocaleString()} and called off the verse on "${req.npcSongTitle}".`, { notify: false, memory: `You refunded ${req.npcName} and called off the verse on "${req.npcSongTitle}".` });
         else pushDM(state, req.npcId, { fromPlayer: true, content: 'I can\'t make the verse work, sorry. Let\'s do something another time 🙏🏾' });
-        result = { ok: true, message: paid > 0 ? `Refunded $${paid.toLocaleString()}. Deal off, no court.` : 'Deal called off.' };
+        result = { ok: true, message: trade ? `Paid $${paid.toLocaleString()} for the beat. The beat stays yours; the tape goes on without you.` : paid > 0 ? `Refunded $${paid.toLocaleString()}. Deal off, no court.` : 'Deal called off.' };
       });
       return result;
     },
@@ -11308,7 +11469,7 @@ export const useGameStore = create<GameState & GameActions>()(
             thread.messages.push(npcMsg);
             thread.unread += 1;
           } else if (note) {
-            thread.messages.push({ id: uuidv4(), npcId, fromPlayer: false, content: `· ${note}`, timestamp: new Date().toISOString(), read: true });
+            thread.messages.push({ id: uuidv4(), npcId, fromPlayer: false, system: true, content: note, timestamp: new Date().toISOString(), read: true });
           }
 
           npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + relChange));
@@ -11332,112 +11493,57 @@ export const useGameStore = create<GameState & GameActions>()(
           return;
         }
 
-        // ── One evening at a time ───────────────────────────────────────
-        // The cooldown is the whole design. Without it this is a slider: hold
-        // the button, buy the friendship. It is stored on the NPC rather than
-        // in a list here, so it survives a reload with the rest of their state.
+        // ── One ask at a time ───────────────────────────────────────────
+        // Asking someone to link up is a text, not an evening. They answer in
+        // their own words — yes with a time, "this week is mad", or nothing —
+        // and the evening (and what it does for you two) happens when you
+        // actually meet. The cooldown stops it being a button you hold down.
         const nowSerial = dateToSerial(state.gameDate);
         const last = npc.lastReachOut;
         if (last !== undefined) {
           const since = nowSerial - last;
           if (since < REACH_OUT_COOLDOWN_DAYS) {
             const wait = REACH_OUT_COOLDOWN_DAYS - since;
-            result = {
-              ok: false,
-              message:
-                `You and ${npc.name} spent an evening together ${since <= 0 ? 'today' : `${since} day${since === 1 ? '' : 's'} ago`}. ` +
-                `Give it ${wait} more day${wait === 1 ? '' : 's'} — this is a relationship, not a button.`,
-            };
+            result = { ok: false, message: `You asked ${npc.name.split(' ')[0]} ${since <= 0 ? 'today' : `${since} day${since === 1 ? '' : 's'} ago`}. Give it ${wait} more day${wait === 1 ? '' : 's'} — double-texting doesn't help.` };
             return;
           }
         }
-
-        if (!spendEnergy(state, ENERGY_COSTS.reachOut, { admin: true })) {
-          const need = effectiveEnergy(state, ENERGY_COSTS.reachOut, { admin: true });
-          result = {
-            ok: false,
-            message:
-              `Showing up properly takes ${need} energy and you are at ` +
-              `${Math.floor(state.player.energy)}. ${energyShortfallMessage(need, state.player.energy)}`,
-          };
+        if ((state.appointments ?? []).some((a) => a.npcId === npc.id && (a.status === 'confirmed' || a.status === 'proposed'))) {
+          result = { ok: false, message: `You already have plans with ${npc.name.split(' ')[0]}. Check your diary.` };
           return;
         }
-
-        // ── Who they are decides what an evening is worth ───────────────
-        // Read off the same characteristics the negotiation uses, so the person
-        // who is generous with a verse is generous with their time.
-        const d = featureDisposition(npc as FeatureCandidate);
-        const openness = Math.max(0.7, Math.min(1.5, 1 / d.feeMult));
-
-        // Diminishing: the last ten points of a friendship cost more than the
-        // first ten. Somebody already at 80 does not become your brother over
-        // dinner.
-        const room = Math.max(0.15, 1 - Math.max(0, npc.relationshipScore) / 110);
-
-        // A name far above your level has less reason to care that you called.
-        const gap = npc.fame - blendedFame(state.player);
-        const reach = gap > 40 ? 0.45 : gap > 20 ? 0.7 : 1;
-
-        let gain = 5 * openness * room * reach;
-
-        // And sometimes it just does not land. A volatile person is more likely
-        // to take an evening the wrong way, which is the risk in showing up.
-        const wentBadly = Math.random() < 0.09 * d.moodiness;
-        if (wentBadly) gain = -gain * 0.5;
-
-        const rounded = Math.round(gain * 10) / 10;
-        npc.relationshipScore = Math.max(
-          -100,
-          Math.min(100, Math.round((npc.relationshipScore + rounded) * 10) / 10),
-        );
         npc.lastReachOut = nowSerial;
-        npc.memoryLog = [
-          ...npc.memoryLog.slice(-9),
-          `[Time] Spent an evening together. (${rounded >= 0 ? '+' : ''}${rounded})`,
-        ];
+        pushDM(state, npcId, { fromPlayer: true, content: pickLine(['You around this week? Would be good to link up properly, no agenda.', 'Let\'s link this week. Food on me 🍽️', 'Been a minute. You free this week? Let\'s catch up'], `${npcId}|${nowSerial}`) });
 
-        // ── It has to read like a person, not a progress bar ────────────
-        const opener = wentBadly
-          ? `Caught ${npc.name} at a bad moment.`
-          : npc.relationshipScore >= 60
-            ? `${npc.name} was glad you came through.`
-            : `${npc.name} made time for you.`;
-        const closer = wentBadly
-          ? 'It did not go the way you wanted, and they will remember that you tried anyway.'
-          : rounded >= 3
-            ? 'That is a real step, not a favour.'
-            : 'Small, but it counts. Keep showing up.';
-
-        const thread = state.dmThreads[npcId] ?? { npcId, messages: [], unread: 0 };
-        thread.messages.push({
-          id: uuidv4(),
-          npcId,
-          fromPlayer: true,
-          content: 'You around this week? Would be good to link up properly, no agenda.',
-          timestamp: new Date().toISOString(),
-          read: true,
-        });
-        thread.messages.push({
-          id: uuidv4(),
-          npcId,
-          fromPlayer: false,
-          content: `${opener} ${closer}`,
-          timestamp: new Date().toISOString(),
-          read: false,
-        });
-        thread.unread += 1;
-        state.dmThreads[npcId] = thread;
-
-        state.lastEventLog.unshift(
-          `🤝 You spent an evening with ${npc.name}. ` +
-            `${rounded >= 0 ? '+' : ''}${rounded} relationship — now ${npc.relationshipScore}.`,
-        );
-        state.lastEventLog = state.lastEventLog.slice(0, 10);
-
-        result = {
-          ok: true,
-          message: `${opener} ${closer} ${rounded >= 0 ? '+' : ''}${rounded} — you are at ${npc.relationshipScore} with them.`,
-        };
+        const now = nowMinuteOf(state);
+        const first = npc.name.split(' ')[0];
+        const real = isRealId(npc.id);
+        const gap = npc.fame - blendedFame(state.player);
+        const beef = activeBeefIds(state).has(npc.id);
+        const p = personaOf(npc);
+        const odds = beef ? 0.1 : Math.max(0.05, Math.min(0.95, 0.55 + npc.relationshipScore / 160 + p.warmth * 0.2 - Math.max(0, gap) / 70 - (real ? 0.3 : 0)));
+        const roll = Math.random();
+        if (roll < odds) {
+          // Yes — with a time. They pick it, 1-3 evenings out.
+          const day = Math.floor(now / MINUTES_PER_DAY) + 1 + Math.floor(Math.random() * 3);
+          const at = day * MINUTES_PER_DAY + (19 + Math.floor(Math.random() * 3)) * 60;
+          const when = whenLabel(at, now);
+          if (!real) pushDM(state, npcId, { fromPlayer: false, content: pickLine(p.style === 'formal' ? [`I'd like that. ${when}?`, `Sounds good. How's ${when}?`] : p.style === 'street' ? [`Say less. ${when} 🍻`, `Bet. ${when}, I'll send the location`] : [`Yes!! ${when}? 🙌🏾`, `Been meaning to. ${when} works for me`], `${npcId}|${day}`) });
+          const a = createAppointment(state, npc as NPC, real ? 'meeting' : 'linkup', at, 'npc');
+          if (real) a.title = `Meeting with ${npc.name}'s team and ${first}`;
+          result = { ok: true, message: `${first} said yes — ${when}, ${a.place}. It's in your diary.` };
+          return;
+        }
+        if (roll < odds + 0.3 && !beef) {
+          // Busy. No hard feelings, no plans.
+          if (!real) pushDM(state, npcId, { fromPlayer: false, content: pickLine(['This week is mad 😩 next week?', 'Travelling till the weekend. Hit me after 🙏🏾', 'Can\'t this week, studio every night. Soon though'], `${npcId}|${nowSerial}|busy`) });
+          else pushDM(state, npcId, { fromPlayer: false, content: `${first}'s schedule is full for the next few weeks.` });
+          result = { ok: true, message: `${first} is busy this week. Try again in a few days.` };
+          return;
+        }
+        // Nothing. Bigger names and people who don't rate you leave it on read.
+        if (beef && !real) scheduleDM(state, npcId, pickLine(['Link up for what? 😂', 'Nah.'], `${npcId}|${nowSerial}|beef`), now + 40);
+        result = { ok: true, message: beef ? `${first} wasn't having it.` : `Delivered. ${first} hasn't replied.` };
       });
 
       return result;
@@ -13630,7 +13736,10 @@ export const useGameStore = create<GameState & GameActions>()(
         }
         m.status = 'resolved';
         m.resolution = { optionId, label: option.label, text: r.text };
-        applyMomentEffects(state, r.effects, serial);
+        // In a chat, the conversation comes first and what it set in motion
+        // (a diary entry, a beat, a deal) after it.
+        const chat = m.channel === 'dm' && !!m.npcId;
+        if (!chat) applyMomentEffects(state, r.effects, serial);
 
         if (m.channel === 'dm' && m.npcId) {
           m.data = { ...(m.data ?? {}), inChat: true };
@@ -13653,10 +13762,12 @@ export const useGameStore = create<GameState & GameActions>()(
               }
             }
           }
+          applyMomentEffects(state, r.effects, serial);
           if (appt && npc) {
             const made = createAppointment(state, npc, appt.kind, appt.atMinute, 'npc');
             result = { ok: true, message: `${made.title} — ${whenLabel(made.atMinute, nowMinuteOf(state))}.` };
-          } else {
+          } else if (!r.effects.some((e) => e.k === 'gig')) {
+            // (A gig already put its own diary card in the chat.)
             pushDM(state, m.npcId, { fromPlayer: false, system: true, content: r.text, chips: outcomeChips(r.effects, m.npcName), momentId: m.id });
           }
         }
@@ -15895,6 +16006,7 @@ export const useGameStore = create<GameState & GameActions>()(
         label.prospects = label.prospects.filter((p) => p.npcId !== npc.id);
         label.reputation = Math.min(100, label.reputation + (npc.fame >= 40 ? 3 : 1));
         labelEvent(label, serial, `Signed ${npc.name}. ${money(due)} paid today. They are already writing.`, 'good');
+        labelPost(state, label, [['chirp', `Welcome to the family, ${npc.name} ✍🏾 New era loading.`, 'announce'], ['snapgram', `${label.name} × ${npc.name} — signed.`, 'photo']], undefined, npc.id);
         state.socialPosts.unshift({
           id: uuidv4(), platform: 'chirp', authorId: 'player', authorName: state.player.artistName,
           content: `Welcome ${npc.name} to ${label.name}. 🏷️ The family just got bigger.`,
@@ -16484,6 +16596,19 @@ export const useGameStore = create<GameState & GameActions>()(
         if (on && state.home?.ownedId === id) { result.message = 'You live there.'; return; }
         o.rentedOut = on;
         result = { ok: true, message: on ? `Let to tenants: ${money0(rentIncome(o))} a month after the agent.` : 'The tenants will be out by the end of the month.' };
+      });
+      return result;
+    },
+
+    postAsLabel: (o) => {
+      let result: FeatureActionResult = { ok: false, message: 'You don\'t run a label.' };
+      set((state) => {
+        const label = state.label;
+        if (!label || !state.player) return;
+        if (!o.content.trim()) { result.message = 'Write something first.'; return; }
+        if (!spendEnergy(state, 2, { admin: true })) { result.message = energyShortfallMessage(2, state.player.energy); return; }
+        labelPost(state, label, o.apps.map((a) => [a, o.content.trim(), o.kind] as [SocialApp, string, PostKind]), o.songId);
+        result = { ok: true, message: `Posted on ${label.name}${/s$/i.test(label.name) ? '\'' : '\'s'} page.` };
       });
       return result;
     },
@@ -17415,7 +17540,8 @@ export const useGameStore = create<GameState & GameActions>()(
             // Without one, the host is in your DMs.
             if (state.npcs.some((n) => n.id === o.hostId) && !isBlocked(state, o.hostId)) {
               const thread = state.dmThreads[o.hostId] ?? { npcId: o.hostId, messages: [], unread: 0 };
-              thread.messages.push({ id: uuidv4(), npcId: o.hostId, fromPlayer: false, content: `Yo! ${o.reason} ${o.venueName}, ${formatGameDate(serialToDate(o.serial))} — $${o.terms.fee.toLocaleString()}, ${BILLING_LABEL[o.terms.billing].toLowerCase()}. You in? (Shows → Offers)`, timestamp: new Date().toISOString(), read: false });
+              thread.messages.push({ id: uuidv4(), npcId: o.hostId, fromPlayer: false, content: `${isRealId(o.hostId) ? `📨 ${o.hostName}'s team: ` : 'Yo! '}${o.reason} ${o.venueName}, ${formatWeekEnding(serialToDate(o.serial))} — $${o.terms.fee.toLocaleString()}, ${BILLING_LABEL[o.terms.billing].toLowerCase()}. You in?`, timestamp: new Date().toISOString(), read: false });
+              thread.messages.push({ id: uuidv4(), npcId: o.hostId, fromPlayer: false, system: true, content: '📩 The offer is in Shows → Offers — accept, counter or decline there.', timestamp: new Date().toISOString(), read: true });
               thread.unread += 1;
               state.dmThreads[o.hostId] = thread;
             }
@@ -17579,13 +17705,16 @@ export const useGameStore = create<GameState & GameActions>()(
           // is where "no word back" belongs; the DM stays as it was, with only
           // the player's own outgoing message in it.
           if (decision.outcome !== 'ignored') {
+            const kind = decision.outcome === 'terms' ? 'terms' : decision.outcome === 'declined' ? 'declined' : 'free';
+            if (!isRealId(req.npcId)) thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, content: featureVoice(kind, decision.fee, req.id), timestamp: new Date().toISOString(), read: false });
             thread.messages.push({
               id: uuidv4(),
               npcId: req.npcId,
               fromPlayer: false,
+              system: true,
               content: decision.reason,
               timestamp: new Date().toISOString(),
-              read: false,
+              read: true,
             });
             thread.unread += 1;
             state.dmThreads[req.npcId] = thread;

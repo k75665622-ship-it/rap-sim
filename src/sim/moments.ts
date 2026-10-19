@@ -19,6 +19,18 @@
 import type { NPC, Moment, MomentEffect, MomentOption, CrewMember, Song } from '../types/game';
 import { hashString } from './rng';
 import { traitsOf, archetypeOf } from './offers';
+import { costIndex } from './home';
+import { serialWeekday } from './gameClock';
+import { beatPrice, customBeatQuality, beatGrade } from './beats';
+import { producerSkillOf } from './studio';
+
+/** The next given weekday (0 = Sunday), at least a day away, as a game minute. */
+function nextNight(serial: number, weekday: number, hour: number): number {
+  let d = serial + 1;
+  while (serialWeekday(d) !== weekday) d++;
+  return d * 1440 + hour * 60;
+}
+const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const pick = <T,>(arr: T[], seed: string): T => arr[hashString(seed) % arr.length];
@@ -51,6 +63,10 @@ export interface MomentWorld {
   hasPlayedShow?: boolean;
   ownsCar?: boolean;
   releasedTitles: string[];
+  /** Where the player lives — prices follow it. */
+  country?: string;
+  /** Their home, from the family house to a mansion. */
+  homeTier?: string;
 }
 
 export interface Resolution {
@@ -262,8 +278,8 @@ const collabIdea: Template = {
   },
   resolve: (m, o) => {
     const id = m.npcId!;
-    if (o === 'yes') return { text: `${m.npcName} is sending you the record. Check your mailbox for their ask — no fee, just the work.`, effects: [{ k: 'rel', npcId: id, v: 6 }, { k: 'inboundAsk', npcId: id, free: true }] };
-    if (o === 'pay') return { text: `"Business is business." They'll send a proper offer.`, effects: [{ k: 'inboundAsk', npcId: id }] };
+    if (o === 'yes') return { text: `Their record is in Studio → Features. No fee — just the work. Your verse is due in three weeks.`, effects: [{ k: 'rel', npcId: id, v: 6 }, { k: 'inboundAsk', npcId: id, free: true }] };
+    if (o === 'pay') return { text: `They'll send a proper offer — it's in your Mailbox to negotiate.`, effects: [{ k: 'inboundAsk', npcId: id }] };
     return { text: 'Maybe another time.', effects: [{ k: 'rel', npcId: id, v: -2 }] };
   },
 };
@@ -341,32 +357,36 @@ const cashGig: Template = {
     if (w.releasedTitles.length === 0 && w.playerFame < 15) return null;
     const npc = w.promoters[0];
     if (!npc) return null;
-    const fee = r50(clamp(150 + w.playerFame * w.playerFame * 3, 150, 40000));
+    // Club money follows the city: a 20-minute set in Accra is not one in London.
+    const fee = r50(clamp(120 + w.playerFame * w.playerFame * 1.6, 120, 25000) * costIndex(w.country));
+    const friday = hashString(seed) % 2 === 0;
+    const place = `${npc.name.split(' ')[0]}'s club${npc.city ? `, ${npc.city}` : ''}`;
     return {
       kind: 'cash_gig', npcId: npc.id, npcName: npc.name,
       title: `${npc.name}: cash gig this weekend`,
-      body: pick([
-        `Got a slot at my club Friday. $${fee.toLocaleString()} cash, 20 minutes, no contract. In or out?`,
-        `Last-minute: my ${w.playerFame >= 45 ? 'headliner' : 'opener'} dropped out. $${fee.toLocaleString()} cash if you can do Saturday.`,
-      ], seed),
-      options: [opt('yes', `Take the $${fee.toLocaleString()}`, 'A night of energy', 0, 15), opt('more', 'Ask for more'), opt('no', 'Pass')],
+      body: friday
+        ? `Got a slot at my club Friday night. $${fee.toLocaleString()} cash, 20 minutes, no contract. In or out?`
+        : `Last-minute: my ${w.playerFame >= 45 ? 'headliner' : 'opener'} dropped out. $${fee.toLocaleString()} cash if you can do Saturday night.`,
+      options: [opt('yes', `Lock it in — $${fee.toLocaleString()}`, `${friday ? 'Friday' : 'Saturday'} 11 PM, paid on the night`), opt('more', 'Ask for more'), opt('no', 'Pass')],
       expiresSerial: w.serial + 2,
-      data: { fee },
+      data: { fee, dow: friday ? 5 : 6, place },
     };
   },
   resolve: (m, o, w, roll) => {
     const fee = Number(m.data?.fee ?? 500);
+    const dow = Number(m.data?.dow ?? 5);
+    const place = String(m.data?.place ?? 'the club');
     const id = m.npcId!;
-    if (o === 'yes') {
-      if (roll < 0.2) return { text: `You did the set. ${m.npcName} paid you half and said "the door was slow". Lesson learned.`, effects: [{ k: 'energy', v: -15 }, { k: 'money', v: Math.round(fee / 2) }, { k: 'rel', npcId: id, v: -10 }, { k: 'fame', v: 0.2 }] };
-      return { text: `Packed room, cash in hand. ${m.npcName} wants you back.`, effects: [{ k: 'energy', v: -15 }, { k: 'money', v: fee }, { k: 'rel', npcId: id, v: 5 }, { k: 'fame', v: 0.3 }] };
-    }
+    const at = nextNight(w.serial, dow, 23);
+    // Nothing is paid now: it's a night in your diary, and the cash comes after the set.
+    if (o === 'yes') return { text: `In your diary: ${DOW[dow]}, 11 PM at ${place}. $${fee.toLocaleString()} cash after the set.`, effects: [{ k: 'rel', npcId: id, v: 2 }, { k: 'gig', npcId: id, fee, atMinute: at, place }] };
     if (o === 'more') {
+      const more = r50(fee * 1.4);
       return roll + w.businessKnowledge / 200 > 0.7
-        ? { text: `${m.npcName} grumbled and agreed to ${Math.round(fee * 1.4).toLocaleString()}. Good night's work.`, effects: [{ k: 'energy', v: -15 }, { k: 'money', v: Math.round(fee * 1.4) }, { k: 'fame', v: 0.3 }] }
-        : { text: `"Forget it, I'll find someone else."`, effects: [{ k: 'rel', npcId: id, v: -3 }] };
+        ? { text: `${m.npcName} agreed to $${more.toLocaleString()}. ${DOW[dow]}, 11 PM at ${place}.`, effects: [{ k: 'gig', npcId: id, fee: more, atMinute: at, place }] }
+        : { text: `${m.npcName} found someone else for the slot.`, effects: [{ k: 'rel', npcId: id, v: -4 }] };
     }
-    return { text: 'You passed.', effects: [] };
+    return { text: 'You passed on the slot.', effects: [] };
   },
 };
 
@@ -375,26 +395,32 @@ const beatOffer: Template = {
   build: (w, seed) => {
     const npc = w.producers[0];
     if (!npc) return null;
-    const price = r50(clamp(300 + npc.fame * npc.fame * 2, 300, 25000));
+    // A real beat: as good as they are, priced like the beat store prices it.
+    const quality = customBeatQuality(producerSkillOf(npc), (hashString(seed + 'q') % 1000) / 1000, false);
+    const price = r50(beatPrice(quality, 'exclusive') * Math.max(0.6, costIndex(w.country)));
     return {
       kind: 'beat_offer', npcId: npc.id, npcName: npc.name,
       title: `${npc.name} cooked something for you`,
       body: pick([`Made a beat last night and all I could hear was you on it. Exclusive, $${price.toLocaleString()}. Want it before someone else does?`, `Sending you a beat pack. One of these is a hit. $${price.toLocaleString()} for the exclusive.`], seed),
-      options: [opt('buy', `Buy it — $${price.toLocaleString()}`, undefined, price), opt('trade', 'Offer them a verse instead'), opt('no', 'Not for me')],
+      options: [opt('buy', `Buy it — $${price.toLocaleString()}`, `You've heard the snippet: ${beatGrade(quality).toLowerCase()}`, price), opt('trade', 'Offer a verse on their tape instead'), opt('no', 'Not for me')],
       expiresSerial: w.serial + 4,
-      data: { price },
+      data: { price, quality },
     };
   },
-  resolve: (m, o, _w, roll) => {
+  resolve: (m, o, w, roll) => {
     const id = m.npcId!;
+    const name = m.npcName ?? 'They';
     const price = Number(m.data?.price ?? 500);
-    if (o === 'buy') return roll < 0.35
-      ? { text: 'It\'s a heater. Your ear just got better from hearing it.', effects: [{ k: 'money', v: -price }, { k: 'stat', stat: 'beatSelection', v: 2 }, { k: 'rel', npcId: id, v: 6 }, { k: 'momentum', v: 1 }] }
-      : { text: 'Solid beat. You\'ll find a use for it.', effects: [{ k: 'money', v: -price }, { k: 'stat', stat: 'beatSelection', v: 1 }, { k: 'rel', npcId: id, v: 4 }] };
-    if (o === 'trade') return roll < 0.5
-      ? { text: `"Deal." ${m.npcName} would rather have your name on their tape.`, effects: [{ k: 'stat', stat: 'beatSelection', v: 1 }, { k: 'rel', npcId: id, v: 5 }] }
-      : { text: '"Verses don\'t pay rent."', effects: [{ k: 'rel', npcId: id, v: -2 }] };
-    return { text: 'Maybe next pack.', effects: [] };
+    const quality = Number(m.data?.quality ?? 60);
+    // The beat is a thing you now HAVE: it's in Studio → Beats, ready to record on.
+    if (o === 'buy') return { text: `The beat is in Studio → Beats, exclusive to you.`, effects: [{ k: 'money', v: -price }, { k: 'beat', npcId: id, npcName: name, quality, price, how: 'bought' }, { k: 'stat', stat: 'beatSelection', v: 1 }, { k: 'rel', npcId: id, v: 4 }] };
+    if (o === 'trade') {
+      // Producers with a name trade more easily — a verse from you is worth something to them.
+      return roll < 0.35 + w.playerFame / 120
+        ? { text: `Trade agreed. The beat is in Studio → Beats, and their tape is in Studio → Features — your verse is due in three weeks.`, effects: [{ k: 'beat', npcId: id, npcName: name, quality, price: 0, how: 'traded' }, { k: 'tradeVerse', npcId: id, value: price }, { k: 'rel', npcId: id, v: 4 }] }
+        : { text: `${name} wants the money, not a verse.`, effects: [{ k: 'rel', npcId: id, v: -3 }] };
+    }
+    return { text: 'You passed on the beat.', effects: [] };
   },
 };
 
@@ -418,12 +444,12 @@ const bringOut: Template = {
       expiresSerial: w.serial + 1,
     };
   },
-  resolve: (m, o, _w, roll) => {
+  resolve: (m, o, w) => {
     const id = m.npcId!;
-    if (o === 'go') return roll < 0.85
-      ? { text: `${m.npcName} said your name and the room exploded. Clips everywhere by morning.`, effects: [{ k: 'energy', v: -15 }, { k: 'fame', v: 0.6 }, { k: 'momentum', v: 4 }, { k: 'rel', npcId: id, v: 7 }, { k: 'fans', v: 3000 }] }
-      : { text: 'You got stuck in traffic and missed the moment. They brought out someone else.', effects: [{ k: 'energy', v: -10 }, { k: 'rel', npcId: id, v: -4 }] };
-    return { text: '"Next time then."', effects: [{ k: 'rel', npcId: id, v: -1 }] };
+    // Tonight at their show: be there and they call you up.
+    const at = Math.floor((w.serial * 1440 + 22 * 60 + 30));
+    if (o === 'go') return { text: `Tonight, 10:30 PM — ${m.npcName}'s show. Be there when they call your name.`, effects: [{ k: 'rel', npcId: id, v: 2 }, { k: 'gig', npcId: id, fee: 0, atMinute: at, place: `${(m.npcName ?? 'Their').split(' ')[0]}'s show`, bringOut: true }] };
+    return { text: 'You said you can\'t make it tonight.', effects: [{ k: 'rel', npcId: id, v: -1 }] };
   },
 };
 
@@ -601,8 +627,8 @@ const stylistDesigner: Template = {
   },
   resolve: (_m, o, _w, roll) => {
     if (o === 'yes') return roll < 0.8
-      ? { text: 'The fit went viral. "Best dressed this week" lists everywhere.', effects: [{ k: 'momentum', v: 3 }, { k: 'stat', stat: 'charisma', v: 1 }] }
-      : { text: 'The fit was a miss. The memes were brutal.', effects: [{ k: 'momentum', v: -1 }] };
+      ? { text: 'The fit went viral. "Best dressed this week" lists everywhere. The piece is yours to keep.', effects: [{ k: 'momentum', v: 3 }, { k: 'stat', stat: 'charisma', v: 1 }, { k: 'dripGift', from: 'a designer' }] }
+      : { text: 'The fit was a miss. The memes were brutal. At least you kept the piece.', effects: [{ k: 'momentum', v: -1 }, { k: 'dripGift', from: 'a designer' }] };
     return { text: 'You stayed you. Some respect that.', effects: [] };
   },
 };
@@ -656,7 +682,7 @@ const featureSwap: Template = {
   resolve: (m, o) => {
     const rid = String(m.data?.requestId);
     const id = m.npcId!;
-    if (o === 'swap') return { text: `Deal. ${m.npcName} does your song free; you owe them a verse. Their record is in your mailbox.`, effects: [{ k: 'featureFree', requestId: rid }, { k: 'inboundAsk', npcId: id, free: true }, { k: 'rel', npcId: id, v: 6 }] };
+    if (o === 'swap') return { text: `Verse for a verse: ${m.npcName} does your song free, and their record is in Studio → Features for you.`, effects: [{ k: 'featureFree', requestId: rid }, { k: 'inboundAsk', npcId: id, free: true }, { k: 'rel', npcId: id, v: 6 }] };
     return { text: 'You kept it business. The fee stands.', effects: [{ k: 'rel', npcId: id, v: -1 }] };
   },
 };
@@ -810,12 +836,12 @@ const oldFriend: Template = {
     return {
       kind: 'old_friend', npcName: name, title: `${name} wants you to put him on`,
       body: `"Bro, remember when we used to share one plate? I just need a chance. Let me be your hype man, carry your bags, anything."`,
-      options: [opt('hire', 'Put him on the team — $500/month', 'Loyalty, and a mouth to feed', 500), opt('help', 'Give him $800 and advice', undefined, 800), opt('no', 'Tell him you can\'t')],
+      options: [opt('hire', 'Bring him on the road this month — $500', 'Loyalty, and a mouth to feed', 500), opt('help', 'Give him $800 and advice', undefined, 800), opt('no', 'Tell him you can\'t')],
       expiresSerial: w.serial + 4,
     };
   },
   resolve: (m, o, _w, roll) => {
-    if (o === 'hire') return roll < 0.7 ? { text: `${m.npcName} is the loudest person at every show now. The crowd loves him.`, effects: [{ k: 'money', v: -500 }, { k: 'stat', stat: 'stagePresence', v: 1 }, { k: 'reputation', v: 1 }] } : { text: `${m.npcName} got into a fight at your show. It's on every blog.`, effects: [{ k: 'money', v: -500 }, { k: 'reputation', v: -3 }, { k: 'momentum', v: 1 }] };
+    if (o === 'hire') return roll < 0.7 ? { text: `${m.npcName} was the loudest person at every show this month. The crowd loves him.`, effects: [{ k: 'money', v: -500 }, { k: 'stat', stat: 'stagePresence', v: 1 }, { k: 'reputation', v: 1 }] } : { text: `${m.npcName} got into a fight at your show. It's on every blog.`, effects: [{ k: 'money', v: -500 }, { k: 'reputation', v: -3 }, { k: 'momentum', v: 1 }] };
     if (o === 'help') return { text: 'He hugged you for a long time. He said he won\'t forget it.', effects: [{ k: 'money', v: -800 }, { k: 'reputation', v: 1 }] };
     return roll < 0.4 ? { text: 'He posted a long caption about how fame changes people. The old area is talking.', effects: [{ k: 'reputation', v: -2 }] } : { text: 'He understood. It still stung.', effects: [] };
   },
@@ -951,7 +977,8 @@ const viralMoment: Template = {
 const breakIn: Template = {
   id: 'break_in', channel: 'life', weight: 0.5,
   build: (w) => {
-    if (w.money < 40000) return null;
+    // Gates, guards and cameras are what the big houses pay for.
+    if (w.money < 40000 || w.homeTier === 'villa' || w.homeTier === 'mansion') return null;
     return {
       kind: 'break_in', title: 'Someone broke into your place',
       body: 'You came home to a broken window. A laptop, some jewellery and cash are gone.',
@@ -985,13 +1012,20 @@ const carTrouble: Template = {
   build: (w) => ({
     kind: 'car_trouble', title: w.ownsCar ? 'Your car broke down' : 'Your ride broke down',
     body: `${w.ownsCar ? 'Your car' : 'The car you were in'} died on the highway. Smoke from the bonnet. You have somewhere to be.`,
-    options: [opt('tow', 'Tow and repair — $800', undefined, 800), opt('okada', 'Jump on the back of an okada', 'Fast, dangerous, very online'), opt('wait', 'Wait for a mechanic', 'Slow')],
+    // Only your own car is yours to tow and fix.
+    options: w.ownsCar
+      ? [opt('tow', 'Tow and repair — $800', undefined, 800), opt('okada', 'Jump on the back of an okada', 'Fast, dangerous, very online'), opt('wait', 'Wait for a mechanic', 'Slow')]
+      : [opt('ride', 'Call another ride', 'A few dollars, a bit late', 15), opt('okada', 'Jump on the back of an okada', 'Fast, dangerous, very online'), opt('wait', 'Wait for the driver to fix it', 'Slow')],
     expiresSerial: w.serial + 1,
+    data: { own: !!w.ownsCar },
   }),
   resolve: (_m, o, w, roll) => {
     if (o === 'tow') return { text: 'Fixed. Expensive, but fixed.', effects: [{ k: 'money', v: -800 }] };
+    if (o === 'ride') return { text: 'Another ride came in ten minutes. You were late, not lost.', effects: [{ k: 'money', v: -15 }, { k: 'energy', v: -3 }] };
     if (o === 'okada') return roll < 0.5 && w.playerFame >= 15 ? { text: 'Someone filmed you weaving through traffic on an okada. Internet loves it.', effects: [{ k: 'momentum', v: 2 }, { k: 'fans', v: 120 }] } : { text: 'You made it. Your heart is still racing.', effects: [{ k: 'energy', v: -5 }] };
-    return { text: 'Three hours by the roadside. The mechanic charged you double because he recognised you.', effects: [{ k: 'energy', v: -12 }, { k: 'money', v: -300 }] };
+    return _m.data?.own
+      ? { text: 'Three hours by the roadside. The mechanic charged you double because he recognised you.', effects: [{ k: 'energy', v: -12 }, { k: 'money', v: -300 }] }
+      : { text: 'Two hours by the roadside while the driver argued with the engine. It started, eventually.', effects: [{ k: 'energy', v: -10 }] };
   },
 };
 

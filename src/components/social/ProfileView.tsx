@@ -11,7 +11,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { cn } from '@/utils/cn';
 import { compact } from '@/utils/format';
 import { SlidePanel, gradientFor } from '../ui/kit';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, labelFollowers } from '../../store/gameStore';
 import { APP_META, SOCIAL_APPS, fanbaseNameFor, type SocialApp } from '../../sim/social';
 import { audienceOf, liveCounts } from '../../sim/socialLive';
 import { hashString } from '../../sim/rng';
@@ -72,6 +72,7 @@ export function ProfileView({ id, app, now, onClose, onOpenPost, onOpenProfile, 
   const upcoming = useGameStore((s) => s.npcUpcoming);
   const player = useGameStore((s) => s.player);
   const fanbaseName = useGameStore((s) => s.fanbaseName);
+  const myLabel = useGameStore((s) => s.label);
   const followAccount = useGameStore((s) => s.followAccount);
   const unfollowAccount = useGameStore((s) => s.unfollowAccount);
   const blockAccount = useGameStore((s) => s.blockAccount);
@@ -111,7 +112,8 @@ export function ProfileView({ id, app, now, onClose, onOpenPost, onOpenProfile, 
 
   if (!id) return null;
   const isFan = id.startsWith('fan:');
-  const name = npc?.name ?? theirs[0]?.authorName ?? replies[0]?.c.authorName ?? id.replace(/^fan:/, '');
+  const labelAcc = id.startsWith('label:') && myLabel && id === `label:${myLabel.id}` ? myLabel : null;
+  const name = labelAcc?.name ?? npc?.name ?? theirs[0]?.authorName ?? replies[0]?.c.authorName ?? id.replace(/^fan:/, '');
   const h = hashString(id);
   const real = !!npc && isRealId(npc.id);
   const org = id.startsWith('org:');
@@ -122,7 +124,7 @@ export function ProfileView({ id, app, now, onClose, onOpenPost, onOpenProfile, 
   const isBlocked = (blocked ?? []).includes(id);
   const myFans = fanbaseName ?? (player ? fanbaseNameFor(player.artistName, player.id) : 'fans');
 
-  const followers = npc ? Math.round(audienceOf(npc) * APP_SHARE[view]) : isFan ? 40 + (h % 2600) : org ? 400_000 + (h % 600_000) : 120_000 + (h % 90_000);
+  const followers = labelAcc ? Math.round(labelFollowers(labelAcc, npcs) * APP_SHARE[view]) : npc ? Math.round(audienceOf(npc) * APP_SHARE[view]) : isFan ? 40 + (h % 2600) : org ? 400_000 + (h % 600_000) : 120_000 + (h % 90_000);
   const followingCount = npc ? (real || npc.fame >= 80 ? 40 + (h % 260) : 180 + (h % 1100)) : 150 + (h % 1800);
   const appPosts = theirs.filter((p) => p.platform === view);
   // The feed only holds the last few weeks; the account is older than that.
@@ -136,7 +138,7 @@ export function ProfileView({ id, app, now, onClose, onOpenPost, onOpenProfile, 
     if (player && aboutMe >= Math.max(1, theirs.length / 2)) return `${myFans} 🖤 · ${player.artistName} day one\nfan account, not affiliated`;
     return ['music head. opinions are mine', 'here for the music & the drama 🍿', 'stan twitter retiree', 'I was there first. receipts available'][h % 4];
   })();
-  const bio = npc ? bioFor(npc) : isFan ? fanBio : org ? '🏆 Official account. Nominations, voting and the winners, as they\'re announced.' : 'Who\'s doing what, as it happens. 👀';
+  const bio = labelAcc ? `🏢 Record label · ${labelAcc.country}\n${labelAcc.roster.length ? `Home of ${labelAcc.roster.slice(0, 3).map((r) => r.name).join(', ')}${labelAcc.roster.length > 3 ? ` +${labelAcc.roster.length - 3}` : ''}` : 'Signing now. Demos in DM.'}` : npc ? bioFor(npc) : isFan ? fanBio : org ? '🏆 Official account. Nominations, voting and the winners, as they\'re announced.' : 'Who\'s doing what, as it happens. 👀';
 
   const latest = npc && (npc.role === 'artist' || npc.role === 'producer')
     ? (npcSongs as { id: string; title: string; ownerId?: string; releaseDate?: string }[]).filter((s) => s.ownerId === npc.id).slice(-1)[0]
@@ -183,6 +185,8 @@ export function ProfileView({ id, app, now, onClose, onOpenPost, onOpenProfile, 
           <span>{handleOf(name)}</span>
           {followsMe && <span className="px-1.5 h-[18px] rounded bg-white/[0.08] text-ink2 text-[10px] font-semibold flex items-center">Follows you</span>}
           {isFan && <span className="px-1.5 h-[18px] rounded bg-white/[0.08] text-ink2 text-[10px] font-semibold flex items-center">Fan account</span>}
+          {labelAcc && <span className="px-1.5 h-[18px] rounded bg-amber/15 text-amber text-[10px] font-semibold flex items-center">Your label</span>}
+          {labelAcc && <button onClick={() => { onClose(); setScreen('label'); }} className="text-[11px] font-semibold text-amber">Run the label →</button>}
         </div>
         {bio && <p className="mt-2 text-[13px] text-ink2 whitespace-pre-line leading-snug">{bio}</p>}
         {announced && <div className="mt-2 inline-flex items-center gap-2 rounded-[10px] border border-amber/40 bg-amber/[0.06] px-2.5 py-1.5 text-[12px] text-ink">🗓️ "{announced.song.title}" · coming soon</div>}

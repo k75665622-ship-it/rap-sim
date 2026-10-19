@@ -10,13 +10,14 @@
 
 import type { Persona } from './persona';
 
-export type PayTerms = 'upfront' | 'half' | 'on_delivery' | 'free';
+export type PayTerms = 'upfront' | 'half' | 'on_delivery' | 'free' | 'trade';
 
 export const TERMS_LABEL: Record<PayTerms, string> = {
   upfront: 'Paid in full up front',
   half: 'Half now, half on delivery',
   on_delivery: 'Paid when the verse is delivered',
   free: 'No fee — for the love',
+  trade: 'Paid in kind — a beat for a verse',
 };
 
 /** Days to deliver a verse once a deal is agreed. */

@@ -481,10 +481,10 @@ export function whyInvited(opts: {
 }): string {
   const reasons: string[] = [];
   if (opts.hit) reasons.push('Your last single is everywhere right now.');
-  if (opts.relationship >= 40) reasons.push('You have worked together before and it went well.');
+  if (opts.relationship >= 40) reasons.push('We worked well last time.');
   if (opts.hasPromoter) reasons.push('Your promoter put your name forward.');
-  if (opts.hasManager) reasons.push('Your manager has been working the phones.');
-  if (opts.playerFame >= opts.hostFame - 5) reasons.push('Your numbers in the city caught their attention.');
+  if (opts.hasManager) reasons.push('Your manager has been on my phone all week.');
+  if (opts.playerFame >= opts.hostFame - 5) reasons.push('Your numbers in the city caught my eye.');
   if (reasons.length === 0) reasons.push('Somebody on the bill dropped out and your name came up.');
   return reasons[Math.floor(opts.roll * reasons.length) % reasons.length];
 }

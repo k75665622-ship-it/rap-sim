@@ -230,10 +230,10 @@ export const ROLE_SPECS: Record<string, RoleSpec> = {
   // ── IMAGE & PRESS ──────────────────────────────────────────────────────
   publicist: {
     role: 'publicist',
-    title: 'Publicist',
+    title: 'Publicist & social media',
     emoji: '📣',
     department: 'image',
-    job: 'Places the story and keeps your name in the room.',
+    job: 'Places the story and keeps your name in the room — or runs your social pages for you.',
     effect: '+marketing weekly, and your name takes longer to fade.',
     wage: [650, 1700],
     hireable: true,

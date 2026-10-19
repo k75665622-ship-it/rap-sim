@@ -67,6 +67,19 @@ export function AISettingsScreen() {
         <p className="text-[13px] text-ink2 mt-2 leading-relaxed">Plug in any AI key you have — Claude, OpenAI, Gemini, Groq, Grok, OpenRouter, DeepSeek, Mistral — or a model running on your own computer, and the people in your world write for themselves: real conversations in your DMs, reactions to your posts, hosts who listen, friends and rivals who remember what you did. No key? The game plays fully offline with its built-in writing.</p>
       </div>
 
+      {!s.keys.groq && !Object.values(s.keys).some(Boolean) && (
+        <section className="rounded-[16px] border border-rise/40 p-4" style={{ background: 'linear-gradient(135deg, rgba(46,204,113,0.12), rgba(46,204,113,0.02))' }}>
+          <div className="text-[12px] font-semibold uppercase tracking-wider text-rise">Quickest start · free</div>
+          <div className="text-[16px] font-bold text-ink mt-1">Get a free Groq key in a minute</div>
+          <ol className="mt-2 space-y-1 text-[13px] text-ink2 list-decimal list-inside">
+            <li>Open <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-rise font-semibold underline">console.groq.com/keys</a> and sign in (Google works).</li>
+            <li>Press <b className="text-ink">Create API key</b> and copy it (it starts with <span className="num">gsk_</span>).</li>
+            <li>Paste it below and press Save. That's it — the people in your world start talking for themselves.</li>
+          </ol>
+          {s.provider !== 'groq' && <Button size="sm" className="mt-3" onClick={() => saveAISettings({ provider: 'groq' })}>Use Groq</Button>}
+        </section>
+      )}
+
       <section className="rounded-[16px] border border-line bg-card p-4 space-y-3">
         <div className="text-[15px] font-semibold text-ink">Provider</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -127,7 +140,7 @@ export function AISettingsScreen() {
           {test && <span className={cn('text-[12px]', test.ok ? 'text-rise' : 'text-fall')}>{test.msg}</span>}
         </div>
         <div className="text-[11px] text-ink3 leading-snug">
-          {a.def.keyUrl ? <>Get a key at {a.def.keyUrl}, and set a spend limit there. </> : null}
+          {a.def.keyUrl ? <>Get a key at <a href={a.def.keyUrl} target="_blank" rel="noreferrer" className="text-re underline">{a.def.keyUrl.replace(/^https:\/\//, '')}</a>{a.def.id === 'groq' ? ' (free tier, no card needed)' : ', and set a spend limit there'}. </> : null}
           Keys are saved only in this browser{account ? <>, for {account.kind === 'guest' ? 'the guest player' : <b className="text-ink2">@{account.username}</b>}</> : null} — never in your save files and never stored on the game's server. On another device you'll enter it again.
         </div>
       </section>

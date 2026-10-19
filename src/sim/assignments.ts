@@ -24,6 +24,7 @@ export const ASSIGNMENTS: Record<string, Assignment[]> = {
     { id: 'buzz', label: 'Buzz', emoji: '📣', blurb: 'Places stories every week. Momentum up.' },
     { id: 'damage', label: 'Damage control', emoji: '🧯', blurb: 'Quietly repairs your reputation week by week.' },
     { id: 'press', label: 'Press bookings', emoji: '🎙️', blurb: 'Gets you more interview invitations.' },
+    { id: 'socials', label: 'Social media manager', emoji: '📱', blurb: 'Runs your pages: posts for you a few times a week, answers fans, and keeps your accounts from going quiet. Followers grow.' },
   ],
   stylist: [
     { id: 'image', label: 'Your image', emoji: '🪞', blurb: 'Charisma and stage presence every week.' },
@@ -79,6 +80,8 @@ export interface WorkResult {
   rep?: number;
   energy?: number;
   followers?: number;
+  /** Posts the social media manager puts up for you this week. */
+  posts?: number;
   line: string;
 }
 
@@ -136,6 +139,7 @@ function baseWeek(role: string, assignment: string | undefined, skill: number, m
     case 'publicist:buzz': { const v = Math.round(1 + q * 2.5); return { momentum: v, line: `${n} placed ${v > 2 ? 'two stories' : 'a story'} about you (+${v} momentum).` }; }
     case 'publicist:damage': { const v = Math.round((0.3 + q * 0.9) * 10) / 10; return { rep: v, line: `${n} smoothed things over with the press (+${v} reputation).` }; }
     case 'publicist:press': return { line: `${n} pitched you to producers and hosts all week.` };
+    case 'publicist:socials': { const posts = 2 + Math.round(q * 2); const f = Math.round((40 + ctx.fame * 22) * (0.5 + q)); return { posts, followers: f, line: `${n} ran your pages: ${posts} posts, replies to fans (+${f.toLocaleString()} followers).` }; }
     case 'stylist:image': return { stats: { charisma: 0.2 * q, stagePresence: 0.2 * q }, line: `${n} worked on your look.` };
     case 'stylist:brands': { const m = Math.round((150 + ctx.fame * 45) * (0.5 + q)); return { money: m, line: `${n} landed a paid brand post: $${m.toLocaleString()}.` }; }
     case 'stylist:merch': return { line: `${n} designed new pieces for your clothing line.` };

@@ -207,7 +207,12 @@ export function generateInboundAsk(
         : gap > 10 && gap <= 25
           ? 0.75 // a step above you
           : gap > 25
-            ? 0.2 // a genuine reach — rare, and worth the wait
+            // A genuine reach — rare, and it needs a reason: they know you,
+            // you're from the same scene, or your record is everywhere. A
+            // global star doesn't DM an unknown from another country.
+            ? (gap > 40 && (n.relationshipScore ?? 0) < 40 && recentHeat < 80) || (n.country !== input.playerCountry && recentHeat < 70 && (n.relationshipScore ?? 0) < 30)
+              ? 0
+              : 0.15
             : gap >= -35
               ? 0.45 // a step below you
               : 0.12; // far below, and they know they cannot pay you

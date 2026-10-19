@@ -299,6 +299,37 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - Nobody offers you shows, cash gigs, bring-outs or fan letters about songs you haven't released; blogs only blackmail people worth a headline; rewards for viral moments scale with how famous you are.
 - Show fees follow local ticket prices. Headlines read properly ("New Music: X releases …"). Notifications for court, awards, features and home open the right page. The sidebar and dashboard show the same fame number. Real artists' DMs come through their team.
 
+## 2026-10-19 (i) — DMs that make sense, a label with its own page, a social media manager, Groq in a minute
+
+### Deals in the DMs now leave something behind
+- **Beats you buy in a DM land in Studio → Beats**, exclusive, ready to record on. Before, the money left and nothing arrived.
+- **"Let me jump on one of yours instead"** is a real trade: the beat lands in your library *and* their tape lands in **Studio → Features** with a due date. Don't deliver and they'll want paying for the beat — or take you to court for it. You can back out by paying for the beat.
+- Saying yes to a collab, a verse swap or a free verse in a chat sends the record **straight to Studio → Features** — no second "ask" in the Mailbox.
+- **Cash gigs are nights on the clock**: "Friday, 11 PM at their club, $X cash after the set" goes in your diary; you get paid when you play. Do the full set, ten minutes and dip (less money), or walk out. Shady promoters sometimes pay half ("the door was slow"). No-shows cost the relationship and your reputation. Club money now follows the city.
+- **"I'm bringing you out tonight"** is also a night in your diary — be there when they call your name.
+- Playing someone your unreleased song and them loving it now gets **their verse on your song** (it arrives in Features), not you on theirs.
+- A designer dressing you leaves the piece in your wardrobe.
+
+### A DM is a DM
+- People answer in their own words. The story of what happened ("X's people came back with a number…") is a small note under the chat, never a bubble from them. Feature replies, counters and refusals all got proper voices.
+- **"Ask to link up"** (was "Spend an evening") sends a text. They answer — yes with a time, "this week is mad", or nothing — and the evening (and what it does for you two) happens when you actually meet. You meet in your city.
+- Outcome chips say where things went: 🎹 beat in your library, 🎙️ verse owed in Features, 🗓️ in your diary, 🎁 in your wardrobe.
+- Show offers in the DMs read like a person ("Sat 14 Feb"), with the "go to Shows → Offers" hint as a note.
+- Global stars no longer DM an unknown from another country for a verse. Real artists' asks come through their team.
+
+### Your label has its own page
+- The label posts from **its own account** — signings, releases, videos — not from yours. Its page shows its roster, followers that grow with its artists, and a link to run the label.
+- The composer has **Post as: you / your label**.
+
+### Social media manager
+- Put your **publicist on "Social media manager"** (Team): they post for you a few times a week — your new release, your next show, award votes, studio content — answer fans, and keep your pages from going quiet. Their posts say who posted them.
+
+### Small fixes
+- Car trouble when you don't own a car is a ride problem, not an $800 tow. Big houses with security don't get burgled. The old friend you take on the road is for the month you paid for.
+
+### AI: Groq in a minute
+- AI Brain now opens with a **free Groq quick start**: a link to console.groq.com/keys, three steps, and a "Use Groq" button. Every provider's "get a key" line is a clickable link.
+
 ## How to run
 
 ```

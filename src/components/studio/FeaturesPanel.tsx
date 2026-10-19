@@ -92,7 +92,7 @@ function InboundCard({ r, today, onMsg }: { r: InboundRequest; today: number; on
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-bold text-ink truncate">{r.npcSongTitle}</div>
           <div className="text-[12px] text-ink2 flex items-center gap-1.5 mt-0.5"><Avatar name={r.npcName} seed={r.npcId} size={18} />{r.npcName} <span className="text-ink3">feat. you</span></div>
-          <div className="text-[11px] text-ink3 mt-1">{fee > 0 ? `$${fee.toLocaleString()} · ${TERMS_LABEL[r.payTerms ?? 'half']}` : TERMS_LABEL.free}{paid > 0 ? ` · $${paid.toLocaleString()} received` : ''}</div>
+          <div className="text-[11px] text-ink3 mt-1">{r.payTerms === 'trade' ? `${TERMS_LABEL.trade} · the beat is in your library` : fee > 0 ? `$${fee.toLocaleString()} · ${TERMS_LABEL[r.payTerms ?? 'half']}` : TERMS_LABEL.free}{paid > 0 && r.payTerms !== 'trade' ? ` · $${paid.toLocaleString()} received` : ''}</div>
         </div>
       </div>
       {delivered ? (
@@ -113,7 +113,7 @@ function InboundCard({ r, today, onMsg }: { r: InboundRequest; today: number; on
         <>
           <div className="flex items-center justify-between mt-3">
             <span className={cn('text-[12px] font-semibold', due.cls)}>{due.text}</span>
-            {r.refundDemanded && <span className="text-[11px] text-fall">They want their money back</span>}
+            {r.refundDemanded && <span className="text-[11px] text-fall">{r.payTerms === 'trade' ? 'They want paying for the beat' : 'They want their money back'}</span>}
           </div>
           {open ? (
             <div className="mt-2.5 space-y-1.5">
@@ -134,8 +134,8 @@ function InboundCard({ r, today, onMsg }: { r: InboundRequest; today: number; on
             <div className="flex flex-wrap gap-1.5 mt-2.5">
               <Button size="sm" onClick={() => setOpen(true)}>🎙️ Add your verse</Button>
               {confirmRefund ? (
-                <><Button size="sm" variant="secondary" onClick={() => { onMsg(refund(r.id)); setConfirmRefund(false); }}>{paid > 0 ? `Refund $${paid.toLocaleString()}` : 'Call it off'}</Button><Button size="sm" variant="ghost" onClick={() => setConfirmRefund(false)}>Keep it</Button></>
-              ) : <Button size="sm" variant="ghost" onClick={() => setConfirmRefund(true)}>{paid > 0 ? 'Refund & back out' : 'Back out'}</Button>}
+                <><Button size="sm" variant="secondary" onClick={() => { onMsg(refund(r.id)); setConfirmRefund(false); }}>{r.payTerms === 'trade' ? `Pay $${paid.toLocaleString()}` : paid > 0 ? `Refund $${paid.toLocaleString()}` : 'Call it off'}</Button><Button size="sm" variant="ghost" onClick={() => setConfirmRefund(false)}>Keep it</Button></>
+              ) : <Button size="sm" variant="ghost" onClick={() => setConfirmRefund(true)}>{r.payTerms === 'trade' ? `Pay $${paid.toLocaleString()} for the beat & back out` : paid > 0 ? 'Refund & back out' : 'Back out'}</Button>}
             </div>
           )}
         </>

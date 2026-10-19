@@ -33,6 +33,9 @@ export function Composer({ open, onClose, app, onPosted, preset }: { open: boole
   const beefs = useGameStore((s) => s.beefs);
   const stats = useGameStore((s) => s.socialStats);
   const publishPost = useGameStore((s) => s.publishPost);
+  const postAsLabel = useGameStore((s) => s.postAsLabel);
+  const label = useGameStore((s) => s.label);
+  const [asLabel, setAsLabel] = useState(false);
 
   const [apps, setApps] = useState<SocialApp[]>([app]);
   const [kind, setKind] = useState<PostKind>(preset?.kind ?? kindsFor(app)[0].id);
@@ -99,7 +102,9 @@ export function Composer({ open, onClose, app, onPosted, preset }: { open: boole
   }
 
   function post() {
-    const r = publishPost({ apps, kind, content: text, tags, songId: songId || undefined, soundSongId: sound && !sound.mine ? sound.id : undefined });
+    const r = asLabel && label
+      ? postAsLabel({ apps, kind, content: text, songId: songId || undefined })
+      : publishPost({ apps, kind, content: text, tags, songId: songId || undefined, soundSongId: sound && !sound.mine ? sound.id : undefined });
     setResult(r);
     if (r.ok) {
       onPosted(r);
@@ -116,7 +121,7 @@ export function Composer({ open, onClose, app, onPosted, preset }: { open: boole
       onClose={onClose}
       width={520}
       title="New post"
-      subtitle={`Posting as ${player?.artistName ?? ''}`}
+      subtitle={`Posting as ${asLabel && label ? label.name : player?.artistName ?? ''}`}
       footer={
         <div className="flex items-center gap-3">
           <div className="flex-1 text-[11px] text-ink3 leading-snug">
@@ -130,6 +135,19 @@ export function Composer({ open, onClose, app, onPosted, preset }: { open: boole
       }
     >
       <div className="p-4 space-y-5">
+        {label && (
+          <section>
+            <div className="text-[11px] font-semibold text-ink3 uppercase tracking-wider mb-2">Post as</div>
+            <div className="grid grid-cols-2 gap-2">
+              {[{ on: !asLabel, label: player?.artistName ?? 'You', sub: 'Your page', set: false }, { on: asLabel, label: label.name, sub: 'The label\'s page', set: true }].map((o) => (
+                <button key={o.sub} onClick={() => setAsLabel(o.set)} className={cn('rounded-[12px] border px-3 py-2 text-left transition', o.on ? 'border-amber bg-amber/10' : 'border-line opacity-70 hover:opacity-100')}>
+                  <div className="text-[13px] font-semibold text-ink truncate">{o.label}</div>
+                  <div className="text-[11px] text-ink3">{o.sub}</div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
         <section>
           <div className="text-[11px] font-semibold text-ink3 uppercase tracking-wider mb-2">Post to</div>
           <div className="grid grid-cols-2 gap-2">

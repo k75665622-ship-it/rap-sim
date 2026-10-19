@@ -5,7 +5,7 @@
 // per account.
 
 import { useEffect, useState } from 'react';
-import { PROVIDERS, activeProvider, aiConfigured, aiSettings, aiUsage, estimateCost, fetchModels, onAIChange, saveAISettings, testKey, type AIFeature } from '../../sim/ai';
+import { AI_BUILD, PROVIDERS, activeProvider, aiConfigured, aiSettings, aiUsage, estimateCost, fetchModels, onAIChange, saveAISettings, testKey, type AIFeature } from '../../sim/ai';
 import { currentAccount } from '../../store/accounts';
 import { Button } from '../ui/kit';
 import { cn } from '@/utils/cn';
@@ -130,6 +130,7 @@ export function AISettingsScreen() {
             </div>
           )}
           {models && <div className="text-[11px] text-ink3 mt-1.5">{models.length} models available with this key — type or pick one above.</div>}
+          {a.model !== a.def.defaultModel && a.def.defaultModel && <button onClick={() => saveAISettings({ models: { [a.def.id]: a.def.defaultModel } })} className="mt-1.5 text-[11px] font-semibold text-re">Use the recommended model ({a.def.defaultModel})</button>}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <Button size="sm" variant="secondary" disabled={!ready || testing} onClick={() => void runTest()}>{testing ? 'Testing…' : 'Test connection'}</Button>
@@ -140,6 +141,7 @@ export function AISettingsScreen() {
           {test && <span className={cn('text-[12px]', test.ok ? 'text-rise' : 'text-fall')}>{test.msg}</span>}
         </div>
         <div className="text-[11px] text-ink3 leading-snug">
+          <span className="text-ink2">Game version {AI_BUILD}.</span>{' '}
           {a.def.keyUrl ? <>Get a key at <a href={a.def.keyUrl} target="_blank" rel="noreferrer" className="text-re underline">{a.def.keyUrl.replace(/^https:\/\//, '')}</a>{a.def.id === 'groq' ? ' (free tier, no card needed)' : ', and set a spend limit there'}. </> : null}
           Keys are saved only in this browser{account ? <>, for {account.kind === 'guest' ? 'the guest player' : <b className="text-ink2">@{account.username}</b>}</> : null} — never in your save files and never stored on the game's server. On another device you'll enter it again.
         </div>

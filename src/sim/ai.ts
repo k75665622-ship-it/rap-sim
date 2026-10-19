@@ -154,6 +154,7 @@ function normalize(saved: Partial<AISettings> | null): AISettings {
   // Settings from before providers existed were a Claude key and model.
   if (saved && !saved.provider && saved.key) { s.provider = 'anthropic'; s.keys.anthropic = saved.key; if (saved.model) s.models.anthropic = saved.model; }
   if (!PROVIDER_BY_ID[s.provider]) s.provider = 'anthropic';
+  for (const [pid, m] of Object.entries(s.models)) if (typeof m === 'string' && (/^(gsk_|sk-|xai-|AIza)/.test(m) || /\s/.test(m.trim()) || !m.trim())) delete (s.models as Record<string, string>)[pid];
   s.key = s.keys[s.provider] ?? '';
   s.model = s.models[s.provider] || PROVIDER_BY_ID[s.provider].defaultModel;
   return s;
@@ -185,6 +186,10 @@ export function saveAISettings(patch: Partial<AISettings>): AISettings {
   const prov = (patch.provider ?? cur.provider) as ProviderId;
   if (patch.key !== undefined) merged.keys = { ...merged.keys, [prov]: patch.key };
   if (patch.model !== undefined) merged.models = { ...merged.models, [prov]: patch.model };
+  // A key pasted into the model box, or junk with spaces, isn't a model.
+  for (const [pid, m] of Object.entries(merged.models ?? {})) {
+    if (typeof m === 'string' && (/^(gsk_|sk-|xai-|AIza)/.test(m) || /\s/.test(m.trim()))) delete (merged.models as Record<string, string>)[pid];
+  }
   const next = normalize({ ...merged, provider: prov });
   cache = next;
   const { key: _k, model: _m, ...stored } = next;
@@ -286,6 +291,8 @@ const TIMEOUT_MS = 25000;
  */
 let proxyUrl: string | null = null;
 let proxyBroken = false;
+/** Shown on the AI page so you can tell whether the newest build is loaded. */
+export const AI_BUILD = '2026-10-19 · j2';
 export function setAIProxy(url: string | null): void { proxyUrl = url; if (url) proxyBroken = false; }
 /**
  * The game's own pass-through: set when the server answered, or — when this
@@ -377,8 +384,14 @@ async function send(w: Wired, viaProxy: boolean): Promise<Response> {
   try {
     if (viaProxy && proxy) {
       const r = await fetch(proxy, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: w.url, headers: w.headers, body: w.body }), signal: ctrl.signal });
-      // No pass-through here (a static host): stop trying it.
-      if (r.status === 404 || r.status === 405) { proxyBroken = true; throw new TypeError('No game server to pass the request through'); }
+      // No pass-through here (a static host): stop trying it. A provider's own
+      // 404 ("that model doesn't exist") comes back through the pass-through
+      // too, so only a 404 that isn't the provider talking means "no server".
+      if (r.status === 404 || r.status === 405) {
+        const txt = await r.clone().text().catch(() => '');
+        const fromProvider = r.headers.get('x-rl-proxy') === '1' || /model|does not exist|not_found|invalid_request|"error"\s*:\s*\{/i.test(txt);
+        if (!fromProvider) { proxyBroken = true; throw new TypeError('No game server to pass the request through'); }
+      }
       return r;
     }
     return await fetch(w.url, { method: 'POST', headers: w.headers, body: JSON.stringify(w.body), signal: ctrl.signal });
@@ -459,6 +472,20 @@ export function callAI(req: AICall): Promise<string> {
       throw new AIError(msg, 'network');
     }
 
+    // The model isn't on this key (a typo, a retired model, something pasted
+    // into the wrong box): fall back to the provider's recommended model once,
+    // and keep it if it works.
+    if (!res.ok && a.model !== a.def.defaultModel && a.def.defaultModel) {
+      const txt = await res.clone().text().catch(() => '');
+      const missing = res.status === 404 || (res.status === 400 && /model/i.test(txt) && /not found|does not exist|decommission|not supported|invalid/i.test(txt));
+      if (missing) {
+        const bad = a.model;
+        w.body.model = a.def.defaultModel;
+        try { res = await go(); } catch { /* keep the first answer */ }
+        if (res.ok) { saveAISettings({ models: { [a.def.id]: a.def.defaultModel } }); bumpUsage({ lastError: `"${bad}" isn't available on your ${a.def.label} key — switched to ${a.def.defaultModel}.` }); }
+      }
+    }
+
     bumpUsage({ calls: 1 });
     if (res.status === 401 || res.status === 403) {
       bumpUsage({ errors: 1, lastError: 'The API key was rejected' });
@@ -473,7 +500,10 @@ export function callAI(req: AICall): Promise<string> {
       bumpUsage({ errors: 1, lastError: `API error ${res.status}: ${txt.slice(0, 140)}` });
       let why = '';
       try { const j = JSON.parse(txt) as { error?: { message?: string } | string }; why = typeof j.error === 'string' ? j.error : j.error?.message ?? ''; } catch { why = txt.slice(0, 160); }
-      throw new AIError(`API error ${res.status}${res.status === 404 || /model/i.test(why) ? ' — check the model name' : ''}${why ? `: ${why.slice(0, 160)}` : ''}`, 'bad');
+      const model = String(w.body.model ?? a.model);
+      throw new AIError(res.status === 404
+        ? `${a.def.label} says the model "${model}" doesn't exist on your key${why ? ` (${why.slice(0, 120)})` : ''}. Pick one from the list.`
+        : `API error ${res.status}${/model/i.test(why) ? ` with model "${model}"` : ''}${why ? `: ${why.slice(0, 160)}` : ''}`, 'bad');
     }
     const parsed = parseResponse(a.def.wire, await res.json());
     bumpUsage({ input: Math.max(0, parsed.input), output: parsed.output, cacheRead: parsed.cacheRead, cacheWrite: parsed.cacheWrite });

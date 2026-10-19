@@ -18,6 +18,7 @@ const BG: Record<Appointment['kind'], string> = {
   party: 'radial-gradient(120% 90% at 50% 0%, rgba(181,123,255,0.32), rgba(10,11,16,0) 60%), linear-gradient(180deg, #170d24, #0c0d12)',
   linkup: 'radial-gradient(120% 90% at 50% 0%, rgba(46,213,115,0.25), rgba(10,11,16,0) 60%), linear-gradient(180deg, #0b1a12, #0c0d12)',
   meeting: 'radial-gradient(120% 90% at 50% 0%, rgba(77,163,255,0.28), rgba(10,11,16,0) 60%), linear-gradient(180deg, #0b1422, #0c0d12)',
+  gig: 'radial-gradient(120% 90% at 50% 0%, rgba(255,92,92,0.3), rgba(10,11,16,0) 60%), linear-gradient(180deg, #1c0c0e, #0c0d12)',
 };
 
 export function AppointmentModal() {
@@ -56,7 +57,7 @@ export function AppointmentModal() {
           <div className="text-[12px] font-semibold uppercase tracking-[0.2em] text-ink3">{fmtMinute(a.atMinute)} · {label.label}</div>
           <div className="text-[44px] leading-none mt-3">{label.emoji}</div>
           <div className="text-[20px] font-bold text-ink mt-3 leading-tight">{finished ? 'How it went' : arrived ? `You're at ${a.place}` : `It's time. ${a.place}.`}</div>
-          {!finished && !arrived && <div className="text-[13px] text-ink2 mt-1">{a.title} — are you going?</div>}
+          {!finished && !arrived && <div className="text-[13px] text-ink2 mt-1">{a.title}{a.kind === 'gig' && a.fee ? ` — $${a.fee.toLocaleString()} cash on the night` : ''} — are you going?</div>}
           {npc && (
             <div className="mt-3 inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-black/30 pl-1 pr-3 py-1">
               <Avatar name={npc.name} seed={npc.id} size={28} />

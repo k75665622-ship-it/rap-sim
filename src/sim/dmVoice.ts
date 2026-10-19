@@ -77,7 +77,7 @@ const SAY: Record<string, Record<string, string[]>> = {
     repost: ['Thank you!! Mind if I share this? 🙏🏾', 'This needs to be seen. Sharing it ❤️'],
   },
   cash_gig: {
-    yes: ['Bet. Send the details and the deposit', 'I\'m in. Where and what time?', 'Deal. Send the contract'],
+    yes: ['Bet. I\'ll be there 🎤', 'I\'m in. Send me the location', 'Deal. Cash on the night, yeah?'],
     more: ['My rate\'s higher than that. Can you do better?', 'Make it make sense and I\'m there', 'Bump it up a bit and we have a deal'],
     no: ['I\'ll pass on this one, thanks for thinking of me', 'Schedule\'s full, sorry', 'Not this time'],
   },
@@ -161,7 +161,7 @@ const REPLY: Record<string, Record<string, ToneBank>> = {
     repost: { good: ['WAIT YOU SHARED IT 😭 my phone is exploding'], neutral: ['Thank you!!'], bad: ['Oh… ok'] },
   },
   cash_gig: {
-    yes: { good: ['Perfect, details coming 🤝🏾'], neutral: ['Cool, I\'ll send the info'], bad: ['Ok'] },
+    yes: { good: ['Perfect, I\'ll put you on the flyer 🤝🏾'], neutral: ['Cool, I\'ll send the location'], bad: ['Ok. Don\'t be late'] },
     more: { good: ['Fine, you drive a hard bargain. Deal'], neutral: ['Let me see what I can do'], bad: ['That\'s the budget. Take it or leave it', 'Forget it, we\'ll get someone else'] },
     no: { good: ['No problem, next time'], neutral: ['Ok'], bad: ['Your loss'] },
   },
@@ -254,7 +254,14 @@ export function outcomeChips(effects: MomentEffect[], npcName?: string): string[
       case 'fans': out.push(`${e.v >= 0 ? '+' : ''}${e.v.toLocaleString()} fans`); break;
       case 'energy': out.push(`⚡${e.v}`); break;
       case 'startBeef': out.push('Beef started'); break;
+      case 'beat': out.push('🎹 Beat in your library'); break;
+      case 'tradeVerse': out.push('🎙️ Verse owed · Studio → Features'); break;
+      case 'inboundAsk': out.push(e.free ? '🎙️ In Studio → Features' : '📬 Offer in Mailbox'); break;
+      case 'guestVerse': out.push('🎙️ Verse coming on your song'); break;
+      case 'gig': out.push('🗓️ In your diary'); break;
+      case 'dripGift': out.push('🎁 In your wardrobe'); break;
     }
   }
-  return out.slice(0, 4);
+  const where = out.filter((c) => /^(🎹|🎙️|📬|🗓️|🎁)/.test(c));
+  return [...where, ...out.filter((c) => !where.includes(c))].slice(0, 4);
 }

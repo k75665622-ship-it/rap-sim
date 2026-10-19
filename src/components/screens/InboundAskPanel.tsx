@@ -239,7 +239,9 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
       {r.status === 'agreed' && (
         <div className="space-y-3">
           <p className="text-xs text-gray-300">
-            {(r.agreedFee ?? 0) > 0
+            {r.payTerms === 'trade'
+              ? <>Trade: their beat for your verse. The beat is already in your library.</>
+              : (r.agreedFee ?? 0) > 0
               ? <>Deal: ${(r.agreedFee ?? 0).toLocaleString()} — {TERMS_LABEL[r.payTerms ?? 'half'].toLowerCase()}. {(r.paidSoFar ?? 0) > 0 ? `$${(r.paidSoFar ?? 0).toLocaleString()} has been paid to you.` : 'Nothing has been paid yet.'}</>
               : 'No fee — you\'re doing it for the love.'}{' '}
             The song is in your studio. Add your verse there.

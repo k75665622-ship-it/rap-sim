@@ -684,9 +684,13 @@ export interface Appointment {
   id: string;
   npcId: string;
   npcName: string;
-  kind: 'studio' | 'linkup' | 'party' | 'meeting';
+  kind: 'studio' | 'linkup' | 'party' | 'meeting' | 'gig';
   title: string;
   place: string;
+  /** A gig: what they pay, in cash, on the night. */
+  fee?: number;
+  /** A gig where they bring you out as a surprise guest (no fee). */
+  bringOut?: boolean;
   /** Absolute game minute. */
   atMinute: number;
   from: 'npc' | 'player';
@@ -1041,6 +1045,8 @@ export interface SocialPost {
    * from the old days still reads sensibly instead of claiming to be from 1970.
    */
   daySerial?: number;
+  /** Put up by your social media manager, in your name. */
+  byTeam?: string;
 }
 
 export interface TrendingTopic {
@@ -1723,7 +1729,17 @@ export type MomentEffect =
   | { k: 'featureFree'; requestId: string }
   | { k: 'featureCancel'; requestId: string }
   | { k: 'featureNow'; requestId: string }
-  | { k: 'featureDelay'; requestId: string; days: number };
+  | { k: 'featureDelay'; requestId: string; days: number }
+  /** A beat lands in your library — bought, or traded for a verse. */
+  | { k: 'beat'; npcId: string; npcName: string; quality: number; price: number; how: 'bought' | 'traded' }
+  /** You owe a verse on their tape in exchange for something worth `value`. */
+  | { k: 'tradeVerse'; npcId: string; value: number }
+  /** A night on the clock: a cash gig, or being brought out at their show. */
+  | { k: 'gig'; npcId: string; fee: number; atMinute: number; place: string; bringOut?: boolean }
+  /** They'll put a verse on your best unreleased song, free — it arrives in Studio → Features. */
+  | { k: 'guestVerse'; npcId: string }
+  /** A piece of clothing, gifted — it goes in your wardrobe. */
+  | { k: 'dripGift'; from: string };
 
 export interface Moment {
   id: string;

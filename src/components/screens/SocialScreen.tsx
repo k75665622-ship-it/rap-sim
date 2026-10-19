@@ -94,7 +94,7 @@ export function SocialScreen({ platform }: { platform: Platform }) {
   const blockSet = useMemo(() => new Set(blocked ?? []), [blocked]);
   const isVerified = (id: string) => {
     if (id === 'player') return !!verifiedMe;
-    if (id.startsWith('org:') || id === 'scene_watch') return true;
+    if (id.startsWith('org:') || id.startsWith('label:') || id === 'scene_watch') return true;
     const n = npcById.get(id);
     return !!n && (isRealId(n.id) || n.fame >= 50 || ((n.role === 'media' || n.role === 'blogger') && n.fame >= 25));
   };

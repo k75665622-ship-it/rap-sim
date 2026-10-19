@@ -166,6 +166,7 @@ export function ChirpRow(p: PostCardProps) {
             {p.verified && <IconVerified size={14} className="text-[#4DA3FF] shrink-0" />}
             {!shown.authorName.startsWith('@') && <span className="text-ink3 truncate hidden sm:inline">{handleOf(shown.authorName)}</span>}
             <span className="text-ink3 shrink-0">· <Ago post={shown} now={now} nowSerial={nowSerial} /></span>
+            {shown.byTeam && <span className="text-ink3 text-[11px] shrink-0 hidden sm:inline">· by {shown.byTeam.split(' ')[0]}</span>}
             {p.onFollow && !p.following && shown.authorId !== 'player' && <button onClick={stop(p.onFollow)} className="ml-auto text-[11px] font-semibold text-[#4DA3FF] shrink-0">Follow</button>}
           </div>
           <div className="flex items-center gap-1.5 mt-0.5"><KindChip kind={shown.kind} app="chirp" /><ViralBadge post={shown} /></div>
@@ -207,7 +208,7 @@ export function PhotoCard(p: PostCardProps) {
           <div className="flex items-center gap-1 text-[13px] font-semibold text-ink"><span className="truncate">{post.authorName.replace(/^@/, '')}</span>{p.verified && <IconVerified size={13} className="text-[#4DA3FF] shrink-0" />}
             {p.onFollow && !p.following && post.authorId !== 'player' && <><span className="text-ink3">·</span><button onClick={p.onFollow} className="text-[#4DA3FF] font-semibold">Follow</button></>}
           </div>
-          <div className="text-[11px] text-ink3">{k.app === 'snapgram' && k.id !== 'photo' ? `${k.emoji} ${k.label}` : 'Original photo'}</div>
+          <div className="text-[11px] text-ink3">{k.app === 'snapgram' && k.id !== 'photo' ? `${k.emoji} ${k.label}` : 'Original photo'}{post.byTeam ? ` · posted by ${post.byTeam.split(' ')[0]}` : ''}</div>
         </div>
         <ViralBadge post={post} />
       </div>

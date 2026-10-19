@@ -261,12 +261,12 @@ export function NPCProfileScreen() {
               <Button size="sm" onClick={() => setScreen('pingchat')} disabled={isB}>💬 Message</Button>
               {!isB && <Button size="sm" variant="secondary" onClick={() => setFlash(isF ? unfollowAccount(selected.id) : followAccount(selected.id))}>{isF ? '✓ Following' : followsYou ? 'Follow back' : '+ Follow'}</Button>}
               {selected.role === 'artist' && <Button size="sm" variant="secondary" onClick={() => { setPendingFeatureNpc(selected.id); setScreen('studio'); }}>🤝 Request a feature</Button>}
-              <Button size="sm" variant="secondary" disabled={onReachCooldown} onClick={() => setFlash(reachOutToNpc(selected.id))}>🍽️ Spend an evening</Button>
+              <Button size="sm" variant="secondary" disabled={onReachCooldown} onClick={() => setFlash(reachOutToNpc(selected.id))}>🍻 Ask to link up</Button>
               {selected.role === 'artist' && <Button size="sm" variant="ghost" onClick={() => openArtist(selected.id)}>🎧 Artist page</Button>}
               <Button size="sm" variant="ghost" onClick={() => { if (isB) { unblockAccount(selected.id); setFlash({ ok: true, message: `Unblocked ${selected.name}.` }); } else setFlash(blockAccount(selected.id)); }} className={isB ? '' : 'text-fall'}>{isB ? 'Unblock' : 'Block'}</Button>
             </div>
             {followsYou && <div className="mt-2 text-[12px] text-ink3">Follows you.</div>}
-            {onReachCooldown && <div className="mt-2 text-[12px] text-ink3">You saw them {daysSinceReach === 0 ? 'today' : `${daysSinceReach}d ago`} — give it {REACH_OUT_COOLDOWN_DAYS - (daysSinceReach ?? 0)} more day{REACH_OUT_COOLDOWN_DAYS - (daysSinceReach ?? 0) === 1 ? '' : 's'}.</div>}
+            {onReachCooldown && <div className="mt-2 text-[12px] text-ink3">You asked {daysSinceReach === 0 ? 'today' : `${daysSinceReach}d ago`} — give it {REACH_OUT_COOLDOWN_DAYS - (daysSinceReach ?? 0)} more day{REACH_OUT_COOLDOWN_DAYS - (daysSinceReach ?? 0) === 1 ? '' : 's'}.</div>}
             {flash && <div className={cn('mt-3 rounded-[10px] px-3 py-2 text-[12px]', flash.ok ? 'bg-rise/10 text-rise' : 'bg-fall/10 text-fall')}>{flash.message}</div>}
           </div>
         </div>

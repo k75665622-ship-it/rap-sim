@@ -416,6 +416,8 @@ import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, 
 import { assignmentsFor, weekOfWork } from '../sim/assignments';
 import { specialSkillOf, crewWithSkill, personaOf } from '../sim/persona';
 import { isSilentOption, playerLine, npcReply, toneOf, followUpFor, outcomeChips } from '../sim/dmVoice';
+import { nearDuplicate, impliedPlan, soundsLikeYes } from '../sim/dmGuard';
+import { replyStorm, fanScream, type BuzzWhere } from '../sim/buzz';
 import { defaultSlot, whenLabel, placeFor, KIND_LABEL, lateness, sceneChoices, resolveScene, noShow, type SceneResult } from '../sim/appointments';
 import { aiActiveFor } from '../sim/ai';
 import { newBrand, weekTick, unitCostFor, fairPrice, rollDesign, MATERIALS, SUPPLIERS, PRODUCT_NAMES, type BrandState, type Product, type ProductKind, type Material, type SupplierId, type WeekCtx } from '../sim/clothing';
@@ -2953,6 +2955,8 @@ interface GameActions {
   fallbackAI: (npcId: string) => void;
   applyAIDirector: (events: { npcId: string; type: string; text?: string; kind?: string; time?: string; app?: string }[]) => number;
   addAIComments: (postId: string, comments: { name: string; text: string; tone?: SocialComment['tone']; npcId?: string }[]) => void;
+  addAIReplies: (postId: string, commentId: string, replies: { name: string; text: string; tone?: string }[]) => void;
+  addAIFeed: (posts: { authorId: string; authorName: string; app: string; text: string; comments: { authorId: string; authorName: string; text: string }[] }[]) => number;
   /** The AI rewrites the host's next question so it follows from your last answer. */
   rewriteInterviewQuestion: (idx: number, text: string) => void;
   /** Ask a host to take somebody off the bill (usually a rival). */
@@ -5764,9 +5768,16 @@ function livenPost(state: GameState, post: SocialPost, opts: { npcs?: NPC[]; at?
   post.daySerial = Math.floor(at / MINUTES_PER_DAY);
   const want = opts.minComments ?? Math.min(10, 3 + Math.floor(Math.log10(Math.max(10, t.comments)) * 1.5));
   if (post.comments.length < want) {
+    // Other artists in the scene drop comments too — never real-named ones.
+    const home = npc?.country ?? state.player?.country;
+    const friends: { id: string; name: string }[] = [];
+    if (!post.isPlayerPost) {
+      const pool = list.filter((n) => n.role === 'artist' && n.id !== post.authorId && n.country === home && !isRealId(n.id));
+      for (let k = 0; k < 3 && pool.length; k++) { const f = pool[Math.floor(Math.random() * pool.length)]; if (!friends.some((x) => x.id === f.id)) friends.push({ id: f.id, name: f.name }); }
+    }
     post.comments.push(...socialComments(post, want - post.comments.length, {
       fame: npc?.fame ?? 30, reputation: 60, controversy: post.trendingScore >= 60,
-      artistFriends: [], seed: `${at}|${post.id}`,
+      artistFriends: friends, seed: `${at}|${post.id}`,
     }, new Date().toISOString()));
   }
   // Comments arrive through the hours after posting, not all at once.
@@ -6158,7 +6169,7 @@ function scenePosts(state: GameState, npcs: NPC[], _serial: number, days: number
   };
   const kindFor: Record<SocialApp, string> = { chirp: 'thought', snapgram: 'photo', clip: 'bts', circle: 'community' };
   const weights: SocialApp[] = opts.app ? [opts.app, opts.app, opts.app, 'chirp', 'snapgram', 'clip'] : ['chirp', 'snapgram', 'snapgram', 'snapgram', 'clip', 'clip', 'clip', 'circle'];
-  const count = opts.live ? 3 + Math.floor(Math.random() * 4) : Math.min(16, Math.round(days * (8 + Math.random() * 6)));
+  const count = opts.live ? 4 + Math.floor(Math.random() * 5) : Math.min(26, Math.round(days * (13 + Math.random() * 8)));
   let made = 0;
   for (let i = 0; i < count; i++) {
     const app = weights[Math.floor(Math.random() * weights.length)];
@@ -7068,7 +7079,7 @@ function autoAttendOrMiss(state: GameState, a: Appointment, reason: 'slept' | 's
   if (reason === 'skip' && (p.energy >= 12 || assistant)) {
     const choice = a.kind === 'studio' ? (p.energy >= 25 ? 'record' : 'vibe') : a.kind === 'party' ? 'network' : a.kind === 'gig' ? (p.energy >= 15 ? 'perform' : 'short') : 'vibe';
     const best = (state.songs ?? []).filter((s) => !isSongReleased(s) && !s.archivedAt).reduce((m, s) => Math.max(m, s.quality), 0);
-    const res = resolveScene(a, choice, persona, { rel: npc.relationshipScore, unreleasedQuality: best, playerFame: blendedFame(p) }, Math.random());
+    const res = resolveScene(a, choice, persona, { rel: npc.relationshipScore, unreleasedQuality: best, playerFame: blendedFame(p), producerSkill: npc.role === 'producer' ? producerSkillOf(npc as NPC) : undefined }, Math.random());
     finishAppointment(state, a, res, 'done', assistant && p.energy < 12 ? `${assistant.npcName.split(' ')[0]} got you there. ` : '');
     return;
   }
@@ -7388,6 +7399,9 @@ function featureDealsTick(state: GameState, serial: number, log: string[]): void
         pushDM(state, npc.id, { fromPlayer: false, content: r.payTerms === 'trade'
           ? pickLine([`You've had the beat a while 👀 how far with my verse on "${r.npcSongTitle}"?`, `Tape's nearly done. Just need your verse on "${r.npcSongTitle}".`], r.id)
           : chaseLine(persona, paid, Math.max(0, left), hashString(r.id) >>> 0) });
+        // Say what they're on about: the deal, who agreed it, and where to do it.
+        const viaManager = state.contracts.some((c) => c.type === 'management' && c.active);
+        pushDM(state, npc.id, { fromPlayer: false, system: true, content: `📋 ${viaManager ? 'Your manager agreed' : 'You agreed'} a verse on their song "${r.npcSongTitle}"${r.agreedDate ? ` on ${r.agreedDate}` : ''}${paid > 0 ? ` — they've paid $${paid.toLocaleString()}` : r.payTerms === 'trade' ? ' — traded for a beat' : ''}. ${left > 0 ? `Due in ${left} day${left === 1 ? '' : 's'}` : 'Due today'}. Write it in Studio → Features.` });
         log.push(`⏳ ${r.npcName} is asking about the verse for "${r.npcSongTitle}".`);
       }
       if (left < -GRACE_DAYS && !r.refundDemanded) {
@@ -11840,11 +11854,52 @@ export const useGameStore = create<GameState & GameActions>()(
         if (!post) return;
         const serial = dateToSerial(state.gameDate);
         const now = new Date().toISOString();
-        const mine: SocialComment = { id: uuidv4(), authorId: 'player', authorName: p.artistName, content: text.trim(), likes: Math.round(5 + blendedFame(p) * 3), timestamp: now };
+        const fame = blendedFame(p);
+        const mine: SocialComment = { id: uuidv4(), authorId: 'player', authorName: p.artistName, content: text.trim(), likes: Math.round(20 + fame * fame * 0.9 + fame * 8), timestamp: now };
         const parent = replyToCommentId ? post.comments.find((c) => c.id === replyToCommentId) : undefined;
         if (parent) (parent.replies ?? (parent.replies = [])).push(mine);
         else post.comments.push(mine);
         const intent = detectIntent(text);
+        const minuteNow = gameMinute(state);
+        const fbName = state.fanbaseName;
+        /** People piling in under what you just said. */
+        const storm = (holder: SocialComment, where: BuzzWhere, opName: string, count?: number) => {
+          const list = holder.replies ?? (holder.replies = []);
+          for (const r of replyStorm({ where, fame, seed: `${mine.id}|${where}`, playerName: p.artistName, opName, fanbaseName: fbName, count, gender: p.gender })) {
+            list.push({ id: uuidv4(), authorId: r.authorId, authorName: r.authorName, content: r.content, likes: r.likes, timestamp: now, tone: r.tone });
+          }
+        };
+        const fanPage = post.authorId.startsWith('fan:') || state.npcs.find((n) => n.id === post.authorId)?.role === 'fan_account';
+
+        // Commenting on a fan's post: that fan's day is made, and everyone sees it.
+        if (!parent && !post.isPlayerPost && fanPage) {
+          const op = post.authorName.replace(/^@/, '');
+          (mine.replies ?? (mine.replies = [])).push({ id: uuidv4(), authorId: post.authorId, authorName: post.authorName, content: fanScream(`${mine.id}|op`, p.artistName), likes: Math.round(60 + fame * 25), timestamp: now, tone: 'stan' });
+          storm(mine, 'fanPost', op);
+          const boost = Math.round(200 + fame * fame * 6);
+          post.likes += boost;
+          post.shares += Math.round(boost / 9);
+          post.trendingScore = Math.min(100, post.trendingScore + 25);
+          // The fan's friends show up in the main thread too.
+          for (const r of replyStorm({ where: 'fanPost', fame, seed: `${mine.id}|top`, playerName: p.artistName, opName: op, fanbaseName: fbName, count: Math.min(6, 2 + Math.round(fame / 20)), gender: p.gender })) {
+            post.comments.push({ id: uuidv4(), authorId: r.authorId, authorName: r.authorName, content: r.content, likes: r.likes, timestamp: now, tone: r.tone, minute: minuteNow + 2 });
+          }
+          addMomentum(state, 1);
+          const stats = socialStatsOf(state);
+          if (stats[post.platform]) stats[post.platform].followers += Math.round(20 + fame * 4);
+          // They post the screenshot.
+          const shot: SocialPost = {
+            id: uuidv4(), platform: post.platform, authorId: post.authorId, authorName: post.authorName,
+            content: pick3([`${p.artistName.toUpperCase()} COMMENTED ON MY POST 😭😭😭 I'm not okay`, `Screenshot this. ${p.artistName} replied to ME. Day one forever 🫡`, `Woke up and ${p.artistName} was in my comments?? 😭🙏🏾`], mine.id),
+            likes: 0, shares: 0, comments: [], timestamp: now, isPlayerPost: false, trendingScore: 55, daySerial: serial, kind: 'thought',
+            tags: [{ id: 'player', name: p.artistName }],
+          } as SocialPost;
+          livenPost(state, shot, { at: minuteNow + 15, heat: 1, audience: Math.round(2000 + fame * fame * 40) });
+          state.socialPosts.unshift(shot);
+          pushActivity(state, { kind: 'mention', text: `${op} posted about your comment 😭`, actorName: op, actorId: post.authorId, postId: shot.id, minute: minuteNow + 15 });
+          result = { ok: true, message: `${op} lost their mind — and the whole comment section showed up.` };
+          return;
+        }
 
         // Replying to a fan.
         const target = parent ?? (post.isPlayerPost ? undefined : post);
@@ -11856,10 +11911,11 @@ export const useGameStore = create<GameState & GameActions>()(
             parent.replies!.push({ id: uuidv4(), authorId: targetId, authorName: parent.authorName, content: won ? 'ok that was funny 😭' : 'he really replied to me 😂😂 ratio', likes: won ? 40 : 300, timestamp: now });
             result = { ok: true, message: won ? 'You cooked the hater. Fans are loving it.' : 'Replying to a hater made it worse. They are screenshotting it.' };
           } else {
-            parent.replies!.push({ id: uuidv4(), authorId: targetId, authorName: parent.authorName, content: pick3(['HE REPLIED 😭😭😭', 'I\'m framing this', 'Best day of my life no cap 🫶'], `${serial}|${parent.id}`), likes: 120, timestamp: now });
+            parent.replies!.push({ id: uuidv4(), authorId: targetId, authorName: parent.authorName, content: fanScream(`${serial}|${parent.id}`, p.artistName), likes: Math.round(60 + fame * 20), timestamp: now, tone: 'stan' });
+            storm(parent, 'fanComment', parent.authorName, Math.max(3, Math.min(10, Math.round(3 + fame / 10))));
             addMomentum(state, 0.5);
             const stats = socialStatsOf(state);
-            stats[post.platform].followers += 15;
+            stats[post.platform].followers += Math.round(15 + fame * 2);
             result = { ok: true, message: 'The fan lost their mind. Fans love an artist who replies.' };
           }
           return;
@@ -11877,10 +11933,13 @@ export const useGameStore = create<GameState & GameActions>()(
             const holder = parent ?? mine;
             (holder.replies ?? (holder.replies = [])).push({ id: uuidv4(), authorId: npc.id, authorName: npc.name, content: reply.text, likes: Math.round(50 + npc.fame * 20), timestamp: now, tone: 'artist' });
           }
+          // The timeline notices two artists talking.
+          if (npc.role === 'artist') storm(mine, 'artistPost', npc.name, Math.max(3, Math.min(12, Math.round(3 + (fame + npc.fame) / 14))));
           if (intent === 'insult' && npc.relationshipScore <= -25 && npc.role === 'artist') npcStartsBeef(state, npc as NPC, serial, 'you went at them in their comments.');
           result = { ok: true, message: reply.text ? `${npc.name} replied.` : (reply.note ?? `${npc.name} hasn't replied.`) };
           return;
         }
+        if (post.isPlayerPost) storm(mine, 'ownPost', p.artistName, Math.max(2, Math.min(8, Math.round(2 + fame / 12))));
         result = { ok: true, message: 'Commented.' };
       });
       return result;
@@ -13869,7 +13928,7 @@ export const useGameStore = create<GameState & GameActions>()(
         const choice = sceneChoices(a, best > 0).find((c) => c.id === choiceId);
         if (!choice) return;
         if (p.energy < choice.energy) { result.message = `You need ${choice.energy} energy for that.`; return; }
-        const res = resolveScene(a, choiceId, personaOf(npc), { rel: npc.relationshipScore, unreleasedQuality: best, playerFame: blendedFame(p) }, Math.random());
+        const res = resolveScene(a, choiceId, personaOf(npc), { rel: npc.relationshipScore, unreleasedQuality: best, playerFame: blendedFame(p), producerSkill: npc.role === 'producer' ? producerSkillOf(npc as NPC) : undefined }, Math.random());
         const late = a.outcome?.startsWith('You\'re') ? `${a.outcome} ` : '';
         finishAppointment(state, a, res, 'done', late);
         state.clockPaused = false;
@@ -15458,21 +15517,42 @@ export const useGameStore = create<GameState & GameActions>()(
         const thread = state.dmThreads[npcId];
         const npc = state.npcs.find((n) => n.id === npcId);
         if (!thread || !npc || isRealId(npc.id)) return;
+        // Only one answer per message: a late or doubled reply is dropped.
+        if (!thread.pendingAI) return;
         thread.pendingAI = undefined;
         const serial = dateToSerial(state.gameDate);
-        const text = payload.reply.trim().slice(0, 600);
+        let text = payload.reply.trim().slice(0, 600);
+        // They don't say the same thing twice.
+        const theirs = thread.messages.filter((m) => !m.fromPlayer && !m.system).slice(-6);
+        if (text && theirs.some((m) => nearDuplicate(m.content, text))) text = '';
         if (text) pushDM(state, npcId, { fromPlayer: false, content: text, read: false, ai: true });
         const rel = Math.max(-6, Math.min(6, Math.round(payload.rel ?? 0)));
         if (rel) npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + rel));
-        npc.memoryLog = [...npc.memoryLog.slice(-9), `[DM] They: "${text.slice(0, 50)}"`];
+        if (text) npc.memoryLog = [...npc.memoryLog.slice(-9), `[DM] They: "${text.slice(0, 50)}"`];
         const now = nowMinuteOf(state);
-        const at = parseClock(payload.time, now);
-        const kind = payload.action === 'invite_studio' || payload.action === 'accept_studio' ? 'studio'
-          : payload.action === 'invite_party' ? 'party'
-          : payload.action === 'invite_linkup' || payload.action === 'accept_linkup' ? 'linkup' : null;
-        if (kind && !(state.appointments ?? []).some((a) => a.npcId === npcId && (a.status === 'confirmed' || a.status === 'proposed'))) {
+        let action = payload.action;
+        let time = payload.time;
+        // "See you at 20:00" with nothing booked: book it, so 20:00 actually happens.
+        const implied = text && (!action || action === 'none') ? impliedPlan(text) : null;
+        if (implied) {
+          const lastMine = [...thread.messages].reverse().find((m) => m.fromPlayer && !m.system);
+          const agreed = implied.confirmed || (!!lastMine && soundsLikeYes(lastMine.content));
+          action = `${agreed ? 'accept' : 'invite'}_${implied.kind}`;
+          time = time || implied.time;
+        }
+        const at = parseClock(time, now);
+        const kind = action === 'invite_studio' || action === 'accept_studio' ? 'studio'
+          : action === 'invite_party' || action === 'accept_party' ? 'party'
+          : action === 'invite_linkup' || action === 'accept_linkup' ? 'linkup' : null;
+        const open = (state.appointments ?? []).find((a) => a.npcId === npcId && (a.status === 'confirmed' || a.status === 'proposed'));
+        if (kind && open && open.status === 'proposed' && action?.startsWith('accept')) {
+          // They're confirming the plan that's already on the table.
+          if (at && at - now >= 45) open.atMinute = at;
+          open.status = 'confirmed';
+          pushDM(state, npcId, { fromPlayer: false, system: true, content: `${KIND_LABEL[open.kind].emoji} ${KIND_LABEL[open.kind].label} · ${whenLabel(open.atMinute, now)} · ${open.place}`, appointmentId: open.id });
+        } else if (kind && !open) {
           const when = at ?? defaultSlot(now, kind);
-          createAppointment(state, npc, kind, when, payload.action?.startsWith('accept') ? 'player' : 'npc', payload.action?.startsWith('accept') ? 'confirmed' : 'proposed');
+          createAppointment(state, npc, kind, when, action?.startsWith('accept') ? 'player' : 'npc', action?.startsWith('accept') ? 'confirmed' : 'proposed');
         }
         if (payload.action === 'offer_collab') applyMomentEffects(state, [{ k: 'inboundAsk', npcId, free: true }], serial);
         if (payload.action === 'go_quiet') {
@@ -15564,7 +15644,17 @@ export const useGameStore = create<GameState & GameActions>()(
           if (!npc || isRealId(npc.id) || isBlocked(state, npc.id)) continue;
           const text = (e.text ?? '').trim().slice(0, 400);
           const later = now + 10 + Math.floor(Math.random() * 240);
-          if (e.type === 'dm' && text) { scheduleDM(state, npc.id, text, later); applied++; }
+          if (e.type === 'dm' && text) {
+            const said = (state.dmThreads[npc.id]?.messages ?? []).filter((m) => !m.fromPlayer && !m.system).slice(-6);
+            if (said.some((m) => nearDuplicate(m.content, text)) || (state.pendingDMs ?? []).some((d) => d.npcId === npc.id)) continue;
+            const plan = impliedPlan(text);
+            if (plan && !(state.appointments ?? []).some((a) => a.npcId === npc.id && (a.status === 'confirmed' || a.status === 'proposed'))) {
+              // "Pull up at 9" is an invite: it comes with a card you can answer.
+              pushDM(state, npc.id, { fromPlayer: false, content: text, read: false, ai: true });
+              createAppointment(state, npc, plan.kind, parseClock(plan.time, now) ?? defaultSlot(now, plan.kind), 'npc', 'proposed');
+            } else scheduleDM(state, npc.id, text, later);
+            applied++;
+          }
           else if (e.type === 'invite') {
             const kind: Appointment['kind'] = e.kind === 'party' ? 'party' : e.kind === 'linkup' ? 'linkup' : 'studio';
             if ((state.appointments ?? []).some((a) => a.npcId === npc.id && (a.status === 'confirmed' || a.status === 'proposed'))) continue;
@@ -15596,6 +15686,64 @@ export const useGameStore = create<GameState & GameActions>()(
         const q = live.questions[idx];
         if (q && text.trim()) q.host = text.trim().slice(0, 500);
       }),
+
+    addAIReplies: (postId, commentId, replies) =>
+      set((state) => {
+        const post = state.socialPosts.find((x) => x.id === postId);
+        const p = state.player;
+        if (!post || !p) return;
+        const mine = [...post.comments, ...post.comments.flatMap((c) => c.replies ?? [])].find((c) => c.id === commentId);
+        if (!mine) return;
+        // The fans' pile-on is where the AI's replies go. The fan you answered,
+        // and any artist who answered, keep their place.
+        const holder = post.comments.find((c) => c.replies?.some((r) => r.id === commentId)) ?? mine;
+        const keep = (holder.replies ?? []).filter((r) => r.authorId === 'player' || !r.authorId.startsWith('fan:') || r.authorId === post.authorId || r.authorId === holder.authorId);
+        const fame = blendedFame(p);
+        const tones = ['stan', 'love', 'neutral', 'hater', 'troll'] as const;
+        const fresh: SocialComment[] = replies.slice(0, 12).map((r, i) => {
+          const name = r.name.replace(/^@/, '').replace(/\s+/g, '_').slice(0, 24);
+          return {
+            id: uuidv4(), authorId: `fan:${name.toLowerCase()}`, authorName: `@${name}`, content: r.text.slice(0, 280),
+            likes: Math.round(30 * (1 + fame / 15) * (0.3 + Math.random() * 2) / (1 + i * 0.25)), timestamp: new Date().toISOString(),
+            tone: (tones as readonly string[]).includes(r.tone ?? '') ? r.tone as SocialComment['tone'] : 'love',
+          };
+        });
+        holder.replies = [...keep, ...fresh];
+      }),
+
+    addAIFeed: (posts) => {
+      let made = 0;
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const serial = dateToSerial(state.gameDate);
+        const minute = gameMinute(state);
+        for (const x of posts.slice(0, 10)) {
+          const npc = state.npcs.find((n) => n.id === x.authorId);
+          if (npc && (isRealId(npc.id) || isBlocked(state, npc.id))) continue;
+          const at = minute + 5 + Math.floor(Math.random() * 900);
+          const app = (x.app === 'snapgram' || x.app === 'clip' ? x.app : 'chirp') as SocialApp;
+          const aboutYou = new RegExp(p.artistName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(x.text);
+          const post: SocialPost = {
+            id: uuidv4(), platform: app, authorId: x.authorId, authorName: x.authorName, content: x.text.slice(0, 400),
+            likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false,
+            trendingScore: aboutYou ? 45 : 25, daySerial: serial, kind: app === 'clip' ? 'bts' : app === 'snapgram' ? 'photo' : 'thought',
+            tags: aboutYou ? [{ id: 'player', name: p.artistName }] : undefined,
+          } as SocialPost;
+          post.comments = x.comments.slice(0, 4).map((c, i) => ({
+            id: uuidv4(), authorId: c.authorId, authorName: c.authorId.startsWith('fan:') ? `@${c.authorName.replace(/^@/, '')}` : c.authorName,
+            content: c.text.slice(0, 280), likes: Math.round(10 + Math.random() * 80 / (i + 1)), timestamp: new Date().toISOString(),
+            tone: c.authorId.startsWith('fan:') ? 'love' : 'artist', minute: at + 4 + i * 11,
+          } as SocialComment));
+          livenPost(state, post, { at, audience: npc ? undefined : Math.round(600 + Math.random() * 3000) });
+          state.socialPosts.unshift(post);
+          if (aboutYou) pushActivity(state, { kind: 'mention', text: `${x.authorName} posted about you`, actorId: x.authorId, actorName: x.authorName, postId: post.id, minute: at });
+          made++;
+        }
+        if (state.socialPosts.length > 320) trimFeed(state);
+      });
+      return made;
+    },
 
     addAIComments: (postId, comments) =>
       set((state) => {

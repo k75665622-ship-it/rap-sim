@@ -292,7 +292,7 @@ const TIMEOUT_MS = 25000;
 let proxyUrl: string | null = null;
 let proxyBroken = false;
 /** Shown on the AI page so you can tell whether the newest build is loaded. */
-export const AI_BUILD = '2026-10-19 · j4';
+export const AI_BUILD = '2026-10-19 · j5';
 export function setAIProxy(url: string | null): void { proxyUrl = url; if (url) proxyBroken = false; }
 /**
  * The game's own pass-through: set when the server answered, or — when this

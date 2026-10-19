@@ -2,6 +2,7 @@ import { useGameStore } from './store/gameStore';
 import { TurnReportModal } from './components/TurnReportModal';
 import { Sidebar } from './components/layout/Sidebar';
 import { SplashScreen } from './components/screens/SplashScreen';
+import { goBack, startNav, useCanGoBack } from './components/layout/nav';
 import { CreateArtistScreen } from './components/screens/CreateArtistScreen';
 import { Dashboard } from './components/screens/Dashboard';
 import { StudioScreen } from './components/screens/StudioScreen';
@@ -54,6 +55,7 @@ function GameLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[#0A0B10] flex">
       <Sidebar />
       <main className="flex-1 md:ml-56 pt-14 md:pt-0 p-3 md:p-6 overflow-y-auto min-h-screen">
+        <DesktopBack />
         {children}
       </main>
       {/* Overlays live above every screen, so a report raised by the clock is
@@ -62,6 +64,17 @@ function GameLayout({ children }: { children: React.ReactNode }) {
       <AppointmentModal />
       <CourtModal />
       <CeremonyModal />
+    </div>
+  );
+}
+
+/** On a computer there's no phone bar: a small back link above every page. */
+function DesktopBack() {
+  const can = useCanGoBack();
+  if (!can) return null;
+  return (
+    <div className="hidden md:block mb-2">
+      <button onClick={goBack} className="text-[13px] text-ink2 hover:text-ink">← Back</button>
     </div>
   );
 }
@@ -75,6 +88,8 @@ function Standalone({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+startNav();
 
 export default function App() {
   const screen = useGameStore((s) => s.screen);

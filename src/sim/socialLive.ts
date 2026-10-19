@@ -89,14 +89,16 @@ export function liveFraction(app: SocialApp, minutes: number): number {
 /** What a post shows right now. Posts from before this existed show what they stored. */
 export function liveCounts(post: SocialPost, nowMinute: number): LiveTarget {
   const own = { likes: post.liked ? 1 : 0, shares: post.reposted ? 1 : 0 };
+  // Replies count as comments, the way every app counts them.
+  const replies = post.comments.reduce((n, c) => n + (c.replies?.length ?? 0), 0);
   if (!post.target || post.postedMinute === undefined) {
-    return { likes: post.likes, shares: post.shares, comments: post.comments.length, views: post.views ?? 0 };
+    return { likes: post.likes, shares: post.shares, comments: post.comments.length + replies, views: post.views ?? 0 };
   }
   const f = liveFraction(post.platform as SocialApp, nowMinute - post.postedMinute);
   return {
     likes: Math.round(post.target.likes * f) + own.likes,
     shares: Math.round(post.target.shares * f) + own.shares,
-    comments: Math.max(visibleComments(post.comments, nowMinute).length, Math.round(post.target.comments * f)),
+    comments: Math.max(visibleComments(post.comments, nowMinute).length + replies, Math.round(post.target.comments * f) + replies),
     views: Math.round(post.target.views * f),
   };
 }

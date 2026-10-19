@@ -20,7 +20,7 @@ import type {
   PlayerLabel, LabelSignee, LabelPitch, LabelEvent, LabelTerms, LabelDealType,
   LabelStaffRole, LabelReleaseTier, LabelGear, LabelTactic, LabelPolicy, LabelSubmission,
   LabelSession, Genre as LabelGenre, LineupAct, ShowGuest, Moment, MomentEffect,
-  FanWar, SocialComment, SocialActivity, ManagerBrief, InterviewInvite, InterviewRecord,
+  FanWar, SocialComment, SocialActivity, ManagerBrief, InterviewInvite, InterviewRecord, CasinoState,
 } from '../types/game';
 import { rollMoment, resolveMoment, expireMoment, buildFollowUp, buildFeatureTwist, type MomentWorld } from '../sim/moments';
 import { chatReply, detectIntent } from '../sim/chat';
@@ -408,6 +408,11 @@ import {
 } from '../sim/inbound';
 import { cameoQuote, quoteCameos, type CameoQuote } from '../sim/cameo';
 import { generateJobBoard, JOB_CATEGORY_LABEL } from '../data/jobs';
+import { newMarket, stepMarket, holdingValue, STOCK_FEE, COIN_FEE, type MarketState, type MarketNews, type Portfolio } from '../sim/markets';
+import { VENTURE_BY_TYPE, newVenture, ventureMonth, ventureValue, dropCost, resolveDrop, resolveSpecial, type Venture, type VentureCtx, type VentureType, type PricePoint, type DropPlan } from '../sim/ventures';
+import { zoneOf, buildOf, buildCostFor, projectValue, monthlyRent, buildMonth, type Zone, type BuildType } from '../sim/realestate';
+import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, rollDice, fixturesFor, playFixture, tableLimit, vipTier, type BlackjackHand, type RouletteBet, type DiceBet } from '../sim/casino';
+import { assignmentsFor, weekOfWork } from '../sim/assignments';
 
 /**
  * How long before the same person is worth another deliberate evening.
@@ -1012,6 +1017,11 @@ function getInitialState(): GameState {
     outletRel: {},
     lastPitchSerial: undefined,
     managerDesk: [],
+    market: newMarket(dateToSerial(INITIAL_GAME_DATE), Math.random),
+    portfolio: { stocks: [], coins: [], realized: 0, dividends: 0 },
+    ventures: [],
+    devProjects: [],
+    wealthHistory: [],
     socialStats: {},
     fanbaseName: undefined,
     postsToday: undefined,
@@ -2838,6 +2848,27 @@ interface GameActions {
   // Businesses
   buyBusiness: (type: Business['type'], name: string, cost: number) => void;
   sellBusiness: (businessId: string) => void;
+  // Money: markets, businesses you run, property, the casino, the team's jobs
+  buyAsset: (kind: 'stock' | 'coin', ticker: string, dollars: number) => FeatureActionResult;
+  sellAsset: (kind: 'stock' | 'coin', ticker: string, fraction: number) => FeatureActionResult;
+  openVenture: (type: VentureType, name: string) => FeatureActionResult;
+  upgradeVenture: (id: string) => FeatureActionResult;
+  setVenture: (id: string, patch: { staff?: 0 | 1 | 2; price?: PricePoint; marketing?: number }) => FeatureActionResult;
+  ventureSpecial: (id: string, plan?: DropPlan) => FeatureActionResult;
+  sellVenture: (id: string) => FeatureActionResult;
+  closeVenture: (id: string) => FeatureActionResult;
+  buyPlot: (zone: Zone) => FeatureActionResult;
+  startBuild: (projectId: string, build: BuildType) => FeatureActionResult;
+  payOverrun: (projectId: string) => FeatureActionResult;
+  setRenting: (projectId: string, on: boolean) => FeatureActionResult;
+  sellProject: (projectId: string) => FeatureActionResult;
+  enterCasino: () => FeatureActionResult;
+  casinoBlackjack: (action: 'deal' | 'hit' | 'stand' | 'double', bet?: number) => FeatureActionResult;
+  casinoRoulette: (bet: RouletteBet, stake: number) => FeatureActionResult & { n?: number };
+  casinoSlots: (stake: number) => FeatureActionResult & { reels?: string[] };
+  casinoDice: (bet: DiceBet, stake: number) => FeatureActionResult & { dice?: [number, number] };
+  placeSportsBet: (fixtureId: string, pick: 'home' | 'draw' | 'away', stake: number) => FeatureActionResult;
+  assignCrew: (crewId: string, assignmentId: string) => FeatureActionResult;
   // Industry & Life
   requestSampleClearance: (songId: string, sampleName: string, rightsHolder: string) => FeatureActionResult;
   approveSampleClearance: (clearanceId: string) => FeatureActionResult;
@@ -6047,6 +6078,250 @@ function startInterviewSession(state: GameState, outlet: Outlet, format: Intervi
   };
 }
 
+// ─── MONEY: MARKETS, BUSINESSES, PROPERTY, CASINO, TEAM WORK ───────────────
+
+function marketOf(state: GameState): MarketState {
+  if (!state.market || !Array.isArray(state.market.stocks)) state.market = newMarket(dateToSerial(state.gameDate), Math.random);
+  return state.market;
+}
+function portfolioOf(state: GameState): Portfolio {
+  if (!state.portfolio) state.portfolio = { stocks: [], coins: [], realized: 0, dividends: 0 };
+  return state.portfolio;
+}
+function casinoOf(state: GameState): CasinoState {
+  if (!state.casino) state.casino = { vipPoints: 0, net: 0, biggestWin: 0, biggestLoss: 0, day: { serial: -1, net: 0 }, blackjack: null, fixtures: [], bets: [], history: [] };
+  if (!state.casino.fixtures.length) state.casino.fixtures = fixturesFor(dateToSerial(state.gameDate), Math.random);
+  return state.casino;
+}
+
+/** Who on the payroll is doing what. */
+function crewOn(state: GameState, role: string, assignment: string): CrewMember | undefined {
+  return (state.crew ?? []).find((c) => c.role === role && (c.assignment ?? assignmentsFor(role)[0]?.id) === assignment);
+}
+function socialBoost(state: GameState): number {
+  return crewOn(state, 'photographer', 'socials') ? 0.15 : 0;
+}
+export function advisorOf(state: Pick<GameState, 'crew'>): { name: string; skill: number } | null {
+  const c = (state.crew ?? []).find((x) => x.role === 'accountant' && x.assignment === 'markets');
+  return c ? { name: c.npcName, skill: c.skill } : null;
+}
+function dealDiscount(state: GameState): number {
+  return crewOn(state, 'accountant', 'deals') ? 0.08 : 0;
+}
+
+export function priceMapOf(m: MarketState): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of m.stocks) out.set(s.ticker, s.price);
+  for (const c of m.coins) out.set(c.ticker, c.price);
+  return out;
+}
+
+/** Everything you own, at today's prices. */
+export function netWorthOf(state: GameState): { cash: number; stocks: number; crypto: number; businesses: number; property: number; other: number; total: number } {
+  const p = state.player;
+  const cash = p?.career.money ?? 0;
+  const m = state.market;
+  const prices = m ? priceMapOf(m) : new Map<string, number>();
+  const pf = state.portfolio;
+  const stocks = pf ? holdingValue(pf.stocks, prices) : 0;
+  const crypto = pf ? holdingValue(pf.coins, prices) : 0;
+  const businesses = (state.ventures ?? []).filter((v) => !v.closed).reduce((a, v) => a + ventureValue(v), 0) + state.businesses.reduce((a, b) => a + (b.monthlyRevenue / 0.026) * 0.7, 0);
+  const serial = dateToSerial(state.gameDate);
+  const property = (state.devProjects ?? []).reduce((a, d) => a + projectValue(d, m?.propertyIndex ?? 100, serial), 0) + state.investments.reduce((a, i) => a + i.currentValue, 0);
+  const other = (state.ownedAssets ?? []).reduce((a, x) => a + (x.cost ?? 0) * 0.6, 0);
+  return { cash, stocks, crypto, businesses, property, other, total: Math.round(cash + stocks + crypto + businesses + property + other) };
+}
+
+function monthsCrossed(serial: number, days: number): number {
+  const a = serialToDate(serial - days);
+  const b = serialToDate(serial);
+  return (b.year * 12 + b.month) - (a.year * 12 + a.month);
+}
+
+function ventureCtx(state: GameState, v: Venture): VentureCtx {
+  const p = state.player!;
+  const merch = v.type === 'clothing' && crewOn(state, 'stylist', 'merch') ? 0.15 : 0;
+  return { fame: blendedFame(p), fanbase: p.career.fanbase, momentum: p.career.momentum, businessSkill: p.stats.businessKnowledge ?? 40, managerBoost: state.contracts.some((c) => c.type === 'management' && c.active) ? 0.03 : 0, merchBoost: merch };
+}
+
+/** Daily: the markets move; monthly: businesses, rent, dividends; on site: builds progress. */
+function moneyTick(state: GameState, serial: number, days: number, log: string[]): void {
+  const p = state.player;
+  if (!p) return;
+  const m = marketOf(state);
+  const steps = Math.min(Math.max(0, serial - m.day), 45);
+  const fresh: MarketNews[] = [];
+  for (let i = steps - 1; i >= 0; i--) fresh.push(...stepMarket(m, serial - i, Math.random));
+  // Your holdings in the news.
+  const pf = portfolioOf(state);
+  const held = new Set([...pf.stocks, ...pf.coins].map((h) => h.ticker));
+  for (const n of fresh) if (n.ticker && held.has(n.ticker)) log.push(n.text);
+
+  const months = monthsCrossed(serial, days);
+  if (months > 0) {
+    const prices = priceMapOf(m);
+    const d = serialToDate(serial);
+    // Dividends, quarterly.
+    if ([1, 4, 7, 10].includes(d.month)) {
+      let div = 0;
+      for (const h of pf.stocks) { const s = m.stocks.find((x) => x.ticker === h.ticker); if (s) div += h.units * s.price * s.dividend / 4; }
+      div = Math.round(div);
+      if (div > 0) { p.career.money += div; pf.dividends += div; ledgerAdd('dividends', div); log.push(`💵 Dividends paid: $${div.toLocaleString()}.`); }
+    }
+    // A financial advisor earns their keep.
+    const adv = advisorOf(state);
+    if (adv) {
+      const value = holdingValue(pf.stocks, prices) + holdingValue(pf.coins, prices);
+      const bonus = Math.round(value * 0.002 * (adv.skill / 100) * months);
+      if (bonus > 0) { p.career.money += bonus; ledgerAdd('advisor', bonus); log.push(`📈 ${adv.name} rebalanced your portfolio: +$${bonus.toLocaleString()}.`); }
+    }
+    // Businesses you run.
+    for (const v of state.ventures ?? []) {
+      if (v.closed) continue;
+      for (let k = 0; k < Math.min(months, 3); k++) {
+        const ctx = ventureCtx(state, v);
+        const res = ventureMonth(v, ctx, Math.random);
+        let profit = res.month.profit;
+        if (res.events.length && crewOn(state, 'lawyer', 'disputes') && profit < 0) profit = Math.round(profit * 0.7);
+        res.month.serial = serial;
+        res.month.profit = profit;
+        v.months = [...v.months, res.month].slice(-24);
+        p.career.money += profit;
+        ledgerAdd('ventures', profit);
+        if (res.events[0]) { v.log = [res.events[0], ...v.log].slice(0, 12); log.push(`${VENTURE_BY_TYPE[v.type].emoji} ${v.name}: ${res.events[0]}`); }
+        else log.push(`${VENTURE_BY_TYPE[v.type].emoji} ${v.name}: ${profit >= 0 ? '+' : '−'}$${Math.abs(profit).toLocaleString()} this month.`);
+        if (v.redMonths === 3) pushNotification(state, { kind: 'business', title: `${v.name} is losing money`, body: 'Three months in the red. Cut costs, change the price, or sell before it gets worse.', artSeed: `venture|${v.id}` });
+      }
+    }
+    // Rent from what you've built.
+    for (const proj of state.devProjects ?? []) {
+      const rent = monthlyRent(proj, m.propertyIndex) * months;
+      if (rent > 0) { p.career.money += rent; proj.totalRent += rent; ledgerAdd('rent', rent); }
+    }
+    // Legacy holdings.
+    for (const inv of state.investments) {
+      p.career.money += inv.monthlyIncome * months;
+      ledgerAdd('investments', inv.monthlyIncome * months);
+      const changeRange = inv.riskLevel === 'low' ? 0.02 : inv.riskLevel === 'medium' ? 0.08 : 0.2;
+      inv.currentValue = Math.max(inv.initialCost * 0.1, inv.currentValue * (1 + (Math.random() - 0.4) * changeRange));
+    }
+    for (const biz of state.businesses) {
+      const profit = (biz.monthlyRevenue - biz.monthlyCosts) * months;
+      p.career.money += profit;
+      ledgerAdd('business', profit);
+    }
+  }
+
+  // Building sites.
+  for (const proj of state.devProjects ?? []) {
+    if (proj.stage !== 'building') continue;
+    if (Math.random() < 1 - Math.pow(1 - 1 / 30, days)) {
+      const line = buildMonth(proj, { lawyer: (state.crew ?? []).some((c) => c.role === 'lawyer'), assistant: !!crewOn(state, 'personal_assistant', 'errands') }, Math.random);
+      if (line) { proj.log = [line, ...proj.log].slice(0, 10); log.push(`🏗️ ${line}`); }
+    }
+    if (proj.owed > 0 && proj.doneSerial !== undefined) proj.doneSerial += Math.min(days, 7); // work stops while unpaid
+    if (proj.owed <= 0 && proj.doneSerial !== undefined && serial >= proj.doneSerial) {
+      proj.stage = 'done';
+      proj.renting = true;
+      const b = buildOf(proj.build!);
+      proj.log = [`Finished. ${b.name} in the ${zoneOf(proj.zone).name.toLowerCase()} — ready to rent or sell.`, ...proj.log];
+      log.push(`🏗️ Your ${b.name.toLowerCase()} is finished.`);
+      pushNotification(state, { kind: 'business', title: `${b.emoji} ${b.name} finished`, body: 'Rent it out for monthly income, or sell it.', artSeed: `dev|${proj.id}` });
+    }
+  }
+
+  // The sports book: yesterday's matches are played and bets settle.
+  const cas = casinoOf(state);
+  if (!cas.fixtures.length || cas.fixtures[0].serial < serial) {
+    const played = cas.fixtures.map((f) => (f.result ? f : playFixture(f, Math.random)));
+    for (const b of cas.bets) {
+      if (b.settled) continue;
+      const f = played.find((x) => x.id === b.fixtureId);
+      if (!f || !f.result) continue;
+      b.settled = true;
+      b.won = f.result === b.pick;
+      const payout = b.won ? Math.round(b.stake * b.odds) : 0;
+      // The stake left your account (and the casino net) when the bet was placed.
+      if (payout) { p.career.money += payout; cas.net += payout; cas.biggestWin = Math.max(cas.biggestWin, payout - b.stake); ledgerAdd('casino', payout); }
+      const line = `${b.won ? '✅' : '❌'} ${b.label} — ${f.home} ${f.score} ${f.away}${b.won ? ` · won $${payout.toLocaleString()}` : ''}`;
+      cas.history = [line, ...cas.history].slice(0, 30);
+      log.push(`🎰 ${line}`);
+    }
+    cas.bets = cas.bets.filter((b) => !b.settled).concat(cas.bets.filter((b) => b.settled).slice(-10));
+    cas.fixtures = fixturesFor(serial, Math.random);
+  }
+
+  // Net worth, weekly.
+  const hist = state.wealthHistory ?? (state.wealthHistory = []);
+  if (!hist.length || serial - hist[hist.length - 1].serial >= 7) {
+    hist.push({ serial, net: netWorthOf(state).total });
+    if (hist.length > 104) hist.shift();
+  }
+}
+
+/** Weekly: everybody on the payroll does what you have them on. */
+function teamWorkTick(state: GameState, serial: number, days: number, weeklyStreamIncome: number, log: string[]): void {
+  const p = state.player;
+  if (!p) return;
+  if (Math.floor(serial / 7) === Math.floor((serial - days) / 7)) return;
+  const lines: string[] = [];
+  for (const c of state.crew ?? []) {
+    const res = weekOfWork(c.role, c.assignment, c.skill, c.morale ?? 70, { fame: blendedFame(p), weeklyStreamIncome, studioLevel: buildingLevel(state.studio?.levels), npcName: c.npcName });
+    if (!res) continue;
+    if (res.money) { p.career.money += res.money; p.career.totalEarnings += res.money; ledgerAdd('team_work', res.money); }
+    if (res.momentum) addMomentum(state, res.momentum);
+    if (res.rep) p.career.reputation = Math.min(100, p.career.reputation + res.rep);
+    if (res.followers) { const st = socialStatsOf(state); st.snapgram.followers += Math.round(res.followers * 0.5); st.clip.followers += Math.round(res.followers * 0.3); st.chirp.followers += Math.round(res.followers * 0.2); }
+    for (const [k, v] of Object.entries(res.stats ?? {})) {
+      const stats = p.stats as unknown as Record<string, number>;
+      if (typeof stats[k] === 'number') stats[k] = Math.min(100, stats[k] + v);
+    }
+    c.lastWork = res.line;
+    lines.push(res.line);
+  }
+  if (lines.length) log.push(`👥 Team week: ${lines.slice(0, 2).join(' ')}${lines.length > 2 ? ` (+${lines.length - 2} more on the Team page)` : ''}`);
+}
+
+/** Every bet goes through here: the money, the VIP points, the headlines. */
+function settleBet(state: GameState, stake: number, payout: number, what: string): string {
+  const p = state.player!;
+  const cas = casinoOf(state);
+  const serial = dateToSerial(state.gameDate);
+  if (cas.day.serial !== serial) cas.day = { serial, net: 0 };
+  const net = payout - stake;
+  p.career.money += payout;
+  ledgerAdd('casino', payout);
+  cas.net += net;
+  cas.day.net += net;
+  cas.vipPoints += stake;
+  cas.biggestWin = Math.max(cas.biggestWin, net);
+  cas.biggestLoss = Math.min(cas.biggestLoss, net);
+  const line = `${what}: ${net >= 0 ? `+$${net.toLocaleString()}` : `−$${Math.abs(net).toLocaleString()}`}`;
+  cas.history = [line, ...cas.history].slice(0, 30);
+  const fame = blendedFame(p);
+  if (net >= 50_000 && fame >= 15) {
+    state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} wins big at the casino`, fullStory: `A $${net.toLocaleString()} win, according to people who were there.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 4, category: 'general' });
+    addMomentum(state, 1);
+  }
+  if (cas.day.net <= -40_000 && fame >= 15 && !cas.day.reported) {
+    cas.day.reported = true;
+    p.career.reputation = Math.max(0, p.career.reputation - 1.5);
+    state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} spotted losing a fortune at the casino`, fullStory: `Sources say over $${Math.abs(cas.day.net).toLocaleString()} went in one night.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 5, category: 'scandal' });
+  }
+  return line;
+}
+
+function canStake(state: GameState, stake: number): string | null {
+  const p = state.player;
+  if (!p) return 'No career.';
+  const cas = casinoOf(state);
+  if (cas.visitSerial !== dateToSerial(state.gameDate)) return 'Walk in first.';
+  if (!Number.isFinite(stake) || stake < 10) return 'The minimum bet is $10.';
+  if (stake > tableLimit(cas.vipPoints)) return `The table limit for ${vipTier(cas.vipPoints)} players is $${tableLimit(cas.vipPoints).toLocaleString()}.`;
+  if (stake > p.career.money) return 'You don\'t have that much cash.';
+  return null;
+}
+
 /** Daily: invitations arrive (more when you're hot) and old ones lapse. */
 function interviewTick(state: GameState, serial: number, days: number, npcs?: NPC[]): void {
   const p = state.player;
@@ -6069,7 +6344,8 @@ function interviewTick(state: GameState, serial: number, days: number, npcs?: NP
   const st = latest ? state.platformStats?.[latest.id] : undefined;
   const recent = !!st && serial - st.release <= 21;
   const hotBeef = state.beefs.some((b) => !b.resolution && settleHeat(b, serial) >= 35);
-  const chance = 1 - Math.pow(1 - Math.min(0.5, 0.05 + fame / 350 + p.career.momentum / 700 + (recent ? 0.1 : 0) + (hotBeef ? 0.08 : 0)), Math.min(days, 7));
+  const press = crewOn(state, 'publicist', 'press') ? 0.07 : 0;
+  const chance = 1 - Math.pow(1 - Math.min(0.55, 0.05 + fame / 350 + p.career.momentum / 700 + (recent ? 0.1 : 0) + (hotBeef ? 0.08 : 0) + press), Math.min(days, 7));
   if (Math.random() > chance) return;
   const ctx = { ...interviewContext(state, npcs), hasRecentRelease: recent, hotBeef };
   const pickd = pickInvite(outletsNow(state), ctx, state.outletRel ?? {}, Math.random);
@@ -6259,7 +6535,11 @@ function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number):
   // 1. The team's regular drops.
   for (const c of state.crew ?? []) {
     if (c.role !== 'producer' && c.role !== 'engineer') continue;
-    const every = dropInterval(c.role, tier.beatSpeed);
+    // What you have them on changes how often they send you one.
+    const asg = c.assignment;
+    if (c.role === 'engineer' && asg === 'rentals') continue;
+    const factor = asg === 'placements' ? 2.5 : asg === 'mentor' ? 1.6 : asg === 'beatmaking' ? 0.5 : 1;
+    const every = Math.max(2, Math.round(dropInterval(c.role, tier.beatSpeed) * factor));
     const last = b.lastDrop[c.id] ?? c.hiredSerial ?? serial;
     const due = Math.min(3, Math.floor((serial - last) / every));
     if (due <= 0) continue;
@@ -9306,7 +9586,7 @@ export const useGameStore = create<GameState & GameActions>()(
           const craft = kind === 'freestyle' ? p.stats.freestyle : kind === 'skit' ? p.stats.charisma : kind === 'challenge' ? p.stats.stagePresence : p.stats.marketing;
           // The blue tick and a trending sound both carry a post further.
           const lift = (state.verified ? 1.15 : 1) * (soundIsTheirs && app === 'clip' ? 1.35 : 1);
-          const r = postReach({
+          const r = postReach({ boost: socialBoost(state),
             app, kind, followers: Math.round(stats[app].followers * lift), fame: blendedFame(p), momentum: p.career.momentum,
             songQuality: (song ?? sound)?.quality, postsToday: today, taggedFame: tagged.map((n) => n.fame), controversy, craft, roll: Math.random(),
           });
@@ -9428,7 +9708,7 @@ export const useGameStore = create<GameState & GameActions>()(
         const serial = dateToSerial(state.gameDate);
         const insulting = detectIntent(text) === 'insult';
         const stats = socialStatsOf(state);
-        const r = postReach({ app: 'chirp', kind: 'thought', followers: stats.chirp.followers, fame: blendedFame(p), momentum: p.career.momentum, postsToday: 0, taggedFame: [], controversy: insulting, craft: p.stats.charisma, roll: Math.random() });
+        const r = postReach({ boost: socialBoost(state), app: 'chirp', kind: 'thought', followers: stats.chirp.followers, fame: blendedFame(p), momentum: p.career.momentum, postsToday: 0, taggedFame: [], controversy: insulting, craft: p.stats.charisma, roll: Math.random() });
         const quote: SocialPost = {
           id: uuidv4(), platform: 'chirp', authorId: 'player', authorName: p.artistName, content: text.trim(),
           likes: r.likes, shares: r.shares, comments: [], timestamp: new Date().toISOString(),
@@ -12074,6 +12354,435 @@ export const useGameStore = create<GameState & GameActions>()(
         state.lastEventLog = state.lastEventLog.slice(0, 10);
       }),
 
+    // ─── MONEY: SHARES & CRYPTO ─────────────────────────────────────────
+    buyAsset: (kind, ticker, dollars) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not buy.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const m = marketOf(state);
+        const asset = kind === 'stock' ? m.stocks.find((s) => s.ticker === ticker) : m.coins.find((c) => c.ticker === ticker);
+        if (!asset) { result.message = 'Not listed.'; return; }
+        if ('dead' in asset && asset.dead) { result.message = `${asset.name} is dead. Nobody is selling it to you.`; return; }
+        dollars = Math.round(dollars);
+        if (!Number.isFinite(dollars) || dollars < 50) { result.message = 'The minimum order is $50.'; return; }
+        if (dollars > p.career.money) { result.message = 'You don\'t have that much cash.'; return; }
+        const fee = dollars * (kind === 'stock' ? STOCK_FEE : COIN_FEE);
+        const units = (dollars - fee) / asset.price;
+        const pf = portfolioOf(state);
+        const book = kind === 'stock' ? pf.stocks : pf.coins;
+        const h = book.find((x) => x.ticker === ticker);
+        if (h) { h.avgCost = (h.units * h.avgCost + dollars) / (h.units + units); h.units += units; }
+        else book.push({ ticker, units, avgCost: dollars / units });
+        p.career.money -= dollars;
+        result = { ok: true, message: `Bought ${units < 1 ? units.toFixed(4) : units < 100 ? units.toFixed(2) : Math.round(units).toLocaleString()} ${ticker} for $${dollars.toLocaleString()}.` };
+      });
+      return result;
+    },
+
+    sellAsset: (kind, ticker, fraction) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not sell.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const m = marketOf(state);
+        const pf = portfolioOf(state);
+        const book = kind === 'stock' ? pf.stocks : pf.coins;
+        const i = book.findIndex((x) => x.ticker === ticker);
+        if (i < 0) { result.message = 'You don\'t own any.'; return; }
+        const h = book[i];
+        const price = priceMapOf(m).get(ticker) ?? 0;
+        const f = Math.min(1, Math.max(0.01, fraction));
+        const units = f >= 0.999 ? h.units : h.units * f;
+        const gross = units * price;
+        const proceeds = Math.round(gross * (1 - (kind === 'stock' ? STOCK_FEE : COIN_FEE)));
+        const pnl = proceeds - units * h.avgCost;
+        p.career.money += proceeds;
+        pf.realized += Math.round(pnl);
+        h.units -= units;
+        if (h.units <= 1e-9 || f >= 0.999) book.splice(i, 1);
+        result = { ok: true, message: proceeds <= 0 ? `Wrote off your ${ticker}. It's worth nothing.` : `Sold for $${proceeds.toLocaleString()} — ${pnl >= 0 ? `+$${Math.round(pnl).toLocaleString()} profit` : `−$${Math.round(-pnl).toLocaleString()} loss`}.` };
+      });
+      return result;
+    },
+
+    // ─── MONEY: BUSINESSES YOU RUN ──────────────────────────────────────
+    openVenture: (type, name) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not open it.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const def = VENTURE_BY_TYPE[type];
+        if (!def) return;
+        const open = (state.ventures ?? []).filter((v) => !v.closed);
+        if (open.length >= 8) { result.message = 'Eight businesses is plenty. Sell one first.'; return; }
+        if (open.some((v) => v.type === type)) { result.message = `You already run a ${def.name.toLowerCase()}. Grow that one.`; return; }
+        const cost = Math.round(def.startCost * (1 - dealDiscount(state)));
+        if (p.career.money < cost) { result.message = `You need $${cost.toLocaleString()} to open it.`; return; }
+        if (!spendEnergy(state, 6, { admin: true })) { result.message = energyShortfallMessage(6, p.energy); return; }
+        p.career.money -= cost;
+        const clean = name.trim().slice(0, 40) || `${p.artistName} ${def.name}`;
+        const v = newVenture(type, clean, dateToSerial(state.gameDate), uuidv4());
+        v.invested = cost;
+        (state.ventures ??= []).push(v);
+        state.socialPosts.unshift({
+          id: uuidv4(), platform: 'snapgram', authorId: 'player', authorName: p.artistName,
+          content: `${def.emoji} ${clean} is OPEN. Pull up.`, likes: 0, shares: 0, comments: [],
+          timestamp: new Date().toISOString(), isPlayerPost: true, trendingScore: 18, daySerial: dateToSerial(state.gameDate), kind: 'announce',
+        } as SocialPost);
+        livenPost(state, state.socialPosts[0], { npcs: raw(state.npcs) as NPC[] });
+        result = { ok: true, message: `${clean} is open. $${cost.toLocaleString()} in${dealDiscount(state) ? ' (your accountant got 8% off)' : ''}.` };
+      });
+      return result;
+    },
+
+    upgradeVenture: (id) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not upgrade.' };
+      set((state) => {
+        const p = state.player;
+        const v = (state.ventures ?? []).find((x) => x.id === id && !x.closed);
+        if (!p || !v) return;
+        const def = VENTURE_BY_TYPE[v.type];
+        const next = def.levels[v.level];
+        if (!next) { result.message = 'It\'s as big as it gets.'; return; }
+        const cost = Math.round(next.cost * (1 - dealDiscount(state)));
+        if (p.career.money < cost) { result.message = `You need $${cost.toLocaleString()}.`; return; }
+        p.career.money -= cost;
+        v.level += 1;
+        v.invested += cost;
+        v.hype = Math.min(100, v.hype + 15);
+        v.log = [`Grew into: ${next.label}.`, ...v.log].slice(0, 12);
+        result = { ok: true, message: `${v.name}: ${next.label}. $${cost.toLocaleString()} spent.` };
+      });
+      return result;
+    },
+
+    setVenture: (id, patch) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not found.' };
+      set((state) => {
+        const v = (state.ventures ?? []).find((x) => x.id === id && !x.closed);
+        if (!v) return;
+        if (patch.staff !== undefined) v.staff = patch.staff;
+        if (patch.price) v.price = patch.price;
+        if (patch.marketing !== undefined) v.marketing = Math.max(0, Math.min(500_000, Math.round(patch.marketing / 100) * 100));
+        result = { ok: true, message: 'Updated. You\'ll see it in next month\'s numbers.' };
+      });
+      return result;
+    },
+
+    ventureSpecial: (id, plan) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not do that.' };
+      set((state) => {
+        const p = state.player;
+        const v = (state.ventures ?? []).find((x) => x.id === id && !x.closed);
+        if (!p || !v) return;
+        const def = VENTURE_BY_TYPE[v.type];
+        const serial = dateToSerial(state.gameDate);
+        if (v.lastSpecialSerial !== undefined && serial - v.lastSpecialSerial < 30) { result.message = `Not again yet — ${30 - (serial - v.lastSpecialSerial)} days.`; return; }
+        const ctx = ventureCtx(state, v);
+        if (def.special.id === 'drop') {
+          if (!plan || plan.units < 50) { result.message = 'Pick how many pieces and what quality.'; return; }
+          const cost = dropCost(plan, v.level);
+          if (p.career.money < cost) { result.message = `Producing that costs $${cost.toLocaleString()}.`; return; }
+          if (!spendEnergy(state, def.special.energy, { admin: true })) { result.message = energyShortfallMessage(def.special.energy, p.energy); return; }
+          p.career.money -= cost;
+          const res = resolveDrop(v, plan, ctx, Math.random);
+          p.career.money += res.revenue;
+          v.reputation = Math.max(0, Math.min(100, v.reputation + res.rep));
+          v.hype = Math.max(0, Math.min(100, v.hype + res.hype));
+          v.lastSpecialSerial = serial;
+          const net = res.revenue - cost;
+          v.months = [...v.months, { serial, revenue: res.revenue, costs: cost, profit: net, note: 'Collection drop' }].slice(-24);
+          v.log = [res.text, ...v.log].slice(0, 12);
+          if (res.hype >= 40) addMomentum(state, 3);
+          result = { ok: true, message: `${res.text} ${net >= 0 ? `+$${net.toLocaleString()}` : `−$${Math.abs(net).toLocaleString()}`} on the drop.` };
+          return;
+        }
+        const cost = def.special.cost;
+        if (p.career.money < cost) { result.message = `That costs $${cost.toLocaleString()}.`; return; }
+        if (!spendEnergy(state, def.special.energy, { admin: true })) { result.message = energyShortfallMessage(def.special.energy, p.energy); return; }
+        p.career.money -= cost;
+        const res = resolveSpecial(v, ctx, Math.random);
+        p.career.money += res.cash;
+        v.reputation = Math.max(0, Math.min(100, v.reputation + res.rep));
+        v.hype = Math.max(0, Math.min(100, v.hype + res.hype));
+        if (res.ownership !== undefined) v.ownership = res.ownership;
+        if (res.fame) p.career.localFame = Math.min(100, p.career.localFame + res.fame);
+        v.lastSpecialSerial = serial;
+        v.log = [res.text, ...v.log].slice(0, 12);
+        result = { ok: true, message: res.text };
+      });
+      return result;
+    },
+
+    sellVenture: (id) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not sell.' };
+      set((state) => {
+        const p = state.player;
+        const v = (state.ventures ?? []).find((x) => x.id === id && !x.closed);
+        if (!p || !v) return;
+        const value = ventureValue(v);
+        p.career.money += value;
+        v.closed = true;
+        v.log = [`Sold for $${value.toLocaleString()}.`, ...v.log].slice(0, 12);
+        const pnl = value - v.invested + v.months.reduce((a, m) => a + m.profit, 0);
+        result = { ok: true, message: `Sold ${v.name} for $${value.toLocaleString()}. Lifetime ${pnl >= 0 ? 'profit' : 'loss'}: $${Math.abs(pnl).toLocaleString()}.` };
+      });
+      return result;
+    },
+
+    closeVenture: (id) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not close.' };
+      set((state) => {
+        const p = state.player;
+        const v = (state.ventures ?? []).find((x) => x.id === id && !x.closed);
+        if (!p || !v) return;
+        const scrap = Math.round(VENTURE_BY_TYPE[v.type].startCost * 0.15);
+        p.career.money += scrap;
+        v.closed = true;
+        v.log = [`Closed down. Equipment sold for $${scrap.toLocaleString()}.`, ...v.log].slice(0, 12);
+        result = { ok: true, message: `${v.name} is closed. You got $${scrap.toLocaleString()} for the equipment.` };
+      });
+      return result;
+    },
+
+    // ─── MONEY: PROPERTY DEVELOPMENT ────────────────────────────────────
+    buyPlot: (zone) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not buy the land.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const z = zoneOf(zone);
+        const m = marketOf(state);
+        const live = (state.devProjects ?? []).filter((d) => d.stage !== 'sold');
+        if (live.length >= 10) { result.message = 'Ten properties at once is the limit.'; return; }
+        const price = Math.round(z.land * (m.propertyIndex / 100) * (1 - dealDiscount(state)));
+        if (p.career.money < price) { result.message = `That plot costs $${price.toLocaleString()}.`; return; }
+        p.career.money -= price;
+        const serial = dateToSerial(state.gameDate);
+        (state.devProjects ??= []).push({
+          id: uuidv4(), zone, stage: 'land', landCost: price, buildCost: 0, spent: price, boughtSerial: serial, indexAtBuy: m.propertyIndex,
+          quality: Math.round(45 + (p.stats.businessKnowledge ?? 40) / 5), renting: false, owed: 0, totalRent: 0,
+          log: [`Bought a plot in the ${z.name.toLowerCase()} for $${price.toLocaleString()}.`],
+        });
+        result = { ok: true, message: `${z.emoji} Plot bought: $${price.toLocaleString()}. Build on it, or sit on it and wait.` };
+      });
+      return result;
+    },
+
+    startBuild: (projectId, build) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not start.' };
+      set((state) => {
+        const p = state.player;
+        const d = (state.devProjects ?? []).find((x) => x.id === projectId);
+        if (!p || !d || d.stage !== 'land') return;
+        const b = buildOf(build);
+        const cost = Math.round(buildCostFor(d.zone, build) * (1 - dealDiscount(state)));
+        if (p.career.money < cost) { result.message = `Building that costs $${cost.toLocaleString()}.`; return; }
+        if (!spendEnergy(state, 5, { admin: true })) { result.message = energyShortfallMessage(5, p.energy); return; }
+        p.career.money -= cost;
+        const serial = dateToSerial(state.gameDate);
+        d.build = build;
+        d.stage = 'building';
+        d.buildCost = cost;
+        d.spent += cost;
+        d.startSerial = serial;
+        d.doneSerial = serial + b.days;
+        d.log = [`Broke ground on ${b.name.toLowerCase()}. About ${Math.round(b.days / 30)} months.`, ...d.log];
+        result = { ok: true, message: `${b.emoji} Construction started — about ${Math.round(b.days / 30)} months if nothing goes wrong.` };
+      });
+      return result;
+    },
+
+    payOverrun: (projectId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing owed.' };
+      set((state) => {
+        const p = state.player;
+        const d = (state.devProjects ?? []).find((x) => x.id === projectId);
+        if (!p || !d || d.owed <= 0) return;
+        if (p.career.money < d.owed) { result.message = `You need $${d.owed.toLocaleString()} to get work moving again.`; return; }
+        p.career.money -= d.owed;
+        d.spent += d.owed;
+        d.log = [`Paid $${d.owed.toLocaleString()}. Work is moving again.`, ...d.log];
+        result = { ok: true, message: `Paid $${d.owed.toLocaleString()}. The crew is back on site.` };
+        d.owed = 0;
+      });
+      return result;
+    },
+
+    setRenting: (projectId, on) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not found.' };
+      set((state) => {
+        const d = (state.devProjects ?? []).find((x) => x.id === projectId);
+        if (!d || d.stage !== 'done') return;
+        d.renting = on;
+        result = { ok: true, message: on ? 'Tenants moving in. Rent starts next month.' : 'Kept empty — ready to sell.' };
+      });
+      return result;
+    },
+
+    sellProject: (projectId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not sell.' };
+      set((state) => {
+        const p = state.player;
+        const d = (state.devProjects ?? []).find((x) => x.id === projectId);
+        if (!p || !d || d.stage === 'sold') return;
+        const m = marketOf(state);
+        const value = Math.round(projectValue(d, m.propertyIndex, dateToSerial(state.gameDate)) * 0.97 - d.owed);
+        p.career.money += Math.max(0, value);
+        const pnl = value + d.totalRent - d.spent;
+        d.stage = 'sold';
+        d.soldFor = value;
+        d.owed = 0;
+        d.renting = false;
+        d.log = [`Sold for $${value.toLocaleString()}.`, ...d.log];
+        result = { ok: true, message: `Sold for $${value.toLocaleString()} after agent fees. ${pnl >= 0 ? `Profit: $${pnl.toLocaleString()}` : `Loss: $${Math.abs(pnl).toLocaleString()}`} including rent.` };
+      });
+      return result;
+    },
+
+    // ─── MONEY: THE CASINO ──────────────────────────────────────────────
+    enterCasino: () => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not get in.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const cas = casinoOf(state);
+        const serial = dateToSerial(state.gameDate);
+        if (cas.visitSerial === serial) { result = { ok: true, message: 'Back at the tables.' }; return; }
+        if (!spendEnergy(state, 3, { admin: true })) { result.message = energyShortfallMessage(3, p.energy); return; }
+        cas.visitSerial = serial;
+        if (cas.day.serial !== serial) cas.day = { serial, net: 0 };
+        result = { ok: true, message: `Welcome in. ${vipTier(cas.vipPoints)} table limit: $${tableLimit(cas.vipPoints).toLocaleString()}.` };
+      });
+      return result;
+    },
+
+    casinoBlackjack: (action, bet) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not play.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const cas = casinoOf(state);
+        const finish = (h: BlackjackHand) => {
+          const line = settleBet(state, h.bet, h.payout ?? 0, h.result === 'blackjack' ? 'Blackjack!' : `Blackjack (${h.result})`);
+          h.deck = [];
+          result = { ok: true, message: line };
+        };
+        if (action === 'deal') {
+          if (cas.blackjack && !cas.blackjack.done) { result.message = 'Finish this hand first.'; return; }
+          const stake = Math.round(bet ?? 0);
+          const err = canStake(state, stake);
+          if (err) { result.message = err; return; }
+          p.career.money -= stake;
+          const h = dealBlackjack(stake, Math.random);
+          cas.blackjack = h;
+          if (h.done) finish(cas.blackjack);
+          else result = { ok: true, message: 'Dealt.' };
+          return;
+        }
+        const h = cas.blackjack;
+        if (!h || h.done) { result.message = 'Deal a hand first.'; return; }
+        if (action === 'hit') hit(h);
+        else if (action === 'stand') stand(h);
+        else if (action === 'double') {
+          if (h.player.length !== 2) { result.message = 'You can only double on your first two cards.'; return; }
+          if (p.career.money < h.bet) { result.message = 'Not enough cash to double.'; return; }
+          p.career.money -= h.bet;
+          doubleDown(h);
+        }
+        if (h.done) finish(h);
+        else result = { ok: true, message: action === 'hit' ? 'Another card.' : 'OK.' };
+      });
+      return result;
+    },
+
+    casinoRoulette: (bet, stake) => {
+      let result: FeatureActionResult & { n?: number } = { ok: false, message: 'Could not spin.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        stake = Math.round(stake);
+        const err = canStake(state, stake);
+        if (err) { result.message = err; return; }
+        p.career.money -= stake;
+        const spin = spinRoulette(bet, stake, Math.random);
+        const line = settleBet(state, stake, spin.payout, `Roulette ${spin.n} ${spin.n === 0 ? 'green' : isRed(spin.n) ? 'red' : 'black'}`);
+        result = { ok: true, message: line, n: spin.n };
+      });
+      return result;
+    },
+
+    casinoSlots: (stake) => {
+      let result: FeatureActionResult & { reels?: string[] } = { ok: false, message: 'Could not spin.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        stake = Math.round(stake);
+        const err = canStake(state, stake);
+        if (err) { result.message = err; return; }
+        p.career.money -= stake;
+        const spin = spinSlots(stake, Math.random);
+        const line = settleBet(state, stake, spin.payout, `Slots ${spin.reels.join('')}`);
+        result = { ok: true, message: `${spin.text} ${line.split(': ')[1] ?? ''}`.trim(), reels: spin.reels };
+      });
+      return result;
+    },
+
+    casinoDice: (bet, stake) => {
+      let result: FeatureActionResult & { dice?: [number, number] } = { ok: false, message: 'Could not roll.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        stake = Math.round(stake);
+        const err = canStake(state, stake);
+        if (err) { result.message = err; return; }
+        p.career.money -= stake;
+        const roll = rollDice(bet, stake, Math.random);
+        const line = settleBet(state, stake, roll.payout, `Dice ${roll.dice[0]}+${roll.dice[1]}=${roll.total}`);
+        result = { ok: true, message: line, dice: roll.dice };
+      });
+      return result;
+    },
+
+    placeSportsBet: (fixtureId, pick, stake) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not place the bet.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const cas = casinoOf(state);
+        const f = cas.fixtures.find((x) => x.id === fixtureId);
+        if (!f || f.result) { result.message = 'That match is closed.'; return; }
+        stake = Math.round(stake);
+        if (!Number.isFinite(stake) || stake < 10) { result.message = 'The minimum bet is $10.'; return; }
+        if (stake > tableLimit(cas.vipPoints)) { result.message = `Your limit is $${tableLimit(cas.vipPoints).toLocaleString()}.`; return; }
+        if (stake > p.career.money) { result.message = 'You don\'t have that much cash.'; return; }
+        if (cas.bets.filter((b) => !b.settled).length >= 8) { result.message = 'Eight open bets at once is the limit.'; return; }
+        const odds = f.odds[pick];
+        p.career.money -= stake;
+        cas.net -= stake;
+        cas.vipPoints += stake;
+        const label = `${pick === 'home' ? f.home : pick === 'away' ? f.away : `${f.home} v ${f.away} draw`} @ ${odds.toFixed(2)} · $${stake.toLocaleString()}`;
+        cas.bets.push({ id: uuidv4(), fixtureId, pick, stake, odds, label });
+        result = { ok: true, message: `Bet placed. Pays $${Math.round(stake * odds).toLocaleString()} if it lands — tomorrow.` };
+      });
+      return result;
+    },
+
+    // ─── TEAM: WHAT EVERYONE WORKS ON ───────────────────────────────────
+    assignCrew: (crewId, assignmentId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not on the payroll.' };
+      set((state) => {
+        const c = (state.crew ?? []).find((x) => x.id === crewId);
+        if (!c) return;
+        const a = assignmentsFor(c.role).find((x) => x.id === assignmentId);
+        if (!a) { result.message = 'They don\'t do that.'; return; }
+        c.assignment = a.id;
+        result = { ok: true, message: `${c.npcName.split(' ')[0]} is on ${a.label.toLowerCase()} now.` };
+      });
+      return result;
+    },
+
     // ─── YOUR OWN LABEL ─────────────────────────────────────────────────
     foundLabel: (opts) => {
       let result: FeatureActionResult = { ok: false, message: 'Could not found the label.' };
@@ -14275,27 +14984,8 @@ export const useGameStore = create<GameState & GameActions>()(
           }
         }
 
-        // ─── INVESTMENT TICKING ───────────────────────────────────────
-        if (unit === 'month') {
-          for (const inv of state.investments) {
-            // Monthly income
-            state.player.career.money += inv.monthlyIncome;
-            ledgerAdd('investments', inv.monthlyIncome);
-
-            // Value change based on risk
-            const changeRange = inv.riskLevel === 'low' ? 0.02 : inv.riskLevel === 'medium' ? 0.08 : 0.20;
-            const change = (Math.random() - 0.4) * changeRange; // Slightly positive bias
-            inv.currentValue = Math.max(inv.initialCost * 0.1, inv.currentValue * (1 + change));
-          }
-
-          // Business income
-          for (const biz of state.businesses) {
-            const profit = biz.monthlyRevenue - biz.monthlyCosts;
-            state.player.career.money += profit;
-            ledgerAdd('business', profit);
-            if (profit > 0) log.push(`🏢 ${biz.name}: +$${profit.toLocaleString()} profit`);
-          }
-        }
+        // Investments and businesses pay at every month boundary now — see
+        // `moneyTick`, below, so a day-by-day player is paid too.
 
         // ─── BEEF: DECAY, AND THE ONES THAT END THEMSELVES ────────────
         // Heat is stored "as of `heatSerial`" and read through `decayedHeat`,
@@ -14771,6 +15461,13 @@ export const useGameStore = create<GameState & GameActions>()(
         // store, and the studio's monthly bills.
         beatsTick(state, rawNPCs, targetSerial, days);
 
+        // ─── MONEY & THE TEAM'S WEEK ──────────────────────────────────
+        // Markets move daily; businesses, rent and dividends at the month;
+        // building sites progress; yesterday's matches settle. Then whatever
+        // each person on the payroll was put on this week.
+        moneyTick(state, targetSerial, days, log);
+        teamWorkTick(state, targetSerial, days, (streamRun.revenue / Math.max(1, days)) * 7, log);
+
         // ─── INDUSTRY & LIFE TICK ─────────────────────────────────────
         const todaySerial = dateToSerial(state.gameDate);
         for (const campaign of state.payolaCampaigns) {
@@ -14943,6 +15640,8 @@ export const useGameStore = create<GameState & GameActions>()(
             ...state.ownedAssets.map((a) => ({ label: a.name, value: a.cost })),
             ...state.businesses.map((b) => ({ label: b.name, value: b.monthlyRevenue * 24 })),
             ...state.investments.map((i) => ({ label: i.name, value: i.currentValue })),
+            // Buildings and land you developed are property too.
+            ...(state.devProjects ?? []).filter((d) => d.stage !== 'sold').map((d) => ({ label: d.build ?? 'land', value: projectValue(d, state.market?.propertyIndex ?? 100, dateToSerial(state.gameDate)) })),
           ];
           const propTax = propertyTax(holdings);
           if (propTax > 0) {
@@ -15258,6 +15957,12 @@ export const useGameStore = create<GameState & GameActions>()(
           outletRel: state.outletRel,
           lastPitchSerial: state.lastPitchSerial,
           managerDesk: (state.managerDesk ?? []).slice(0, 30),
+          market: state.market,
+          portfolio: state.portfolio,
+          ventures: state.ventures,
+          devProjects: state.devProjects,
+          casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
+          wealthHistory: state.wealthHistory,
           investments: state.investments,
           businesses: state.businesses,
           label: state.label ?? null,
@@ -15365,7 +16070,7 @@ export const useGameStore = create<GameState & GameActions>()(
       // whole benefit would land in the range where there was nothing left to
       // recover — a mechanic that reads as working and does nothing.
       const base = restRecovery(minutes, p.energy, p.maxEnergy);
-      const restMult = crewBonuses(before.crew).energyRecovery;
+      const restMult = crewBonuses(before.crew).energyRecovery * ((before.crew ?? []).some((c) => c.role === 'personal_assistant' && (c.assignment ?? 'diary') === 'diary') ? 1.1 : 1);
       const recovered = Math.min(
         p.maxEnergy,
         Math.round(p.energy + (base - p.energy) * restMult),
@@ -15603,6 +16308,12 @@ export const useGameStore = create<GameState & GameActions>()(
         outletRel: state.outletRel,
         lastPitchSerial: state.lastPitchSerial,
         managerDesk: (state.managerDesk ?? []).slice(0, 30),
+        market: state.market,
+        portfolio: state.portfolio,
+        ventures: state.ventures,
+        devProjects: state.devProjects,
+        casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
+        wealthHistory: state.wealthHistory,
         investments: state.investments,
         businesses: state.businesses,
         label: state.label ?? null,

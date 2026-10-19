@@ -20,6 +20,7 @@ import { ManagerDesk } from '../moments/ManagerDesk';
 
 import { useMemo, useState } from 'react';
 import { useGameStore, isSongReleased } from '../../store/gameStore';
+import { assignmentsFor, currentAssignment } from '../../sim/assignments';
 import { PageTitle, SectionTitle, Panel, Tile, Button, Tag, Stat, SearchInput, EmptyState } from '../ui/kit';
 import { cn } from '@/utils/cn';
 import { money, moneyCompact, compact } from '@/utils/format';
@@ -828,6 +829,37 @@ function CrewRow({
           )}
         </div>
       </div>
+      <JobPicker member={member} />
+    </div>
+  );
+}
+
+// ─── WHAT THEY WORK ON ─────────────────────────────────────────────────────
+
+function JobPicker({ member }: { member: CrewMember }) {
+  const assignCrew = useGameStore((s) => s.assignCrew);
+  const jobs = assignmentsFor(member.role);
+  if (!jobs.length) return null;
+  const current = currentAssignment(member.role, member.assignment);
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-line/70">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-ink3 mb-1.5">Working on</div>
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-0.5 px-0.5">
+        {jobs.map((j) => {
+          const on = current?.id === j.id;
+          return (
+            <button
+              key={j.id}
+              onClick={() => !on && assignCrew(member.id, j.id)}
+              className={`shrink-0 h-8 px-3 rounded-full border text-[12px] font-semibold transition ${on ? 'border-amber bg-amber/15 text-amber' : 'border-line bg-card text-ink2 hover:text-ink hover:bg-cardhover'}`}
+            >
+              {j.emoji} {j.label}
+            </button>
+          );
+        })}
+      </div>
+      {current ? <div className="text-[11px] text-ink2 mt-1.5 leading-snug">{current.blurb}</div> : null}
+      {member.lastWork ? <div className="text-[11px] text-ink3 mt-1 leading-snug">Last week: {member.lastWork}</div> : null}
     </div>
   );
 }

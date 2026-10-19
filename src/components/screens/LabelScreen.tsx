@@ -192,7 +192,7 @@ function FoundLabel() {
             onClick={() => { const r = foundLabel({ name, color, genreFocus: genre }); setMsg({ ok: r.ok, text: r.message }); }} className="w-full">
             {existing ? 'Turn my Record Label business into a real label' : `Found ${name.trim() || 'the label'} · ${money(FOUNDING_COST)}`}
           </Button>
-          <button onClick={() => setScreen('investments')} className="text-[12px] text-ink3 hover:text-ink">← Back to Investments</button>
+          <button onClick={() => setScreen('investments')} className="text-[12px] text-ink3 hover:text-ink">← Back to Money</button>
         </Panel>
 
         <Panel className="md:col-span-2 p-5 space-y-4">

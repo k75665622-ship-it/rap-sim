@@ -90,6 +90,36 @@ const LEDGER_LABELS: Record<string, { label: string; kind: LedgerKind; note?: st
     kind: 'expense',
     note: 'Leases, exclusives and commissioned beats.',
   },
+  ventures: {
+    label: 'Your businesses',
+    kind: 'income',
+    note: 'What the businesses you run made (or lost) this month.',
+  },
+  dividends: {
+    label: 'Dividends',
+    kind: 'income',
+    note: 'Quarterly payouts from the shares you hold.',
+  },
+  advisor: {
+    label: 'Advisor returns',
+    kind: 'income',
+    note: 'What your financial advisor squeezed out of the portfolio.',
+  },
+  rent: {
+    label: 'Rent',
+    kind: 'income',
+    note: 'Tenants in the buildings you developed.',
+  },
+  casino: {
+    label: 'Sports book',
+    kind: 'income',
+    note: 'Winning bets paid out.',
+  },
+  team_work: {
+    label: 'Team side work',
+    kind: 'income',
+    note: 'Royalties chased, beats and songs sold, brand posts.',
+  },
   other: {
     label: 'Other',
     kind: 'income',

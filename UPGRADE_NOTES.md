@@ -153,6 +153,30 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 ### Studio on a phone
 - The record screen stacks into one column with a **live read** of the song at the top, a scrollable step rail, and a **sticky bar** with the cost and the Book button. Ghostwriters, moods, effort, the room, projects and the vault all reflow for small screens.
 
+## 2026-10-18 (e) — Money: shares, crypto, businesses, property, the casino; team jobs; artist pages
+
+### The Money page (replaces Investments)
+- **Overview**: your net worth (cash, shares, crypto, businesses, property, cars and jewels) with a chart over time, what came in last month, money news, and your financial advisor's calls.
+- **Shares**: 14 fictional companies across telecom, banking, mining, energy, fashion, media, tech, airlines, cocoa, logistics, food, property and cars. Prices move every game day with the market's mood (bull, bear, sideways), hidden trends that change, and news shocks ("fraud investigation — −14%"). Dividends pay every quarter. 1% fee per trade.
+- **Crypto**: majors, altcoins, meme coins and a stablecoin. Memes pump on celebrity tweets and give it back; anonymous teams **rug pull** (−90% overnight); dead coins are delisted and new ones list. The stablecoin can lose its peg. Memes lose money on average — they are lottery tickets.
+- **Businesses you run** — clothing brand, restaurant, nightclub, car wash, barbershop, drinks brand, events company, gym, tech app, sneaker resale. You set staff (cheap/good/elite), prices (budget/standard/premium) and monthly marketing; grow each through five levels; and each has a monthly big move (drop a collection, throw a party, a festival, a celebrity chef, a flavour launch, raise money for the app, flip a sneaker drop). Things happen: theft, viral bad reviews, inspectors, police at the club, a footballer wearing your hoodie on TV. Fame-driven businesses lose money if nobody knows you; a car wash doesn't care. Sell any time for what it's worth, or close it down.
+- **Property development**: buy a plot (outskirts, suburbs, downtown, beachfront), build apartments, villas, a plaza or a hotel (4–10 months), then rent it out or sell. Building sites go wrong: rain delays, cost overruns that stop work until you pay, permit fees, a contractor running off with a deposit (unless you have a lawyer). The property market moves under you. Developed property is included in property tax.
+- **The casino**: walk in (⚡3) for blackjack, roulette, slots and dice with real house edges; the sports book (tomorrow's matches, bookmaker odds) works from your phone. Table limits rise with how much you've played (Guest → Gold → Platinum → Black card). Big wins and big nights of losses make the blogs if you're famous.
+
+### Your team has jobs
+- Everyone on the payroll now has a choice of what to work on, set on the Team page, and reports what they did each week:
+  - **Accountant**: books & tax, **financial advisor** (buy/hold/sell calls on every stock and coin, rug-pull warnings, a monthly return on your portfolio — a skill-90 advisor reads the hidden trend every time, a skill-20 one is guessing), or deal-maker (8% off businesses, upgrades, land and builds).
+  - **Lawyer**: contracts, disputes (business fines and losses cost less), or chasing royalties (weekly cash).
+  - **Publicist**: buzz (momentum), damage control (reputation), or press bookings (more interview invites).
+  - **Stylist**: your image, paid brand posts, or designing for your clothing line (+15% sales).
+  - **Photographer**: covers, or your socials (posts reach 15% further, followers every week).
+  - **Personal assistant**: diary (better rest), business errands (permit fees halved), networking.
+  - **Producer / engineer**: beats for you, selling beats or renting your studio for cash, teaching you, or making more beats.
+  - **Songwriter**: your songs, or writing for others for cash. **Vocal coach**: voice, live shows, freestyle. **Trainer**: stamina or stage fitness.
+
+### Artist pages
+- The Artists directory and profile were rebuilt for phones: search, country/role/tier filters, cards with the full name and verified tick; the profile has a banner, the name in full, followers and listeners, and tabs for overview, music, relationship, team and hiring.
+
 ## How to run
 
 ```

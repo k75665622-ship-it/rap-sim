@@ -4,11 +4,13 @@
 // writing takes over and the player never sees an error in the chat.
 
 import { useGameStore, blendedFame, nowMinuteOf } from '../store/gameStore';
-import { aiActiveFor, callClaude, parseJSON, mentionsAny, AIError } from '../sim/ai';
+import { aiActiveFor, callAI as callClaude, parseJSON, mentionsAny, AIError } from '../sim/ai';
 import { personaOf, styleNote } from '../sim/persona';
 import { isSongReleased } from '../sim/release';
 import type { GameState, NPC } from '../types/game';
 import { isRealId } from '../sim/realPeople';
+import { memoryContext } from '../sim/memories';
+import { dateToSerial } from '../sim/gameClock';
 
 // ─── THE RULES (cached on the API side) ────────────────────────────────────
 
@@ -24,6 +26,7 @@ How to write:
 - The game includes some real-world artists. Never write words for, quote, impersonate or make claims about any real person. Do not mention real artists, real celebrities or real companies by name.
 - Never invent prices, chart positions or facts about the player beyond what you are told.
 - Do not repeat the player's words back to them. Do not ask more than one question.
+- Characters have memories. When the context lists what they remember about the player (a no-show, being left on read, a great session, a gift), let it colour how they talk — bring it up when it fits. Forgiving people let small things go; proud or petty people don't. Don't recite the list.
 
 Game actions (only when the conversation clearly leads there):
 - invite_studio / invite_linkup / invite_party: the character invites the player to a studio session, a hangout, or a party. Include a time like "20:00".
@@ -78,6 +81,9 @@ function npcBlock(state: GameState, npc: NPC): string {
     `Relationship with the player: ${relWord(npc.relationshipScore)} (${Math.round(npc.relationshipScore)}/100).${crew ? ` Works for the player as their ${crew.role.replace(/_/g, ' ')}.` : ''}${manager ? ' Is the player\'s manager.' : ''}`,
     state.beefs.some((b) => b.npcId === npc.id && !b.resolution) ? 'There is an active beef between them and the player.' : '',
     npc.memoryLog?.length ? `What happened between them recently: ${npc.memoryLog.slice(-6).join(' | ')}` : '',
+    // The player's journal: what this person remembers, and the career's big moments.
+    // They should act on it (bring up being stood up, thank them for showing up).
+    memoryContext(state.memories, dateToSerial(state.gameDate), npc.id, state.player?.artistName),
   ].filter(Boolean).join('\n');
 }
 
@@ -199,7 +205,7 @@ export async function runDirector(): Promise<void> {
   const headlines = st.headlines.slice(0, 4).map((h) => h.text).filter((t) => !mentionsAny(t, realNames(st)));
   const context = `${playerBlock(st)}\nRecent news: ${headlines.join(' | ') || 'quiet week'}.\n\nPeople around the player:\n${codes.map(({ code, n }) => {
     const p = personaOf(n);
-    return `${code}: ${n.name}, ${n.role.replace(/_/g, ' ')}, ${fameWord(n.fame)}, ${p.temperament.toLowerCase()}, texting style: ${styleNote(p.style)}; relationship ${relWord(n.relationshipScore)}${beefIds.has(n.id) ? ', IN BEEF with the player' : ''}${n.memoryLog?.length ? `; recently: ${n.memoryLog.slice(-2).join(' | ')}` : ''}`;
+    return `${code}: ${n.name}, ${n.role.replace(/_/g, ' ')}, ${fameWord(n.fame)}, ${p.temperament.toLowerCase()}, texting style: ${styleNote(p.style)}; relationship ${relWord(n.relationshipScore)}${beefIds.has(n.id) ? ', IN BEEF with the player' : ''}${n.memoryLog?.length ? `; recently: ${n.memoryLog.slice(-2).join(' | ')}` : ''}${(st.memories ?? []).filter((m) => m.npcIds?.includes(n.id)).slice(0, 2).map((m) => `; remembers: ${m.text.replace(/\bYou\b/g, 'the player')}`).join('')}`;
   }).join('\n')}`;
   const ask = 'Decide what 2 to 4 of these people do today, each acting from their own personality and history with the player. Options: "dm" (text the player), "post" (a public post on "chirp" or "snapgram", can mention the player), "invite" (invite the player to a "studio" session, "linkup" or "party" at a time like "21:00", with the message they send), "gossip" (only bloggers/media: a short headline about the player). Keep it believable and varied — not everyone talks to the player every day. Answer as JSON: {"events":[{"who":"N1","type":"dm|post|invite|gossip","text":"...","kind":"studio|linkup|party","time":"21:00","app":"chirp|snapgram"}]}';
   try {

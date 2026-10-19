@@ -11,8 +11,13 @@ import { energyColor, energyLabel, needsRest, restRefusal, restOutcomeLine, REST
 import { crewBonuses } from '../../sim/roles';
 import { money } from '@/utils/format';
 import { GameClock } from './GameClock';
+import { Portrait } from '../avatar/Portrait';
+import { currentAccount } from '../../store/accounts';
 import {
   IconSparkle,
+  IconShirt,
+  IconJournal,
+  IconUser,
   IconBell,
   IconBird,
   IconBriefcase,
@@ -78,6 +83,8 @@ export function Sidebar() {
     { id: 'team', label: 'Team', icon: <IconTeam />, group: 'main' },
     { id: 'tax', label: 'Tax', icon: <IconReceipt />, group: 'main' },
     { id: 'shows', label: 'Shows', icon: <IconTicket />, group: 'main' },
+    { id: 'style', label: 'Drip & Ink', icon: <IconShirt />, group: 'main' },
+    { id: 'journal', label: 'Journal', icon: <IconJournal />, group: 'main' },
     // Careers lives at the end of Career because it is where you go to leave
     // this one — every other entry edits the career you are in.
     { id: 'careers', label: 'Careers', icon: <IconCareers />, group: 'main' },
@@ -114,6 +121,7 @@ export function Sidebar() {
     { id: 'trophy_room', label: 'Trophy Room', icon: <IconTrophy />, group: 'business' },
     { id: 'retirement', label: 'Industry & Life', icon: <IconDiamond />, group: 'business' },
     { id: 'ai', label: 'AI Brain', icon: <IconSparkle />, group: 'business' },
+    { id: 'account', label: 'Account', icon: <IconUser />, group: 'business' },
   ];
 
   const groups = [
@@ -149,12 +157,16 @@ export function Sidebar() {
       </div>
 
       {player ? (
-        <div className="px-4 py-3 border-b border-line">
-          <div className="text-[13px] font-semibold text-ink truncate">{player.artistName}</div>
-          <div className="text-[11px] text-ink3 truncate">
-            {player.city}, {player.country}
+        <button onClick={() => go('style')} className="w-full px-4 py-3 border-b border-line flex items-center gap-3 text-left hover:bg-white/[0.03]">
+          <Portrait seed="player" size={38} ring="#ffb800" />
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-ink truncate">{player.artistName}</div>
+            <div className="text-[11px] text-ink3 truncate">
+              {player.city}, {player.country}
+            </div>
+            <div className="text-[10px] text-ink3 truncate">{currentAccount()?.kind === 'guest' ? 'Guest · offline' : currentAccount() ? `@${currentAccount()!.username}${currentAccount()!.kind === 'cloud' ? ' · online' : ' · this device'}` : ''}</div>
           </div>
-        </div>
+        </button>
       ) : null}
 
       {/* The clock sits above the nav, where it cannot be scrolled away. */}

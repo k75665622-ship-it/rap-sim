@@ -371,6 +371,7 @@ function PlanCard({ text, a, live }: { text: string; a?: Appointment; live: bool
   const respond = useGameStore((s) => s.respondToPlan);
   const reschedule = useGameStore((s) => s.rescheduleAppointment);
   const cancel = useGameStore((s) => s.cancelAppointment);
+  const ignore = useGameStore((s) => s.ignoreInvite);
   const [pick, setPick] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   if (!a) return <div className="text-center text-[11px] text-ink3 py-1">{text}</div>;
@@ -396,10 +397,15 @@ function PlanCard({ text, a, live }: { text: string; a?: Appointment; live: bool
                 <button onClick={() => setPick(false)} className="h-8 px-2 text-[12px] text-ink3">Back</button>
               </div>
             ) : a.status === 'proposed' ? (
-              <div className="grid grid-cols-3 gap-1.5">
-                <Button size="sm" onClick={() => setMsg(respond(a.id, true).message)}>I'm in</Button>
-                <Button size="sm" variant="secondary" onClick={() => setPick(true)}>Other time</Button>
-                <Button size="sm" variant="ghost" onClick={() => setMsg(respond(a.id, false).message)}>Decline</Button>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Button size="sm" onClick={() => setMsg(respond(a.id, true).message)}>I'm in</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setPick(true)}>Other time</Button>
+                </div>
+                <div className="flex items-center justify-center gap-4 text-[12px]">
+                  <button onClick={() => setMsg(respond(a.id, false).message)} className="text-ink2 hover:text-ink">Decline</button>
+                  {a.ignored ? <span className="text-ink3">Left on read 👀</span> : <button onClick={() => setMsg(ignore(a.id).message)} className="text-ink3 hover:text-fall">Leave on read</button>}
+                </div>
               </div>
             ) : (
               <div className="flex gap-1.5">

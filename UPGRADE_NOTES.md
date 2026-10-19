@@ -219,10 +219,49 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - **Updates** (was News Feed): notifications grouped by day with filters, headlines, trending posts and storylines.
 - The older screens now share the same palette and buttons.
 
+## 2026-10-19 (g) — Accounts and a real database, bring-your-own AI, your character, drip and ink, a journal, real football seasons
+
+### Log in, or just play
+- A new **login page**: log in, create an account, or **Just play** (no account, offline). **Device accounts** live in this browser and work offline (password optional). **Online accounts** appear when a game server is reachable, so you can log in on any device and your careers follow you. See `SETUP.md`.
+- After logging in, a **home page** shows your last career (with your character) to continue, starts a new one, and lets you turn on the AI brain or keep playing offline.
+- **Account** page (sidebar): where your careers are kept, sync status, take a device account online, the game server address, log out, delete.
+
+### A real local database
+- Saves moved from localStorage (~5 MB for the whole site) to **IndexedDB** (hundreds of MB): up to 30 careers per account. Old saves move across automatically, and careers saved before accounts go to the first account opened on the device.
+- Online accounts sync each career, compressed, to the server. The newest copy wins, offline changes catch up later, and deleted careers are deleted online too.
+
+### Bring your own AI
+- AI Brain now takes **any provider**: Claude, OpenAI, Google Gemini, Groq, Grok (xAI), OpenRouter, DeepSeek, Mistral, **Ollama** (a free model on your own computer, fully offline) or any OpenAI-compatible server. Each has an editable model with sensible cheap defaults and a **Fetch models** button.
+- Keys are saved **per account, in this browser only**. They're never in saves and never stored on the server. Without a key, everything runs on the built-in writing.
+
+### Your character
+- A new **Your look** step when creating an artist, with a live full-body preview: frame, build, nine skin tones, eyes, brows, expression, facial hair, 18 haircuts in 10 colours, a starter fit (top, bottoms, shoes) and up to three tattoos you already have. **Shuffle** generates a random look.
+- You appear across the game: the dashboard hero (full body), the sidebar, the top bar, your social posts and stories. Fictional people get their own generated portraits everywhere their avatar shows (DMs, posts, profiles, mail). Real artists keep their initials, because the game doesn't draw real people.
+
+### Drip & Ink (new page)
+- **Shop** with a new **drop every other Friday**: sneaker lines step up a version (Runner 4 makes Runner 3 last season's shoe), fashion-house pieces, jewellery, limited runs that sell out, and the odd **collab with a fictional artist**. Brands are fictional. Try anything on before you buy.
+- **Hype fades** as pieces age and newer versions land, while "classic" pieces hold up. Your **drip score** (shown on the dashboard) comes from what you're wearing and pushes Snapgram and Clip reach. **Post a fit pic** to flex new pieces. **Resell** pieces, with sold-out limited pairs going above retail.
+- **Tattoo studio**: six spots and a dozen designs. Ink is permanent, cover-ups cost extra, and laser removal costs three times the original. Sessions take real hours on the clock and some energy. A face tattoo makes the news if you're known.
+- **Barber**: change hair, colour and facial hair. Braids and locs take hours in the chair.
+
+### The journal (memories)
+- A **Journal** page records what happened, who was there and how it went: plans kept, ignored or ghosted, big purchases, ink, chart moments, headlines about you, milestones. You can pin moments and write your own notes. It's saved with each career, so it syncs too.
+- The AI reads it, so people **remember**: someone you stood up can bring it up weeks later, while a forgiving person lets it go.
+
+### Invites: ignore, or don't go
+- Invites have **Leave on read** as well as Decline. How it lands depends on who sent it: warm people chase ("you saw my message? 👀"), proud ones go cold ("Say less."), messy ones may subtweet, and the relationship hit grows with ego and pettiness.
+- When it's time, the plan asks **are you going?** You can **Pull up**, **Text an excuse**, or **Don't go**. The card shows who you're dealing with (holds grudges, takes it public…). Not showing up costs more with proud people, and missing a business meeting also costs reputation.
+
+### Football seasons, like real life
+- Every league is a **double round-robin from August to May**: everyone plays everyone home and away, in a fixture order drawn each season, on weekends with Friday and Monday games. You won't see the same match two weeks running. Leagues now have 18–20 clubs (fictional, named after real cities).
+- The **Champions Cup** has four groups on Tuesday/Wednesday nights (September–December), then quarter-finals in March, semis in late April/May and a final at the end of May. Knockout draws go to penalties.
+- **June** is the international window (national team friendlies) and **July** is pre-season. Seasons end with champions crowned (notification) and **past champions** kept on the tables page. A new career starts mid-season with the season so far already played.
+
 ## How to run
 
 ```
 npm install
 npm run dev      # play at the address it prints (usually http://localhost:5173)
 npm run build    # single-file build in dist/index.html
+npm start        # optional: the game + online accounts at http://localhost:8080 (see SETUP.md)
 ```

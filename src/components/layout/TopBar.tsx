@@ -3,6 +3,7 @@
 // The bell opens a slide-in feed. Every item in it comes from a real game event
 // — nothing is generated for display.
 
+import { Portrait } from '../avatar/Portrait';
 import type { ReactNode } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { cn } from '@/utils/cn';
@@ -83,12 +84,9 @@ export function TopBar({
         </button>
 
         {player ? (
-          <div
-            className="w-9 h-9 rounded-full bg-card border border-line flex items-center justify-center text-[12px] font-bold text-ink"
-            title={player.artistName}
-          >
-            {player.artistName.slice(0, 1).toUpperCase()}
-          </div>
+          <button onClick={() => useGameStore.getState().setScreen('style')} title={player.artistName} aria-label="Your look">
+            <Portrait seed="player" name={player.artistName} size={36} />
+          </button>
         ) : null}
       </div>
     </div>

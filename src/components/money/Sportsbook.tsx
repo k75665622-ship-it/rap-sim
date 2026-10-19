@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useGameStore, nowMinuteOf, casinoLimitOf } from '../../store/gameStore';
-import { LEAGUES, LEAGUE_BY_ID, matchState, finalScore, selectionWon, pickLabel, type Match, type Market, type Pick } from '../../sim/football';
+import { LEAGUES, LEAGUE_BY_ID, matchState, finalScore, selectionWon, pickLabel, seasonLabel, seasonYearOf, groupStandings, upcomingFixtures, sortRows, type Match, type Market, type Pick } from '../../sim/football';
 import { fmtMinute } from '../../sim/appointments';
 import { Button } from '../ui/kit';
 import { Card, Chips, Flash, Label, usd } from './shared';
@@ -72,6 +72,7 @@ export function SportsbookPanel() {
           <div>
             <div className="text-[12px] font-semibold text-new uppercase tracking-wider">Sportsbook</div>
             <div className="text-[22px] font-bold text-ink mt-1">World football</div>
+            <div className="text-[11px] text-ink3">Season {seasonLabel(football?.season ?? seasonYearOf(Math.floor(now / 1440)))}</div>
             <div className="text-[12px] text-ink2">{live.length ? `${live.length} live now · ` : ''}{upcoming.length} matches open · limit {usd(limit)}</div>
           </div>
           <div className="text-right">
@@ -87,14 +88,14 @@ export function SportsbookPanel() {
 
       {view === 'matches' && (
         <>
-          <Chips options={[{ id: 'all', label: 'All' }, ...LEAGUES.map((l) => ({ id: l.id, label: `${l.flag} ${l.name.split(' · ')[0]}` }))]} value={league} onChange={setLeague} />
+          <Chips options={[{ id: 'all', label: 'All' }, ...LEAGUES.filter((l) => l.id === league || (football?.matches ?? []).some((m) => m.league === l.id && m.kickoff > now)).map((l) => ({ id: l.id, label: `${l.flag} ${l.name.split(' · ')[0]}` }))]} value={league} onChange={setLeague} />
           {live.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-2"><span className="w-2 h-2 rounded-full bg-fall rl-live-dot" /><span className="text-[13px] font-bold text-ink">Live</span></div>
               <div className="space-y-2">{live.map((m) => <LiveRow key={m.id} m={m} now={now} />)}</div>
             </section>
           )}
-          {groups.length === 0 && <Card className="p-6 text-center text-[13px] text-ink3">No matches open right now. New fixtures appear every day.</Card>}
+          {groups.length === 0 && <ComingUp now={now} league={league} />}
           {groups.map((g) => (
             <section key={g.day}>
               <div className="text-[13px] font-bold text-ink mb-2">{g.day}</div>
@@ -111,7 +112,7 @@ export function SportsbookPanel() {
                   return (
                     <Card key={m.id} className="p-3">
                       <div className="flex items-center justify-between gap-2 mb-2">
-                        <span className="text-[11px] text-ink3 truncate">{L.flag} {L.name}</span>
+                        <span className="text-[11px] text-ink3 truncate">{L.flag} {L.name}{m.stage ? ` · ${m.stage}` : ''}</span>
                         <span className="text-[11px] font-semibold text-ink2 shrink-0 num">{fmtMinute(m.kickoff)}</span>
                       </div>
                       <div className="flex items-center justify-between gap-2 mb-2.5">
@@ -205,7 +206,7 @@ function LiveRow({ m, now }: { m: Match; now: number }) {
   const L = LEAGUE_BY_ID[m.league];
   return (
     <Card className="p-3 border-fall/30">
-      <div className="flex items-center justify-between text-[11px] text-ink3 mb-1.5"><span className="truncate">{L.flag} {L.name}</span><span className="text-fall font-bold shrink-0">{st.phase === 'ht' ? 'HT' : `${st.minute}'`}</span></div>
+      <div className="flex items-center justify-between text-[11px] text-ink3 mb-1.5"><span className="truncate">{L.flag} {L.name}{m.stage ? ` · ${m.stage}` : ''}</span><span className="text-fall font-bold shrink-0">{st.phase === 'ht' ? 'HT' : `${st.minute}'`}</span></div>
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[14px] font-semibold text-ink truncate">{m.home}</span>
         <span className="text-[18px] font-black text-ink num px-2">{st.h} – {st.a}</span>
@@ -215,25 +216,95 @@ function LiveRow({ m, now }: { m: Match; now: number }) {
   );
 }
 
-function Tables() {
-  const football = useGameStore((s) => s.football);
-  const [lg, setLg] = useState('eng');
-  const rows = Object.entries(football?.tables?.[lg] ?? {}).sort((a, b) => b[1].pts - a[1].pts || (b[1].gf - b[1].ga) - (a[1].gf - a[1].ga) || b[1].gf - a[1].gf);
-  const teams = LEAGUE_BY_ID[lg]?.teams.map((t) => t.name) ?? [];
-  const all = [...rows, ...teams.filter((t) => !rows.some((r) => r[0] === t)).map((t) => [t, { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }] as const)];
+/** When nothing is on the board: the next fixtures on the calendar. */
+function ComingUp({ now, league }: { now: number; league: string }) {
+  const cup = useGameStore((s) => s.football?.cup);
+  const today = Math.floor(now / 1440);
+  const list = useMemo(() => upcomingFixtures(today + 2, 12, cup, league === 'all' ? undefined : league).slice(0, 10), [today, cup, league]);
   return (
-    <div className="space-y-3">
-      <Chips options={LEAGUES.filter((l) => l.id !== 'ucl').map((l) => ({ id: l.id, label: `${l.flag} ${l.name.split(' · ')[0]}` }))} value={lg} onChange={setLg} />
-      <Card className="overflow-hidden">
-        <div className="grid grid-cols-[24px_1fr_28px_28px_28px_36px_36px] gap-1 px-3 py-2 text-[10px] uppercase tracking-wider text-ink3 border-b border-line">
-          <span>#</span><span>Team</span><span className="text-center">P</span><span className="text-center">W</span><span className="text-center">L</span><span className="text-center">GD</span><span className="text-right">Pts</span>
-        </div>
-        {all.map(([name, r], i) => (
-          <div key={name} className={cn('grid grid-cols-[24px_1fr_28px_28px_28px_36px_36px] gap-1 px-3 py-2 text-[12px] border-b border-line/50 last:border-0', i < 4 ? 'text-ink' : 'text-ink2')}>
-            <span className="text-ink3 num">{i + 1}</span><span className="truncate font-medium">{name}</span><span className="text-center num">{r.p}</span><span className="text-center num">{r.w}</span><span className="text-center num">{r.l}</span><span className="text-center num">{r.gf - r.ga > 0 ? '+' : ''}{r.gf - r.ga}</span><span className="text-right font-bold num">{r.pts}</span>
+    <Card className="p-4">
+      <div className="text-[13px] text-ink2">No matches on the board right now — odds open the day before kickoff.</div>
+      {list.length > 0 && <div className="mt-3 space-y-1.5">
+        <Label>Coming up</Label>
+        {list.map((f, i) => (
+          <div key={i} className="flex items-center gap-2 text-[12px]">
+            <span className="text-ink3 w-[86px] shrink-0">{new Date(Math.floor(f.kickoff / 1440) * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}</span>
+            <span className="text-ink truncate flex-1">{LEAGUE_BY_ID[f.league]?.flag} {f.home} v {f.away}</span>
+            <span className="text-ink3 truncate hidden sm:inline">{f.stage}</span>
           </div>
         ))}
+      </div>}
+    </Card>
+  );
+}
+
+function Tables() {
+  const football = useGameStore((s) => s.football);
+  const now = useGameStore((s) => nowMinuteOf(s));
+  const [lg, setLg] = useState('eng');
+  const year = football?.season ?? seasonYearOf(Math.floor(now / 1440));
+  const rows = Object.entries(football?.tables?.[lg] ?? {}).sort((a, b) => sortRows(a[1], b[1]));
+  const teams = LEAGUE_BY_ID[lg]?.teams.map((t) => t.name) ?? [];
+  const all = [...rows, ...teams.filter((t) => !rows.some((r) => r[0] === t)).map((t) => [t, { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }] as const)];
+  const honours = (football?.honours ?? []).filter((h) => h.league === lg).slice(0, 6);
+  const leagues = LEAGUES.filter((l) => l.id !== 'intl' && l.id !== 'pre');
+  const size = all.length;
+  return (
+    <div className="space-y-3">
+      <Chips options={leagues.map((l) => ({ id: l.id, label: `${l.flag} ${l.name.split(' · ')[0]}` }))} value={lg} onChange={setLg} />
+      {lg === 'ucl' ? <CupView year={year} /> : (
+        <Card className="overflow-hidden">
+          <div className="px-3 pt-3 pb-1 text-[11px] text-ink3">{LEAGUE_BY_ID[lg]?.name} · {seasonLabel(year)} · {size} clubs, everyone home and away</div>
+          <div className="grid grid-cols-[24px_1fr_28px_28px_28px_28px_36px_36px] gap-1 px-3 py-2 text-[10px] uppercase tracking-wider text-ink3 border-b border-line">
+            <span>#</span><span>Team</span><span className="text-center">P</span><span className="text-center">W</span><span className="text-center">D</span><span className="text-center">L</span><span className="text-center">GD</span><span className="text-right">Pts</span>
+          </div>
+          {all.map(([name, r], i) => (
+            <div key={name} className={cn('grid grid-cols-[24px_1fr_28px_28px_28px_28px_36px_36px] gap-1 px-3 py-2 text-[12px] border-b border-line/50 last:border-0', i < 4 ? 'text-ink' : i >= size - 3 ? 'text-fall/80' : 'text-ink2')}>
+              <span className={cn('num', i < 4 ? 'text-new' : 'text-ink3')}>{i + 1}</span><span className="truncate font-medium">{name}</span><span className="text-center num">{r.p}</span><span className="text-center num">{r.w}</span><span className="text-center num">{r.d}</span><span className="text-center num">{r.l}</span><span className="text-center num">{r.gf - r.ga > 0 ? '+' : ''}{r.gf - r.ga}</span><span className="text-right font-bold num">{r.pts}</span>
+            </div>
+          ))}
+        </Card>
+      )}
+      {honours.length > 0 && (
+        <Card className="p-3.5">
+          <Label>Past champions</Label>
+          <div className="mt-1.5 space-y-1">{honours.map((h) => <div key={h.season} className="text-[12px] text-ink2 flex justify-between"><span>🏆 {h.team}</span><span className="text-ink3 num">{seasonLabel(h.season)}</span></div>)}</div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function CupView({ year }: { year: number }) {
+  const cup = useGameStore((s) => s.football?.cup);
+  const groups = groupStandings(cup, year);
+  const ko = cup?.season === year ? cup.ko : {};
+  const stage = (keys: string[], label: string) => (
+    <div>
+      <Label>{label}</Label>
+      <div className="mt-1 space-y-0.5">{keys.map((k) => <div key={k} className="text-[12px] text-ink2">{ko[k] ? <>✅ <span className="text-ink font-medium">{ko[k]}</span> through</> : <span className="text-ink3">To be played</span>}</div>)}</div>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="grid sm:grid-cols-2 gap-3">
+        {groups.map((g) => (
+          <Card key={g.group} className="overflow-hidden">
+            <div className="px-3 pt-2.5 pb-1.5 text-[12px] font-bold text-ink">Group {g.group}</div>
+            {g.rows.map(([t, r], i) => (
+              <div key={t} className={cn('grid grid-cols-[18px_1fr_26px_34px_30px] gap-1 px-3 py-1.5 text-[12px] border-t border-line/50', i < 2 ? 'text-ink' : 'text-ink3')}>
+                <span className="num">{i + 1}</span><span className="truncate">{t}</span><span className="text-center num">{r.p}</span><span className="text-center num">{r.gf - r.ga > 0 ? '+' : ''}{r.gf - r.ga}</span><span className="text-right font-bold num">{r.pts}</span>
+              </div>
+            ))}
+          </Card>
+        ))}
+      </div>
+      <Card className="p-3.5 grid sm:grid-cols-3 gap-3">
+        {stage(['qf1', 'qf2', 'qf3', 'qf4'], 'Quarter-finals')}
+        {stage(['sf1', 'sf2'], 'Semi-finals')}
+        {stage(['final'], 'Final')}
       </Card>
+      <div className="text-[11px] text-ink3">The top two in each group reach the quarter-finals in March. Knockout draws go to penalties.</div>
     </div>
   );
 }

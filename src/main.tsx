@@ -1,9 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import App from "./App";
 import { useGameStore } from "./store/gameStore";
 import * as saves from "./store/saves";
+import { initKV } from "./store/kv";
+import { restoreSession, currentAccount, onAccountChange } from "./store/accounts";
+import { setAIAccount } from "./sim/ai";
+import { probeServer, startAutoSync } from "./net/cloud";
 import * as features from "./sim/features";
 import * as cameo from "./sim/cameo";
 import * as gameClock from "./sim/gameClock";
@@ -68,8 +71,36 @@ import * as release from "./sim/release";
   release,
 };
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+// ─── BOOT ──────────────────────────────────────────────────────────────────
+// Open the local database (IndexedDB) first: saves, accounts and journals
+// live there. Then bring over any career from before accounts, pick up the
+// last session on this device, and draw the game.
+async function boot() {
+  try { await initKV(); } catch (e) { console.warn("Local database unavailable, using browser storage", e); }
+  saves.adoptLegacySave();
+  const account = restoreSession();
+  setAIAccount(account?.id ?? null);
+
+  // A different account means a different set of careers: close whatever is
+  // open and point the AI settings at that player's own key.
+  let lastId = account?.id ?? null;
+  onAccountChange(() => {
+    const id = currentAccount()?.id ?? null;
+    setAIAccount(id);
+    if (id !== lastId) {
+      lastId = id;
+      useGameStore.getState().resetSession();
+    }
+  });
+
+  const { default: App } = await import("./App");
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>
+  );
+  void probeServer();
+  startAutoSync();
+}
+
+void boot();

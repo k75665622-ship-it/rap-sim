@@ -37,6 +37,11 @@ import { CreateVideoScreen } from './components/screens/CreateVideoScreen';
 import { useGameClock } from './hooks/useGameClock';
 import { useAIRunner } from './hooks/useAIRunner';
 import { AISettingsScreen } from './components/screens/AISettingsScreen';
+import { StyleScreen } from './components/screens/StyleScreen';
+import { WelcomeScreen } from './components/screens/WelcomeScreen';
+import { AccountScreen } from './components/screens/AccountScreen';
+import { useAccount } from './hooks/useAccount';
+import { JournalScreen } from './components/screens/JournalScreen';
 import { AppointmentModal } from './components/moments/AppointmentModal';
 import type { Platform } from './types/game';
 
@@ -55,6 +60,16 @@ function GameLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function Standalone({ children }: { children: React.ReactNode }) {
+  const setScreen = useGameStore((s) => s.setScreen);
+  return (
+    <div className="min-h-screen bg-[#0A0B10] px-3 py-4 sm:p-8">
+      <div className="max-w-[760px] mx-auto mb-3"><button onClick={() => setScreen('splash')} className="text-[13px] text-ink2 hover:text-ink">← Home</button></div>
+      {children}
+    </div>
+  );
+}
+
 export default function App() {
   const screen = useGameStore((s) => s.screen);
   const player = useGameStore((s) => s.player);
@@ -63,8 +78,15 @@ export default function App() {
   useGameClock();
   useAIRunner();
 
+  const account = useAccount();
+
+  // Nobody logged in: the welcome page (log in, create an account, or just play).
+  if (!account) return <WelcomeScreen />;
+
   // Full-screen screens (no sidebar)
-  if (screen === 'splash') return <SplashScreen />;
+  if (screen === 'splash' || screen === 'welcome') return <SplashScreen />;
+  // Settings reachable from the home page before a career is open.
+  if (!player && (screen === 'ai' || screen === 'account')) return <Standalone>{screen === 'ai' ? <AISettingsScreen /> : <AccountScreen />}</Standalone>;
   if (screen === 'create_artist') return <CreateArtistScreen />;
 
   // The careers list has to work with no career open — that is exactly the
@@ -91,6 +113,9 @@ export default function App() {
       case 'npc_profile': return <NPCProfileScreen />;
       case 'interviews': return <InterviewsScreen />;
       case 'ai': return <AISettingsScreen />;
+      case 'style': return <StyleScreen />;
+      case 'journal': return <JournalScreen />;
+      case 'account': return <AccountScreen />;
       case 'investments': return <MoneyScreen />;
       case 'trophy_room': return <TrophyRoomScreen />;
       case 'news': return <NewsScreen />;

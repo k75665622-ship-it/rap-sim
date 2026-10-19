@@ -11,6 +11,8 @@ import { IconComment, IconVerified } from '../icons';
 import { APP_META, kindDef, type PostKind, type SocialApp } from '../../sim/social';
 import { liveCounts, minutesAgo } from '../../sim/socialLive';
 import type { SocialComment, SocialPost } from '../../types/game';
+import { Character } from '../avatar/Character';
+import { usePortrait } from '../avatar/usePortrait';
 
 export function handleOf(name: string): string {
   if (name.startsWith('@')) return name;
@@ -20,7 +22,16 @@ export function handleOf(name: string): string {
 export function Avatar({ name, seed, size = 40, ring, story }: { name: string; seed?: string; size?: number; ring?: string; story?: 'new' | 'seen' }) {
   const [a, b] = gradientFor(seed ?? name);
   const fan = name.startsWith('@');
-  const inner = (
+  const look = usePortrait(fan ? undefined : seed);
+  const inner = look ? (
+    <div
+      className="rounded-full shrink-0 overflow-hidden select-none"
+      style={{ width: size, height: size, background: `radial-gradient(circle at 50% 30%, ${a}, ${b} 95%)`, boxShadow: ring ? `0 0 0 2px ${ring}` : undefined }}
+      aria-hidden="true"
+    >
+      <Character look={look} view="bust" className="w-full h-full" />
+    </div>
+  ) : (
     <div
       className="rounded-full shrink-0 flex items-center justify-center font-bold text-black/75 select-none"
       style={{

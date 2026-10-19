@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useGameStore, blendedFame } from '../../store/gameStore';
-import { Card, Button, Badge } from '../ui/Card';
-import type { ShowType, VenueClass } from '../../types/game';
+import type { ShowType } from '../../types/game';
 import {
   SHOW_CITIES,
   venuesInCity,
@@ -13,7 +12,7 @@ import {
 } from '../../sim/shows';
 import { diary as roomDiary } from '../../sim/booking';
 import { MIN_LEAD_DAYS, MAX_OPEN_SHOWS } from '../../sim/ticketing';
-import { dateToSerial, serialToDate, formatMedium, formatWeekEnding } from '../../sim/gameClock';
+import { dateToSerial, serialToDate, formatMedium } from '../../sim/gameClock';
 import { TourPlanner, ToursPanel } from './TourPlanner';
 import { UpcomingShows } from './UpcomingShows';
 import { OffersPanel } from './OffersPanel';
@@ -32,12 +31,14 @@ const SHOW_TYPES: { id: ShowType; label: string; emoji: string; blurb: string }[
   { id: 'international_tour', label: 'International date', emoji: '✈️', blurb: 'Another country. Needs a tour manager and a national draw.' },
 ];
 
-const CLASS_BADGE: Record<VenueClass, string> = {
-  club: 'purple', theatre: 'blue', hall: 'green', arena: 'gold', stadium: 'red',
-};
-
 export function ShowsScreen() {
-  const { player, shows, scheduledShows, showOffers, planShowAt, scheduleShow, gameDate } = useGameStore();
+  const player = useGameStore((st) => st.player);
+  const shows = useGameStore((st) => st.shows);
+  const scheduledShows = useGameStore((st) => st.scheduledShows);
+  const showOffers = useGameStore((st) => st.showOffers);
+  const planShowAt = useGameStore((st) => st.planShowAt);
+  const scheduleShow = useGameStore((st) => st.scheduleShow);
+  const gameDate = useGameStore((st) => st.gameDate);
   const openOffers = showOffers.filter((o) => o.status === 'open').length;
 
   const [country, setCountry] = useState(player?.country ?? 'Ghana');
@@ -109,338 +110,197 @@ export function ShowsScreen() {
 
   const history = [...shows].reverse().slice(0, 12);
 
+  const played = shows.length;
+  const best = shows.reduce((m, x) => Math.max(m, x.attendance ?? 0), 0);
+  const earned = shows.reduce((a, x) => a + (x.moneyEarned ?? 0), 0);
+  const next = [...scheduledShows].sort((a, b) => a.serial - b.serial)[0];
+  const select = 'w-full h-11 rounded-[12px] bg-sidebar border border-line px-3 text-[14px] text-ink outline-none focus:border-amber';
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>
-            🎭 Live Shows
-          </h1>
-          <p className="text-gray-500 text-sm">
-            You are a <span className="text-yellow-500">{TIER_LABEL[tier].toLowerCase()}</span>. Book a room, price the ticket, and live with the door.
-          </p>
+    <div className="max-w-[1100px] mx-auto space-y-4 pb-24 lg:pb-10">
+      <section className="rounded-[22px] border border-line overflow-hidden p-5" style={{ background: 'radial-gradient(120% 140% at 100% 0%, rgba(181,123,255,0.25), rgba(10,11,16,0) 55%), radial-gradient(90% 120% at 0% 100%, rgba(255,184,0,0.12), rgba(10,11,16,0) 60%), #14161e' }}>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <div className="text-[12px] font-semibold uppercase tracking-wider text-re">Live</div>
+            <h1 className="text-[26px] sm:text-[30px] font-black text-ink leading-tight">Shows & tours</h1>
+            <p className="text-[13px] text-ink2 mt-0.5">You're a <span className="text-amber font-semibold">{TIER_LABEL[tier].toLowerCase()}</span>. Book a room, price the ticket, live with the door.</p>
+          </div>
+          {next && <div className="rounded-[14px] bg-black/30 border border-white/10 px-3.5 py-2.5 text-right"><div className="text-[10px] uppercase tracking-wider text-ink3">Next show</div><div className="text-[14px] font-semibold text-ink">{next.city}</div><div className="text-[11px] text-ink3">{formatMedium(serialToDate(next.serial))} · {next.ticketsSold.toLocaleString()}/{next.capacity.toLocaleString()} sold</div></div>}
         </div>
-        <div className="flex gap-1 bg-gray-900 rounded-xl p-1 shrink-0">
-          {([
-            ['plan', 'Plan a show'],
-            ['upcoming', `Upcoming${scheduledShows.length ? ` (${scheduledShows.length})` : ''}`],
-            ['offers', `Offers${openOffers ? ` (${openOffers})` : ''}`],
-            ['tour', 'A tour'],
-          ] as const).map(([m, label]) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                mode === m ? 'bg-yellow-500 text-black' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <div className="rounded-[12px] bg-black/25 p-2.5"><div className="text-[10px] uppercase tracking-wider text-ink3">Played</div><div className="text-[18px] font-bold text-ink num">{played}</div></div>
+          <div className="rounded-[12px] bg-black/25 p-2.5"><div className="text-[10px] uppercase tracking-wider text-ink3">Biggest crowd</div><div className="text-[18px] font-bold text-ink num">{best.toLocaleString()}</div></div>
+          <div className="rounded-[12px] bg-black/25 p-2.5"><div className="text-[10px] uppercase tracking-wider text-ink3">Earned</div><div className={`text-[18px] font-bold num ${earned >= 0 ? 'text-rise' : 'text-fall'}`}>{earned >= 0 ? '' : '−'}${Math.abs(earned).toLocaleString()}</div></div>
         </div>
+      </section>
+
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+        {([
+          ['plan', '🎤 Plan a show'],
+          ['upcoming', `🎟️ Upcoming${scheduledShows.length ? ` · ${scheduledShows.length}` : ''}`],
+          ['offers', `📨 Offers${openOffers ? ` · ${openOffers}` : ''}`],
+          ['tour', '🚌 Tour'],
+        ] as const).map(([m, label]) => (
+          <button key={m} onClick={() => setMode(m)} className={`shrink-0 h-9 px-3.5 rounded-full border text-[13px] font-semibold transition ${mode === m ? 'border-amber bg-amber text-black' : 'border-line bg-card text-ink2 hover:text-ink'}`}>{label}</button>
+        ))}
       </div>
 
       {mode === 'upcoming' ? (
         <UpcomingShows onPlan={() => setMode('plan')} />
       ) : mode === 'offers' ? (
         <OffersPanel />
+      ) : mode === 'tour' ? (
+        <div className="grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4"><div className="min-w-0"><TourPlanner /></div><div className="min-w-0"><ToursPanel /></div></div>
       ) : (
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 space-y-4">
-          {mode === 'plan' ? (
-            <>
-          {/* ── Where ────────────────────────────────────────────────── */}
-          <Card>
-            <h3 className="font-bold text-white mb-4">Plan a Show</h3>
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4 items-start">
+        <div className="space-y-4 min-w-0">
+          <Step n={1} title="Where">
+            <div className="grid grid-cols-2 gap-2.5">
               <div>
-                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wider">Country</label>
-                <select
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-500"
-                  value={country}
-                  onChange={(e) => {
-                    setCountry(e.target.value);
-                    const first = SHOW_CITIES.find((c) => c.country === e.target.value);
-                    if (first) setCity(first.city);
-                    setVenueId(null);
-                  }}
-                >
+                <label className="block text-[11px] text-ink3 mb-1 uppercase tracking-wider">Country</label>
+                <select className={select} value={country} onChange={(e) => { setCountry(e.target.value); const first = SHOW_CITIES.find((c) => c.country === e.target.value); if (first) setCity(first.city); setVenueId(null); }}>
                   {countries.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wider">City</label>
-                <select
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-500"
-                  value={city}
-                  onChange={(e) => { setCity(e.target.value); setVenueId(null); }}
-                >
+                <label className="block text-[11px] text-ink3 mb-1 uppercase tracking-wider">City</label>
+                <select className={select} value={city} onChange={(e) => { setCity(e.target.value); setVenueId(null); }}>
                   {cities.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
             </div>
+          </Step>
 
-            {/* ── The room ─────────────────────────────────────────────── */}
-            <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">The room</label>
-            <div className="space-y-2 mb-4">
+          <Step n={2} title="The room">
+            <div className="grid sm:grid-cols-2 gap-2">
               {venues.map((v) => {
                 const lock = venueLockReason(v, blendedFame(player));
                 const selected = v.id === venue.id;
                 return (
-                  <button
-                    key={v.id}
-                    onClick={() => !lock && setVenueId(v.id)}
-                    disabled={!!lock}
-                    className={`w-full p-3 rounded-xl text-left transition-all flex items-center justify-between gap-3 ${
-                      selected
-                        ? 'bg-yellow-500/15 border border-yellow-500'
-                        : lock
-                        ? 'bg-gray-900/60 border border-gray-800 opacity-55 cursor-not-allowed'
-                        : 'bg-gray-900 border border-gray-800 hover:border-gray-600'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{v.name}</span>
-                        <Badge color={CLASS_BADGE[v.cls]}>{VENUE_CLASSES[v.cls].label}</Badge>
+                  <button key={v.id} onClick={() => !lock && setVenueId(v.id)} disabled={!!lock}
+                    className={`text-left rounded-[14px] border p-3 transition ${selected ? 'border-amber bg-amber/10' : lock ? 'border-line opacity-50 cursor-not-allowed' : 'border-line bg-sidebar hover:bg-cardhover'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[22px]">{VENUE_CLASSES[v.cls].emoji}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-semibold text-ink truncate">{v.name}</div>
+                        <div className="text-[11px] text-ink3">{VENUE_CLASSES[v.cls].label} · {v.capacity.toLocaleString()} cap</div>
                       </div>
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {v.capacity.toLocaleString()} capacity · ${v.hireCost.toLocaleString()} to open
-                      </div>
-                      {lock && <div className="text-xs text-red-400 mt-0.5">🔒 {lock}</div>}
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-xs text-gray-400">{VENUE_CLASSES[v.cls].emoji}</div>
-                      <div className="text-xs text-gray-500">{VENUE_CLASSES[v.cls].cooldownDays}d gap</div>
+                    <div className="flex items-center justify-between mt-2 text-[11px]">
+                      <span className="text-ink2">${v.hireCost.toLocaleString()} to open</span>
+                      <span className="text-ink3">{VENUE_CLASSES[v.cls].cooldownDays}d gap</span>
                     </div>
+                    {lock && <div className="text-[11px] text-fall mt-1">🔒 {lock}</div>}
                   </button>
                 );
               })}
             </div>
+          </Step>
 
-            {/* ── The date ─────────────────────────────────────────────── */}
-            <div className="mb-4">
-              <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">
-                Pick the night
-                <span className="text-gray-600 normal-case tracking-normal">
-                  {' '}— a {VENUE_CLASSES[venue.cls].label.toLowerCase()} needs {lead} days to sell
-                </span>
-              </label>
-              <div className="flex gap-1.5 overflow-x-auto pb-1.5">
-                {diary.map((n) => {
-                  const why = blockedBecause(n.serial, n.status);
-                  const picked = chosen === n.serial;
-                  return (
-                    <button
-                      key={n.serial}
-                      disabled={!!why}
-                      onClick={() => { setPickedSerial(n.serial); setNotice(null); }}
-                      title={why ?? 'Free'}
-                      className={`shrink-0 w-[74px] px-1.5 py-2 rounded-lg border text-center transition-all ${
-                        picked
-                          ? 'border-yellow-500 bg-yellow-500/15'
-                          : !why
-                            ? 'border-gray-800 bg-gray-900 hover:border-gray-600'
-                            : 'border-red-500/25 bg-red-500/[0.07] opacity-60 cursor-not-allowed'
-                      }`}
-                    >
-                      <div className="text-[10px] leading-tight text-gray-400">
-                        {formatWeekEnding(serialToDate(n.serial))}
-                      </div>
-                      <div className={`text-[10px] mt-0.5 font-bold ${!why ? 'text-green-400' : 'text-red-400'}`}>
-                        {!why ? 'free' : n.status === 'taken' ? 'taken' : 'too close'}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-gray-600 mt-1.5 leading-relaxed">
-                {chosen !== null && !chosenBlock
-                  ? `Tickets go on sale today and sell until ${formatMedium(serialToDate(chosen))}. The clock plays the show for you — you will get updates and reminders on the way.`
-                  : chosenBlock}
-              </p>
+          <Step n={3} title="The night" hint={`a ${VENUE_CLASSES[venue.cls].label.toLowerCase()} needs ${lead} days to sell`}>
+            <div className="flex gap-1.5 overflow-x-auto pb-1.5 no-scrollbar">
+              {diary.map((n) => {
+                const why = blockedBecause(n.serial, n.status);
+                const picked = chosen === n.serial;
+                const d = serialToDate(n.serial);
+                const dow = new Date(n.serial * 86400000).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+                return (
+                  <button key={n.serial} disabled={!!why} onClick={() => { setPickedSerial(n.serial); setNotice(null); }} title={why ?? 'Free'}
+                    className={`shrink-0 w-[60px] py-2 rounded-[12px] border text-center transition ${picked ? 'border-amber bg-amber text-black' : !why ? 'border-line bg-sidebar hover:border-amber/50' : 'border-line opacity-35 cursor-not-allowed'}`}>
+                    <div className={`text-[10px] uppercase ${picked ? 'text-black/70' : 'text-ink3'}`}>{dow}</div>
+                    <div className={`text-[18px] font-bold leading-tight num ${picked ? 'text-black' : 'text-ink'}`}>{d.day}</div>
+                    <div className={`text-[9px] font-bold ${picked ? 'text-black/70' : !why ? 'text-rise' : 'text-fall'}`}>{!why ? 'free' : n.status === 'taken' ? 'taken' : 'close'}</div>
+                  </button>
+                );
+              })}
             </div>
+            <p className="text-[12px] text-ink3 mt-1.5 leading-relaxed">
+              {chosen !== null && !chosenBlock
+                ? `Tickets go on sale today and sell until ${formatMedium(serialToDate(chosen))}. The show plays on the clock — you'll get updates on the way.`
+                : chosenBlock}
+            </p>
+          </Step>
 
-            {/* ── The occasion ─────────────────────────────────────────── */}
-            <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">The occasion</label>
-            <div className="grid grid-cols-2 gap-3 mb-4">
+          <Step n={4} title="The occasion">
+            <div className="grid grid-cols-2 gap-2">
               {SHOW_TYPES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setShowType(t.id)}
-                  className={`p-3 rounded-xl text-left transition-all ${
-                    showType === t.id
-                      ? 'bg-yellow-500/20 border border-yellow-500 text-white'
-                      : 'bg-gray-900 border border-gray-800 text-gray-400 hover:border-gray-600'
-                  }`}
-                >
-                  <div className="text-lg mb-0.5">{t.emoji}</div>
-                  <div className="text-xs font-bold">{t.label}</div>
-                  <div className="text-xs text-gray-600 mt-0.5">{t.blurb}</div>
+                <button key={t.id} onClick={() => setShowType(t.id)} className={`text-left rounded-[14px] border p-3 transition ${showType === t.id ? 'border-amber bg-amber/10' : 'border-line bg-sidebar hover:bg-cardhover'}`}>
+                  <div className="text-[20px]">{t.emoji}</div>
+                  <div className="text-[13px] font-semibold text-ink mt-0.5">{t.label}</div>
+                  <div className="text-[11px] text-ink3 mt-0.5 leading-snug">{t.blurb}</div>
                 </button>
               ))}
             </div>
+          </Step>
 
-            {/* ── The price ────────────────────────────────────────────── */}
-            <div className="mb-4">
-              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wider">
-                Ticket price: <span className="text-white font-bold">${price}</span>
-                <span className="text-gray-600 normal-case tracking-normal"> — this room expects about ${fair}</span>
-              </label>
-              <input
-                type="range"
-                min={5}
-                max={maxPrice}
-                step={5}
-                value={Math.min(price, maxPrice)}
-                onChange={(e) => setPrice(Number(e.target.value))}
-                className="w-full accent-yellow-500"
-              />
-              <p className="text-xs text-gray-600 mt-1">
-                Price it too high and the room stays empty. That is the whole trade.
-              </p>
+          <Step n={5} title="Ticket price">
+            <div className="flex items-end justify-between">
+              <div className="text-[30px] font-black text-ink num leading-none">${price}</div>
+              <div className="text-[12px] text-ink3">fans expect about <span className="text-ink2 font-semibold">${fair}</span></div>
             </div>
-
-            {notice && (
-              <div className={`mb-4 text-xs rounded-lg p-2 border ${
-                notice.ok ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-300'
-              }`}>
-                {notice.message}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs text-gray-500">
-                {scheduledShows.length >= MAX_OPEN_SHOWS
-                  ? `You have ${MAX_OPEN_SHOWS} shows on sale — the limit.`
-                  : plan
-                    ? `Deposit to hold the room: $${Math.round((venue.hireCost * 0.25) / 10) * 10 > 0 ? (Math.round((venue.hireCost * 0.25) / 10) * 10).toLocaleString() : 0}`
-                    : ''}
-              </div>
-              <Button
-                variant="gold"
-                onClick={handleAnnounce}
-                disabled={!plan || chosen === null || !!chosenBlock || scheduledShows.length >= MAX_OPEN_SHOWS}
-              >
-                🎟️ Announce &amp; put on sale
-              </Button>
-            </div>
-          </Card>
-            </>
-          ) : (
-            <TourPlanner />
-          )}
+            <input type="range" min={5} max={maxPrice} step={5} value={Math.min(price, maxPrice)} onChange={(e) => setPrice(Number(e.target.value))} className="w-full accent-[#ffb800] mt-3" />
+            <p className="text-[12px] text-ink3 mt-1">Too high and the room stays empty. That's the whole trade.</p>
+          </Step>
         </div>
 
-        {/* ── The estimate ─────────────────────────────────────────────── */}
-        <div className="space-y-4">
-          {mode === 'plan' ? (
-            <>
+        <div className="space-y-4 min-w-0 lg:sticky lg:top-4">
           {plan ? (
-            <Card>
-              <h4 className="text-white font-bold text-xs mb-3 uppercase tracking-wider">
-                The estimate
-              </h4>
-
-              {/* The range, not a promise. */}
-              <div className="bg-gray-800 rounded-xl p-3 mb-3">
-                <div className="text-xs text-gray-400 mb-1">Expected attendance</div>
-                <div className="text-white font-bold text-lg">
-                  {plan.tickets.low.toLocaleString()}
-                  <span className="text-gray-500 font-normal"> – </span>
-                  {plan.tickets.high.toLocaleString()}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  most likely {plan.tickets.likely.toLocaleString()} of {venue.capacity.toLocaleString()}
-                  {' '}({Math.round(plan.fill * 100)}% full)
-                </div>
-                <div className="h-1.5 bg-gray-900 rounded-full mt-2 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${plan.fill >= 0.85 ? 'bg-green-500' : plan.fill >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                    style={{ width: `${Math.min(100, plan.fill * 100)}%` }}
-                  />
-                </div>
+            <section className="rounded-[18px] border border-line bg-card p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-ink3 mb-2">The estimate</div>
+              <div className="rounded-[14px] bg-sidebar p-3 mb-3">
+                <div className="text-[11px] text-ink3">Expected crowd</div>
+                <div className="text-[22px] font-black text-ink num">{plan.tickets.low.toLocaleString()}<span className="text-ink3 font-normal"> – </span>{plan.tickets.high.toLocaleString()}</div>
+                <div className="text-[11px] text-ink3">most likely {plan.tickets.likely.toLocaleString()} of {venue.capacity.toLocaleString()} ({Math.round(plan.fill * 100)}% full)</div>
+                <div className="h-2 bg-white/[0.07] rounded-full mt-2 overflow-hidden"><div className={`h-full rounded-full ${plan.fill >= 0.85 ? 'bg-rise' : plan.fill >= 0.5 ? 'bg-amber' : 'bg-fall'}`} style={{ width: `${Math.min(100, plan.fill * 100)}%` }} /></div>
               </div>
-
-              <div className="space-y-1.5 text-xs mb-3">
+              <div className="space-y-1.5 text-[12px]">
                 <Row label="Door (most likely)" value={`$${plan.gross.likely.toLocaleString()}`} />
                 <Row label="Merchandise" value={`$${plan.merch.toLocaleString()}`} />
-                <div className="border-t border-gray-800 pt-1.5 mt-1.5 space-y-1">
-                  {plan.costs.map((c) => (
-                    <Row key={c.key} label={c.label} value={`−$${c.amount.toLocaleString()}`} muted />
-                  ))}
+                <div className="border-t border-line pt-1.5 mt-1.5 space-y-1">
+                  {plan.costs.map((c) => <Row key={c.key} label={c.label} value={`−$${c.amount.toLocaleString()}`} muted />)}
                   <Row label="Total costs" value={`−$${plan.totalCosts.toLocaleString()}`} bold />
                 </div>
-                <div className="border-t border-gray-800 pt-1.5 mt-1.5">
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-gray-400">Net</span>
-                    <span className={`font-black text-sm ${plan.net.likely >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {plan.net.low.toLocaleString()} … {plan.net.high.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-600 text-right">
-                    likely ${plan.net.likely.toLocaleString()}
-                  </div>
+                <div className="border-t border-line pt-2 mt-1.5 flex justify-between items-baseline">
+                  <span className="text-ink2">Net</span>
+                  <span className={`font-black text-[16px] num ${plan.net.likely >= 0 ? 'text-rise' : 'text-fall'}`}>${plan.net.likely.toLocaleString()}</span>
                 </div>
+                <div className="text-[11px] text-ink3 text-right">range {plan.net.low.toLocaleString()} … {plan.net.high.toLocaleString()}</div>
               </div>
-
-              {/* Why. An estimate the player cannot interrogate is a slot machine. */}
-              <details className="text-xs">
-                <summary className="text-gray-400 cursor-pointer hover:text-gray-300">Why these numbers</summary>
-                <div className="mt-2 space-y-1">
-                  {plan.drivers.map((d) => <Row key={d.label} label={d.label} value={d.value} muted />)}
-                </div>
+              <details className="text-[12px] mt-2">
+                <summary className="text-ink3 cursor-pointer hover:text-ink2">Why these numbers</summary>
+                <div className="mt-2 space-y-1">{plan.drivers.map((d) => <Row key={d.label} label={d.label} value={d.value} muted />)}</div>
               </details>
-
-              {plan.warnings.length > 0 && (
-                <div className="mt-3 space-y-1.5">
-                  {plan.warnings.map((w) => (
-                    <p key={w} className="text-xs text-yellow-300/90 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2">
-                      ⚠️ {w}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </Card>
+              {plan.warnings.length > 0 && <div className="mt-3 space-y-1.5">{plan.warnings.map((w) => <p key={w} className="text-[12px] text-amber bg-amber/10 border border-amber/20 rounded-[10px] p-2">⚠️ {w}</p>)}</div>}
+            </section>
           ) : (
-            <Card>
-              <p className="text-xs text-red-300">{preview.message}</p>
-            </Card>
+            <section className="rounded-[18px] border border-fall/30 bg-fall/10 p-4 text-[13px] text-fall">{preview.message}</section>
           )}
 
-          {/* ── History ────────────────────────────────────────────────── */}
-          <Card>
-            <h4 className="text-white font-bold text-xs mb-3 uppercase tracking-wider">Recent shows</h4>
-            {history.length === 0 ? (
-              <p className="text-xs text-gray-600">You have not played a show yet.</p>
-            ) : (
+          {notice && <div className={`text-[13px] rounded-[12px] p-3 border ${notice.ok ? 'bg-rise/10 border-rise/30 text-ink' : 'bg-fall/10 border-fall/30 text-ink'}`}>{notice.message}</div>}
+
+          <div className="fixed lg:static left-0 right-0 bottom-0 z-30 p-3 lg:p-0 bg-bg/95 lg:bg-transparent backdrop-blur lg:backdrop-blur-none border-t border-line lg:border-0 md:left-56 lg:left-auto">
+            <div className="flex items-center gap-3">
+              <div className="text-[11px] text-ink3 flex-1 min-w-0 truncate">
+                {scheduledShows.length >= MAX_OPEN_SHOWS ? `${MAX_OPEN_SHOWS} shows on sale — the limit.` : plan ? `Deposit $${(Math.round((venue.hireCost * 0.25) / 10) * 10).toLocaleString()} · ${venue.name}` : ''}
+              </div>
+              <button onClick={handleAnnounce} disabled={!plan || chosen === null || !!chosenBlock || scheduledShows.length >= MAX_OPEN_SHOWS} className="h-11 px-5 rounded-[12px] bg-amber text-black font-bold text-[14px] disabled:opacity-40 shrink-0">🎟️ Announce</button>
+            </div>
+          </div>
+
+          <section className="rounded-[18px] border border-line bg-card p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink3 mb-2">Recent shows</div>
+            {history.length === 0 ? <p className="text-[12px] text-ink3">You haven't played a show yet.</p> : (
               <div className="space-y-2">
                 {history.map((s) => (
-                  <div key={s.id} className="bg-gray-900 rounded-lg p-2 text-xs">
-                    <div className="flex justify-between items-baseline gap-2">
-                      <span className="text-white font-medium truncate">{s.venueName ?? s.city}</span>
-                      <span className={s.moneyEarned >= 0 ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>
-                        {s.moneyEarned >= 0 ? '+' : '−'}${Math.abs(s.moneyEarned).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="text-gray-500 mt-0.5">
-                      {s.attendance.toLocaleString()}/{s.capacity.toLocaleString()} · ${s.ticketPrice}/ticket · {s.date}
-                    </div>
-                    {s.performanceQuality !== undefined && (
-                      <div className="text-gray-600">
-                        reviewed {s.performanceQuality}/100 · +{s.fameGained} fame
-                      </div>
-                    )}
+                  <div key={s.id} className="rounded-[12px] bg-sidebar p-2.5 text-[12px]">
+                    <div className="flex justify-between items-baseline gap-2"><span className="text-ink font-medium truncate">{s.venueName ?? s.city}</span><span className={s.moneyEarned >= 0 ? 'text-rise font-bold num' : 'text-fall font-bold num'}>{s.moneyEarned >= 0 ? '+' : '−'}${Math.abs(s.moneyEarned).toLocaleString()}</span></div>
+                    <div className="text-ink3 mt-0.5">{s.attendance.toLocaleString()}/{s.capacity.toLocaleString()} · ${s.ticketPrice}/ticket · {s.date}</div>
+                    {s.performanceQuality !== undefined && <div className="text-ink3">reviewed {s.performanceQuality}/100 · +{s.fameGained} fame</div>}
                   </div>
                 ))}
               </div>
             )}
-          </Card>
-            </>
-          ) : (
-            <ToursPanel />
-          )}
+          </section>
         </div>
       </div>
       )}
@@ -448,11 +308,24 @@ export function ShowsScreen() {
   );
 }
 
+function Step({ n, title, hint, children }: { n: number; title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-[18px] border border-line bg-card p-4">
+      <div className="flex items-center gap-2.5 mb-3">
+        <span className="w-6 h-6 rounded-full bg-amber/15 text-amber text-[12px] font-bold flex items-center justify-center shrink-0">{n}</span>
+        <span className="text-[15px] font-semibold text-ink">{title}</span>
+        {hint && <span className="text-[11px] text-ink3 truncate">— {hint}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function Row({ label, value, muted, bold }: { label: string; value: string; muted?: boolean; bold?: boolean }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className={muted ? 'text-gray-500' : 'text-gray-400'}>{label}</span>
-      <span className={bold ? 'text-white font-bold' : muted ? 'text-gray-400' : 'text-white'}>{value}</span>
+      <span className={muted ? 'text-ink3' : 'text-ink2'}>{label}</span>
+      <span className={`num ${bold ? 'text-ink font-bold' : muted ? 'text-ink2' : 'text-ink'}`}>{value}</span>
     </div>
   );
 }

@@ -248,6 +248,16 @@ function managerPersonality(artist: Seed): string[] {
  * their pull. The manager's id is deterministic (`mgr_<artistId>`) so saves
  * survive a reload.
  */
+/** Every real person in the roster: the artists, and the managers named after real ones. */
+export function realPersonIds(): Set<string> {
+  const out = new Set<string>();
+  for (const s of SEEDS) {
+    out.add(s.id);
+    if (s.mgr) out.add(`mgr_${s.id}`);
+  }
+  return out;
+}
+
 export function buildRealArtists(): NPC[] {
   const out: NPC[] = [];
   const seenManagers = new Map<string, string>(); // manager name → id

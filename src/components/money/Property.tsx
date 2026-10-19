@@ -3,7 +3,7 @@
 // underneath you; building sites go wrong.
 
 import { useState } from 'react';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, dealDiscountOf } from '../../store/gameStore';
 import { ZONES, BUILDS, buildCostFor, projectValue, monthlyRent, zoneOf, buildOf, type DevProject } from '../../sim/realestate';
 import { changeOver } from '../../sim/markets';
 import { dateToSerial } from '../../sim/gameClock';
@@ -26,7 +26,7 @@ export function PropertyPanel() {
   const serial = dateToSerial(gameDate);
   const live = (projects ?? []).filter((p) => p.stage !== 'sold');
   const sold = (projects ?? []).filter((p) => p.stage === 'sold');
-  const dealer = (crew ?? []).some((c) => c.role === 'accountant' && c.assignment === 'deals');
+  const off = dealDiscountOf({ crew });
   const rent = live.reduce((a, p) => a + monthlyRent(p, index), 0);
   const worth = live.reduce((a, p) => a + projectValue(p, index, serial), 0);
 
@@ -54,11 +54,11 @@ export function PropertyPanel() {
       <section>
         <div className="flex items-end justify-between mb-2">
           <div className="text-[16px] font-semibold text-ink">Buy land</div>
-          {dealer && <span className="text-[11px] text-rise">Your accountant haggles 8% off</span>}
+          {off > 0 && <span className="text-[11px] text-rise">Your accountant haggles {Math.round(off * 100)}% off</span>}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {ZONES.map((z) => {
-            const price = Math.round(z.land * (index / 100) * (dealer ? 0.92 : 1));
+            const price = Math.round(z.land * (index / 100) * (1 - off));
             return (
               <Card key={z.id} className="p-4">
                 <div className="flex items-start gap-3">
@@ -111,7 +111,7 @@ function ProjectCard({ p, index, serial, onMsg }: { p: DevProject; index: number
   const z = zoneOf(p.zone);
   const b = p.build ? buildOf(p.build) : null;
   const value = projectValue(p, index, serial);
-  const dealer = (crew ?? []).some((c) => c.role === 'accountant' && c.assignment === 'deals');
+  const off = dealDiscountOf({ crew });
   const progress = p.stage === 'building' && p.startSerial !== undefined && p.doneSerial !== undefined ? Math.min(1, (serial - p.startSerial) / Math.max(1, p.doneSerial - p.startSerial)) : p.stage === 'done' ? 1 : 0;
   const daysLeft = p.doneSerial !== undefined ? Math.max(0, p.doneSerial - serial) : 0;
   const rent = monthlyRent({ ...p, renting: true }, index);
@@ -146,7 +146,7 @@ function ProjectCard({ p, index, serial, onMsg }: { p: DevProject; index: number
         <div className="space-y-2">
           <Label>Build on it</Label>
           {BUILDS.map((bd) => {
-            const cost = Math.round(buildCostFor(p.zone, bd.id) * (dealer ? 0.92 : 1));
+            const cost = Math.round(buildCostFor(p.zone, bd.id) * (1 - off));
             return (
               <div key={bd.id} className="flex items-center gap-3 rounded-[12px] border border-line p-3">
                 <span className="text-[22px]">{bd.emoji}</span>

@@ -14,10 +14,10 @@ export function Card({ children, className, onClick, glass, glow }: CardProps) {
     <div
       onClick={onClick}
       className={cn(
-        'rounded-2xl p-4',
-        glass ? 'bg-white/5 backdrop-blur-sm border border-white/10' : 'bg-gray-900 border border-gray-800',
-        glow && 'shadow-lg shadow-yellow-500/10',
-        onClick && 'cursor-pointer hover:bg-gray-800 transition-colors',
+        'rounded-[16px] p-4 min-w-0',
+        glass ? 'bg-card/80 backdrop-blur-sm border border-line' : 'bg-card border border-line',
+        glow && 'shadow-lg shadow-amber/10 border-amber/30',
+        onClick && 'cursor-pointer hover:bg-cardhover transition-colors',
         className
       )}
     >
@@ -38,21 +38,21 @@ export function StatBar({ label, value, max = 100, color = 'yellow' }: { label: 
   };
   return (
     <div className="flex items-center gap-2 text-sm">
-      <span className="text-gray-400 w-32 text-xs truncate">{label}</span>
-      <div className="flex-1 bg-gray-800 rounded-full h-1.5">
+      <span className="text-ink3 w-32 text-xs truncate">{label}</span>
+      <div className="flex-1 bg-white/[0.07] rounded-full h-1.5">
         <div
           className={cn('h-1.5 rounded-full transition-all', colorMap[color] ?? 'bg-yellow-400')}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-white w-8 text-xs text-right">{Math.round(value)}</span>
+      <span className="text-ink w-8 text-xs text-right num">{Math.round(value)}</span>
     </div>
   );
 }
 
 export function Badge({ children, color = 'gray' }: { children: ReactNode; color?: string }) {
   const colorMap: Record<string, string> = {
-    gray: 'bg-gray-800 text-gray-300',
+    gray: 'bg-white/[0.07] text-ink2',
     yellow: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
     green: 'bg-green-500/20 text-green-400 border border-green-500/30',
     blue: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
@@ -83,20 +83,20 @@ export function Button({
   className?: string;
 }) {
   const variants = {
-    primary: 'bg-yellow-500 hover:bg-yellow-400 text-black font-bold',
-    secondary: 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700',
-    ghost: 'hover:bg-white/5 text-gray-300 hover:text-white',
-    danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30',
-    gold: 'bg-gradient-to-r from-yellow-500 to-amber-400 hover:from-yellow-400 hover:to-amber-300 text-black font-bold shadow-lg shadow-yellow-500/20',
+    primary: 'bg-amber hover:brightness-110 text-black font-bold',
+    secondary: 'bg-card hover:bg-cardhover text-ink border border-line font-semibold',
+    ghost: 'hover:bg-white/5 text-ink2 hover:text-ink font-semibold',
+    danger: 'bg-fall/15 hover:bg-fall/25 text-fall border border-fall/30 font-semibold',
+    gold: 'bg-amber hover:brightness-110 text-black font-bold shadow-lg shadow-amber/20',
   };
-  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-6 py-3 text-base' };
+  const sizes = { sm: 'h-8 px-3 text-[12px]', md: 'h-10 px-4 text-[13px]', lg: 'h-12 px-6 text-[15px]' };
 
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'rounded-xl transition-all inline-flex items-center gap-2',
+        'rounded-[10px] transition-all inline-flex items-center justify-center gap-2 whitespace-nowrap',
         variants[variant],
         sizes[size],
         disabled && 'opacity-40 cursor-not-allowed',

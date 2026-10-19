@@ -131,11 +131,11 @@ export function playerLine(kind: string, optionId: string, label: string, seed: 
 type ToneBank = Partial<Record<Tone, string[]>>;
 const REPLY: Record<string, Record<string, ToneBank>> = {
   studio_invite: {
-    go: { good: ['Yesss 🔥 pull up, door\'s open', 'That\'s what I\'m talking about. See you soon'], neutral: ['Cool, see you there'], bad: ['ok'] },
+    go: { good: ['Yesss 🔥 pull up, door\'s open', 'That\'s what I\'m talking about. See you soon'], neutral: ['Cool, see you there', 'Bet. Bring your A-game 🎙️'], bad: ['ok. don\'t be late', 'Fine. We start on time'] },
     later: { good: ['No stress, we go again'], neutral: ['Bet, next time', 'All good'], bad: ['Always next time with you 😒'] },
   },
   party_invite: {
-    go: { good: ['Let\'s gooo 🥂 I\'ll put you on the list'], neutral: ['Cool, see you'], bad: ['ok'] },
+    go: { good: ['Let\'s gooo 🥂 I\'ll put you on the list'], neutral: ['Cool, see you', 'Nice. Dress code is clean 😌'], bad: ['ok. come early', 'Fine, your name\'s at the door'] },
     skip: { good: ['No worries, next one'], neutral: ['Your loss 😂'], bad: ['K.'] },
   },
   diss_bait: {
@@ -143,45 +143,45 @@ const REPLY: Record<string, Record<string, ToneBank>> = {
     fire: { good: ['😂 ok ok, you got bars'], neutral: ['We\'ll see'], bad: ['Oh it\'s ON now', 'You just made a mistake'] },
   },
   money_ask: {
-    lend: { good: ['You\'re a real one 🙏🏾 I\'ll pay you back, I promise', 'God bless you bro. Thank you'], neutral: ['Thanks, appreciate it'], bad: ['Thanks'] },
-    gift: { good: ['I don\'t even know what to say. Thank you 🙏🏾❤️', 'You\'re family for this. Thank you'], neutral: ['Thank you!'], bad: ['Thanks'] },
+    lend: { good: ['You\'re a real one 🙏🏾 I\'ll pay you back, I promise', 'God bless you bro. Thank you'], neutral: ['Thanks, appreciate it. I won\'t forget', 'Got it. Thank you, honestly'], bad: ['Thanks. I\'ll sort it', 'Received.'] },
+    gift: { good: ['I don\'t even know what to say. Thank you 🙏🏾❤️', 'You\'re family for this. Thank you'], neutral: ['Thank you!! You didn\'t have to', 'Wow. Thank you fr'], bad: ['Thanks. Appreciate it'] },
     no: { good: ['I understand, no stress'], neutral: ['Ok, I\'ll figure it out'], bad: ['Wow. After everything? Ok', 'Remember this when you need me'] },
   },
   collab_idea: {
-    yes: { good: ['Let\'s gooo 🔥 sending the beat now'], neutral: ['Cool, I\'ll send it'], bad: ['ok'] },
+    yes: { good: ['Let\'s gooo 🔥 sending the beat now'], neutral: ['Cool, I\'ll send it over tonight', 'Bet. Check your studio in a bit'], bad: ['ok. sending it'] },
     pay: { good: ['Fair, business is business. Send your rate'], neutral: ['Hmm ok, how much?'], bad: ['Thought we were friends but ok', 'Nah forget it then'] },
-    no: { good: ['All good, another time'], neutral: ['Ok'], bad: ['Ok then. Noted.'] },
+    no: { good: ['All good, another time'], neutral: ['No stress. Maybe next project', 'Alright, maybe another time'], bad: ['Ok then. Noted.'] },
   },
   blog_tip: {
     pay: { good: ['Pleasure doing business. It\'s gone 🤐'], neutral: ['Received. Story\'s dead'], bad: ['Thanks. Can\'t promise someone else won\'t run it though'] },
     quote: { good: ['😂 that\'s gold, running it with your quote', 'Love it. You just won the internet'], neutral: ['Noted. Running it'], bad: ['Your funeral 🤷🏾‍♂️ running it'] },
   },
   fan_dm: {
-    reply: { good: ['OMG YOU REPLIED 😭😭😭 I\'m screaming', 'I can\'t believe this. Thank you so much ❤️'], neutral: ['Thank you!!'], bad: ['Thanks'] },
+    reply: { good: ['OMG YOU REPLIED 😭😭😭 I\'m screaming', 'I can\'t believe this. Thank you so much ❤️'], neutral: ['Thank you!! This made my week', 'You actually replied 🥹 thank you'], bad: ['Thanks'] },
     repost: { good: ['WAIT YOU SHARED IT 😭 my phone is exploding'], neutral: ['Thank you!!'], bad: ['Oh… ok'] },
   },
   cash_gig: {
     yes: { good: ['Perfect, I\'ll put you on the flyer 🤝🏾'], neutral: ['Cool, I\'ll send the location'], bad: ['Ok. Don\'t be late'] },
     more: { good: ['Fine, you drive a hard bargain. Deal'], neutral: ['Let me see what I can do'], bad: ['That\'s the budget. Take it or leave it', 'Forget it, we\'ll get someone else'] },
-    no: { good: ['No problem, next time'], neutral: ['Ok'], bad: ['Your loss'] },
+    no: { good: ['No problem, next time'], neutral: ['Alright. If anything changes, holla', 'Cool, I\'ll find someone'], bad: ['Your loss'] },
   },
   beat_offer: {
-    buy: { good: ['Yesss it\'s yours 🔥 sending the files'], neutral: ['Cool, files coming'], bad: ['Ok'] },
+    buy: { good: ['Yesss it\'s yours 🔥 sending the files'], neutral: ['Cool, files coming. Kill it', 'Sending the stems now 🎹'], bad: ['Payment received. Files are in'] },
     trade: { good: ['A verse from you? Deal 🤝🏾'], neutral: ['Hmm… ok let\'s do it'], bad: ['I need money not verses bro'] },
-    no: { good: ['All good, more coming'], neutral: ['Ok'], bad: ['Your loss, someone else will take it'] },
+    no: { good: ['All good, more coming'], neutral: ['Cool, I\'ll send the next pack', 'No wahala. Next one will be crazier'], bad: ['Your loss, someone else will take it'] },
   },
   bring_out: {
-    go: { good: ['The crowd is gonna lose it 🔥'], neutral: ['Cool, see you there'], bad: ['ok'] },
-    no: { good: ['No worries, next one'], neutral: ['Ok'], bad: ['I already told people you\'re coming… ok'] },
+    go: { good: ['The crowd is gonna lose it 🔥'], neutral: ['Cool, see you there', 'Bet. I\'ll call you up after my third song'], bad: ['ok. be on time'] },
+    no: { good: ['No worries, next one'], neutral: ['Ah, next time then', 'Cool, I\'ll catch you at the next one'], bad: ['I already told people you\'re coming… ok'] },
   },
   opener_ask: {
-    yes: { good: ['THANK YOU 🙏🏾 I won\'t let you down', 'You don\'t know what this means to me'], neutral: ['Thanks!'], bad: ['Thanks'] },
-    no: { good: ['Understood, I\'ll keep working'], neutral: ['Ok'], bad: ['Ok. I\'ll remember'] },
+    yes: { good: ['THANK YOU 🙏🏾 I won\'t let you down', 'You don\'t know what this means to me'], neutral: ['Thank you! I\'ll bring it', 'Appreciate this. Won\'t forget it'], bad: ['Thanks'] },
+    no: { good: ['Understood, I\'ll keep working'], neutral: ['No problem, next time maybe', 'Understood. I\'ll keep pushing'], bad: ['Ok. I\'ll remember'] },
   },
   feature_late: {
-    wait: { good: ['Appreciate the patience, it\'ll be worth it 🙏🏾'], neutral: ['Thanks'], bad: ['ok'] },
+    wait: { good: ['Appreciate the patience, it\'ll be worth it 🙏🏾'], neutral: ['Thanks, I\'m on it this week', 'Appreciate you. Soon'], bad: ['ok. soon'] },
     chase: { good: ['Fair, sending it this week'], neutral: ['I\'m on it'], bad: ['Don\'t rush me', 'Relax, I\'ll send it when I send it'] },
-    drop: { good: ['Understood, my bad on the delay'], neutral: ['Ok'], bad: ['Wow ok. Your call'] },
+    drop: { good: ['Understood, my bad on the delay'], neutral: ['Fair. My fault', 'Alright. I hear you'], bad: ['Wow ok. Your call'] },
   },
 };
 

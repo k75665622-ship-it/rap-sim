@@ -44,60 +44,60 @@ function bracket(score: number): Bracket {
 
 const L: Record<ChatIntent, Record<Bracket, string[]>> = {
   greet: {
-    hostile: ['What do you want.', 'Don\'t.'],
-    cold: ['Yeah?', 'Hey.'],
-    neutral: ['Yo, what\'s good?', 'Hey hey. What\'s up?', 'Wassup, how you doing?'],
-    warm: ['Yooo! Been a minute. How you been?', 'There they are 🙌 what\'s good?'],
-    close: ['My guy!! Was literally just about to text you', 'FAMILY 🫂 what we doing this week?'],
+    hostile: ['What do you want.', 'Don\'t.', 'Why are you texting me?'],
+    cold: ['Yeah?', 'Hey.', 'Hi. What\'s up.'],
+    neutral: ['Yo, what\'s good? You been locked in?', 'Hey hey. What\'s up with you?', 'Wassup! How\'s the music going?', 'Yo! Long time. Wetin dey happen?', 'Heyy, what\'s the plan this week?'],
+    warm: ['Yooo! Been a minute. How you been?', 'There they are 🙌 what\'s good?', 'Ayyy my person! I was just playing your stuff', 'Look who remembered me 😂 what\'s up?'],
+    close: ['My guy!! Was literally just about to text you', 'FAMILY 🫂 what we doing this week?', 'Where have you been hiding?? Call me later', 'Ahh finally 😂 I have gist for you'],
   },
   compliment: {
-    hostile: ['Save it.', 'Bit late for that.'],
-    cold: ['Okay. Thanks I guess.', 'Appreciate it.'],
-    neutral: ['Ayy appreciate that fr 🙏', 'That means a lot, thank you.', 'Respect, thank you!'],
-    warm: ['Man that hits different coming from you 🙏', 'You already know I feel the same about your stuff.'],
-    close: ['Stop it before I cry 😭 love you fr', 'Same energy back to you always.'],
+    hostile: ['Save it.', 'Bit late for that.', 'Okay.'],
+    cold: ['Okay. Thanks I guess.', 'Appreciate it.', 'Thanks.'],
+    neutral: ['Ayy appreciate that fr 🙏', 'That means a lot, thank you. Your last one was hard too.', 'Respect, thank you! Means more than you know', 'Haha thank you 🙏🏾 what was your favourite part?'],
+    warm: ['Man that hits different coming from you 🙏', 'You already know I feel the same about your stuff.', 'Stop, you\'re gonna gas me up before my session 😂', 'Coming from you? I\'m screenshotting this'],
+    close: ['Stop it before I cry 😭 love you fr', 'Same energy back to you always.', 'You\'re the reason I didn\'t quit last year, you know that', 'Okay now I HAVE to drop something good 😂'],
   },
   collab: {
-    hostile: ['Not happening.', 'I\'d rather not.'],
-    cold: ['Send a proper request through my team.', 'Maybe. Send it over and I\'ll see.'],
-    neutral: ['Could be cool. Send me the record through the studio and I\'ll check it.', 'Depends on the song. Send it properly and we talk numbers.'],
-    warm: ['Say less. Send it over, I\'ll make time.', 'Been waiting for you to ask 😤 send the beat.'],
-    close: ['Whatever you need. Send it and I\'m on it tonight.', 'You don\'t even have to ask. Send it.'],
+    hostile: ['Not happening.', 'I\'d rather not.', 'Find someone else.'],
+    cold: ['Send a proper request through my team.', 'Maybe. Send it over and I\'ll see.', 'I\'m booked. Send it properly and I\'ll think about it.'],
+    neutral: ['Could be cool. Send me the record through the studio and I\'ll check it.', 'Depends on the song. Send it properly and we talk numbers.', 'What kind of vibe are you thinking? Send me the demo first', 'I\'m open. What\'s the record about?'],
+    warm: ['Say less. Send it over, I\'ll make time.', 'Been waiting for you to ask 😤 send the beat.', 'Let\'s cook! Studio this week?', 'Send the demo, I already have ideas 👀'],
+    close: ['Whatever you need. Send it and I\'m on it tonight.', 'You don\'t even have to ask. Send it.', 'Bro we should\'ve done this years ago. Send it', 'Already writing in my head 😂 send the beat'],
   },
   money: {
-    hostile: ['You\'re joking right?', 'Lol. No.'],
-    cold: ['I don\'t really do that.', 'Can\'t help you there.'],
-    neutral: ['Things are tight on my side too, sorry.', 'I don\'t lend money, it ruins friendships.'],
-    warm: ['How much and what for? Be honest.', 'I might be able to help a little. What\'s going on?'],
-    close: ['Talk to me. What do you need?', 'You good? Call me.'],
+    hostile: ['You\'re joking right?', 'Lol. No.', 'Ask the people you were talking about me to.'],
+    cold: ['I don\'t really do that.', 'Can\'t help you there.', 'That\'s not something I do, sorry.'],
+    neutral: ['Things are tight on my side too, sorry.', 'I don\'t lend money, it ruins friendships.', 'Herh, this month? I\'m broke too 😩', 'I wish. Rent came and took everything'],
+    warm: ['How much and what for? Be honest.', 'I might be able to help a little. What\'s going on?', 'Talk to me. Is it serious?'],
+    close: ['Talk to me. What do you need?', 'You good? Call me.', 'Say the amount. We\'ll sort it out.'],
   },
   insult: {
-    hostile: ['Say that on a record then.', 'Keep talking. I\'m screenshotting all of this.'],
-    cold: ['Wow. Okay.', 'Remember you said that.'],
-    neutral: ['Where did that come from??', 'Nah you\'re tripping.'],
-    warm: ['Bro what? Are you okay?', 'That\'s not funny.'],
-    close: ['I\'m going to assume you got hacked.', 'You\'re lucky I love you.'],
+    hostile: ['Say that on a record then.', 'Keep talking. I\'m screenshotting all of this.', 'You\'re lucky I\'m busy.'],
+    cold: ['Wow. Okay.', 'Remember you said that.', 'Noted. Don\'t text me again.'],
+    neutral: ['Where did that come from??', 'Nah you\'re tripping.', 'Chale, who offended you today?', 'Bro relax. What\'s wrong with you?'],
+    warm: ['Bro what? Are you okay?', 'That\'s not funny.', 'I\'ll pretend I didn\'t see that.'],
+    close: ['I\'m going to assume you got hacked.', 'You\'re lucky I love you.', 'Call me. Something\'s wrong with you today'],
   },
   apology: {
-    hostile: ['Too late.', 'Words are cheap.'],
-    cold: ['We\'ll see.', 'Okay. Noted.'],
-    neutral: ['It\'s all good, honestly.', 'Appreciate you saying that.'],
-    warm: ['Already forgotten 🤝', 'We good, don\'t stress.'],
-    close: ['There was never a problem with us.', 'Shut up, we\'re fine 😂'],
+    hostile: ['Too late.', 'Words are cheap.', 'We\'ll see if you mean it.'],
+    cold: ['We\'ll see.', 'Okay. Noted.', 'Alright. Don\'t do it again.'],
+    neutral: ['It\'s all good, honestly.', 'Appreciate you saying that.', 'No wahala, we move.', 'Respect for saying it. We good.'],
+    warm: ['Already forgotten 🤝', 'We good, don\'t stress.', 'Stop it, we\'re fine 😂'],
+    close: ['There was never a problem with us.', 'Shut up, we\'re fine 😂', 'You think I\'d let that come between us? Never'],
   },
   flirt: {
     hostile: ['Absolutely not.', 'Blocked in 3, 2…'],
     cold: ['Okay that\'s weird.', 'Let\'s keep this professional.'],
-    neutral: ['Haha... smooth 😅', 'Lol you\'re funny.'],
-    warm: ['Stop 😂 …but continue.', 'You\'re trouble, you know that?'],
-    close: ['Dinner Friday? You\'re paying 😌', 'Took you long enough.'],
+    neutral: ['Haha... smooth 😅', 'Lol you\'re funny.', 'Is this how you talk to everybody? 😂'],
+    warm: ['Stop 😂 …but continue.', 'You\'re trouble, you know that?', 'Hmm. Buy me food first 😌'],
+    close: ['Dinner Friday? You\'re paying 😌', 'Took you long enough.', 'I was waiting for you to say something 🙈'],
   },
   show: {
     hostile: ['Stay away from my shows.', 'No.'],
     cold: ['My booking agent handles that.', 'Talk to my team.'],
-    neutral: ['Could work if the timing is right. Who\'s booking?', 'Send me the date and the room.'],
-    warm: ['I\'d love that. Send me details.', 'Let\'s make it happen 🎤'],
-    close: ['Just tell me when and where.', 'Already clearing my schedule.'],
+    neutral: ['Could work if the timing is right. Who\'s booking?', 'Send me the date and the room.', 'What\'s the crowd like? How many people?'],
+    warm: ['I\'d love that. Send me details.', 'Let\'s make it happen 🎤', 'If you\'re on it, I\'m on it. When?'],
+    close: ['Just tell me when and where.', 'Already clearing my schedule.', 'Bro we\'re gonna shut it down 🔥'],
   },
   sign: {
     hostile: ['I would never sign with you.', 'Lol.'],
@@ -108,19 +108,33 @@ const L: Record<ChatIntent, Record<Bracket, string[]>> = {
   },
   question: {
     hostile: ['Why do you care.', 'Not your business.'],
-    cold: ['Busy. Ask someone else.', 'Hm.'],
-    neutral: ['Good question lol. Still figuring it out tbh.', 'Honestly just working. You?'],
-    warm: ['Locked in the studio mostly. New stuff soon 👀', 'Chilling, working, you know how it is.'],
-    close: ['I\'ll tell you everything when I see you.', 'Call me, too much to type.'],
+    cold: ['Busy. Ask someone else.', 'Hm. Not sure.'],
+    neutral: ['Good question lol. Still figuring it out tbh.', 'Honestly just working. You?', 'Studio, gym, sleep, repeat 😂 you?', 'Hmm let me think about it and get back to you'],
+    warm: ['Locked in the studio mostly. New stuff soon 👀', 'Chilling, working, you know how it is. What about you?', 'Honestly? Trying to finish this project. It\'s stressing me', 'You first 😂 what are you working on?'],
+    close: ['I\'ll tell you everything when I see you.', 'Call me, too much to type.', 'Bro so much has happened. Link up this week?'],
   },
   other: {
-    hostile: ['…', 'Okay.'],
-    cold: ['Mhm.', 'Cool.'],
-    neutral: ['Haha true', 'Facts.', 'Lol I hear you'],
-    warm: ['😂😂 you\'re crazy', 'Facts fr'],
-    close: ['This is why you\'re my favourite person', '😂 stop'],
+    hostile: ['…', 'Okay.', 'Why are you telling me this?'],
+    cold: ['Mhm.', 'Cool.', 'Okay.'],
+    neutral: ['Haha true', 'Facts. How\'s your week going?', 'Lol I hear you. What you working on these days?', 'Real. Abeg what\'s new with you?', 'Haha you\'re not serious 😂'],
+    warm: ['😂😂 you\'re crazy', 'Facts fr. We need to link soon', 'Hahaha stop. When are we working?', 'You always have the gist 😂'],
+    close: ['This is why you\'re my favourite person', '😂 stop', 'I swear you and me are the same person', 'Hahaha I miss you fr. Come through this week'],
   },
 };
+
+/** A little local flavour for people from home. Light, never overdone. */
+const LOCAL: Record<string, [RegExp, string][]> = {
+  Ghana: [[/^Yo,?\s*/i, 'Chale, '], [/\bWassup\b/, 'Wossop'], [/\bvery\b/i, 'die']],
+  Nigeria: [[/^Yo,?\s*/i, 'Omo, '], [/\bWassup\b/, 'How far'], [/\bno problem\b/i, 'no wahala']],
+};
+
+function flavour(text: string, npc: NPC, seed: string): string {
+  const rules = LOCAL[npc.country ?? ''];
+  if (!rules || hashString(seed + 'loc') % 3 !== 0) return text;
+  let out = text;
+  for (const [re, to] of rules) { if (re.test(out)) { out = out.replace(re, to); break; } }
+  return out;
+}
 
 const REL: Record<ChatIntent, number> = {
   greet: 1, compliment: 2, collab: 1, money: -2, insult: -8, apology: 3, flirt: 0, show: 1, sign: 0, question: 1, other: 0,
@@ -171,7 +185,13 @@ export function chatReply(npc: NPC, message: string, ctx: ChatContext, roll: num
 
   const b = bracket(score);
   const pool = L[intent][b];
-  const text = pool[hashString(`${ctx.seed}|${npc.id}|${message.length}`) % pool.length];
+  const pickSeed = `${ctx.seed}|${npc.id}|${message.length}|${message.slice(0, 12)}`;
+  const raw = pool[hashString(pickSeed) % pool.length];
+  // How they type: some people never use capitals, some never use emojis.
+  const style = archetypeOf(npc);
+  let text = flavour(raw, npc, pickSeed);
+  if (style === 'street' && hashString(pickSeed + 's') % 2 === 0) text = text.toLowerCase();
+  if (style === 'business') text = text.replace(/[😂😭🔥👀😤🙈😌🫂]/gu, '').replace(/\s{2,}/g, ' ').trim();
   let rel = REL[intent];
   if (intent === 'insult' && t.petty) rel -= 4;
   if (intent === 'compliment' && t.diva) rel += 1;

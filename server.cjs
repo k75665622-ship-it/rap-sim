@@ -165,9 +165,12 @@ async function aiProxy(req, res) {
   if (target.protocol !== 'https:' || !AI_HOSTS.has(target.hostname) || target.port) return send(res, 403, { error: 'That host is not allowed' });
   const headers = {};
   for (const [k, v] of Object.entries(b.headers || {})) if (AI_HEADERS.has(k.toLowerCase()) && typeof v === 'string') headers[k.toLowerCase()] = v;
-  headers['content-type'] = 'application/json';
+  // GET only to list models; everything else is a POST.
+  const isGet = b.method === 'GET';
+  if (isGet && !/\/models\/?$/.test(target.pathname)) return send(res, 403, { error: 'Only the model list can be fetched' });
+  if (!isGet) headers['content-type'] = 'application/json';
   try {
-    const r = await fetch(target, { method: 'POST', headers, body: JSON.stringify(b.body || {}), signal: AbortSignal.timeout(30000) });
+    const r = await fetch(target, isGet ? { method: 'GET', headers, signal: AbortSignal.timeout(20000) } : { method: 'POST', headers, body: JSON.stringify(b.body || {}), signal: AbortSignal.timeout(30000) });
     const text = await r.text();
     const out = { 'content-type': r.headers.get('content-type') || 'application/json', ...cors() };
     const ra = r.headers.get('retry-after');

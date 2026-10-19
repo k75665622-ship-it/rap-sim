@@ -23,6 +23,7 @@
 
 import type { GameDate, GameState } from '../types/game';
 import { formatGameDate } from '../sim/gameClock';
+import { kv } from './kv';
 
 export const SAVE_INDEX_KEY = 'rap_game_saves_v2';
 export const SLOT_PREFIX = 'rap_game_save_v2:';
@@ -39,6 +40,24 @@ export const SAVE_VERSION = 2;
  * the ceiling safe to sit near.
  */
 export const MAX_SLOTS = 8;
+/** With the browser database there is room for many more careers. */
+export function maxSlots(): number {
+  return kv().kind === 'indexeddb' ? 30 : MAX_SLOTS;
+}
+
+// ─── WHOSE SAVES ────────────────────────────────────────────────────────────
+// Each account keeps its own careers under its own prefix. No account (the
+// tests, and saves from before accounts existed) means no prefix.
+
+let ns = '';
+export function setSaveNamespace(accountId: string | null): void {
+  ns = accountId ? `a:${accountId}:` : '';
+}
+export function saveNamespace(): string {
+  return ns;
+}
+const indexKey = () => ns + SAVE_INDEX_KEY;
+const slotKey = (id: string) => ns + SLOT_PREFIX + id;
 
 export interface SaveSlotMeta {
   id: string;
@@ -69,11 +88,17 @@ export type SaveWriteResult =
 
 // ─── PLUMBING ───────────────────────────────────────────────────────────────
 
-function storage(): Storage | null {
+interface Store {
+  getItem(k: string): string | null;
+  setItem(k: string, v: string): void;
+  removeItem(k: string): void;
+  keys(): string[];
+}
+
+function storage(): Store | null {
   try {
-    // Private browsing and some embedded webviews throw on access rather than
-    // returning null, so both paths are covered.
-    return typeof localStorage === 'undefined' ? null : localStorage;
+    const b = kv();
+    return { getItem: b.get, setItem: b.set, removeItem: b.remove, keys: b.keys };
   } catch {
     return null;
   }
@@ -103,7 +128,7 @@ export function readIndex(): SaveIndex {
   if (!ls) return emptyIndex();
 
   let index = emptyIndex();
-  const raw = ls.getItem(SAVE_INDEX_KEY);
+  const raw = ls.getItem(indexKey());
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as SaveIndex;
@@ -122,10 +147,10 @@ export function readIndex(): SaveIndex {
   return repairIndex(index, ls);
 }
 
-function repairIndex(index: SaveIndex, ls: Storage): SaveIndex {
+function repairIndex(index: SaveIndex, ls: Store): SaveIndex {
   const present: SaveIndex['slots'] = [];
   for (const slot of index.slots) {
-    const payload = ls.getItem(SLOT_PREFIX + slot.id);
+    const payload = ls.getItem(slotKey(slot.id));
     if (payload === null) continue;
     // Keep the stored size honest — it is shown to the player.
     present.push({ ...slot, bytes: payload.length });
@@ -134,10 +159,10 @@ function repairIndex(index: SaveIndex, ls: Storage): SaveIndex {
   // Payloads the index does not know about. Only worth a scan when the index is
   // short, because a full scan of localStorage is O(number of keys).
   const known = new Set(present.map((s) => s.id));
-  for (let i = 0; i < ls.length; i++) {
-    const key = ls.key(i);
-    if (!key || !key.startsWith(SLOT_PREFIX)) continue;
-    const id = key.slice(SLOT_PREFIX.length);
+  const prefix = ns + SLOT_PREFIX;
+  for (const key of ls.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    const id = key.slice(prefix.length);
     if (known.has(id)) continue;
     const payload = ls.getItem(key);
     if (!payload) continue;
@@ -168,7 +193,7 @@ export function writeIndex(index: SaveIndex): void {
   const ls = storage();
   if (!ls) return;
   try {
-    ls.setItem(SAVE_INDEX_KEY, JSON.stringify(index));
+    ls.setItem(indexKey(), JSON.stringify(index));
   } catch (e) {
     console.warn('Could not write the save index:', e);
   }
@@ -224,7 +249,7 @@ export function metaFromPayload(id: string, json: string): SaveSlotMeta | null {
 export function readSlot(id: string): Partial<GameState> | null {
   const ls = storage();
   if (!ls) return null;
-  const raw = ls.getItem(SLOT_PREFIX + id);
+  const raw = ls.getItem(slotKey(id));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as Partial<GameState>;
@@ -246,7 +271,7 @@ export function writeSlot(id: string, payload: Partial<GameState>): SaveWriteRes
   if (!ls) return { ok: false, error: 'This browser will not let the game store anything.' };
 
   const json = JSON.stringify(payload);
-  const key = SLOT_PREFIX + id;
+  const key = slotKey(id);
 
   try {
     ls.setItem(key, json);
@@ -276,14 +301,54 @@ export function writeSlot(id: string, payload: Partial<GameState>): SaveWriteRes
     index.activeSlotId = id;
     writeIndex(index);
   }
+  emit({ type: 'write', id, ns: saveNamespace() });
   return { ok: true, bytes: json.length };
+}
+
+// ─── CHANGE EVENTS (for online sync) ────────────────────────────────────────
+
+export type SlotEvent = { type: 'write' | 'remove'; id: string; ns: string };
+const slotListeners = new Set<(e: SlotEvent) => void>();
+export function onSlotChange(f: (e: SlotEvent) => void): () => void {
+  slotListeners.add(f);
+  return () => slotListeners.delete(f);
+}
+function emit(e: SlotEvent): void {
+  slotListeners.forEach((f) => { try { f(e); } catch { /* a listener's problem */ } });
+}
+
+/** The stored JSON for a career, untouched. */
+export function readSlotRaw(id: string): string | null {
+  const ls = storage();
+  return ls ? ls.getItem(slotKey(id)) : null;
+}
+
+/**
+ * Put a career that came from somewhere else (the server) on this device,
+ * keeping its own save time so the next sync can compare.
+ */
+export function writeSlotRaw(id: string, json: string, savedAt: string, label?: string): boolean {
+  const ls = storage();
+  if (!ls) return false;
+  try { ls.setItem(slotKey(id), json); } catch { return false; }
+  const index = readIndex();
+  const meta = metaFromPayload(id, json);
+  if (!meta) return false;
+  const existing = index.slots.find((s) => s.id === id);
+  meta.savedAt = savedAt;
+  meta.label = label ?? existing?.label ?? meta.label;
+  if (existing) meta.createdAt = existing.createdAt;
+  index.slots = [...index.slots.filter((s) => s.id !== id), meta].sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+  if (!index.activeSlotId) index.activeSlotId = id;
+  writeIndex(index);
+  return true;
 }
 
 export function removeSlot(id: string): void {
   const ls = storage();
   if (!ls) return;
   try {
-    ls.removeItem(SLOT_PREFIX + id);
+    ls.removeItem(slotKey(id));
   } catch {
     /* nothing useful to do */
   }
@@ -291,6 +356,7 @@ export function removeSlot(id: string): void {
   index.slots = index.slots.filter((s) => s.id !== id);
   if (index.activeSlotId === id) index.activeSlotId = index.slots[0]?.id ?? null;
   writeIndex(index);
+  emit({ type: 'remove', id, ns: saveNamespace() });
 }
 
 export function renameSlot(id: string, label: string): void {
@@ -299,6 +365,7 @@ export function renameSlot(id: string, label: string): void {
   if (!slot) return;
   slot.label = label.trim() || slot.artistName;
   writeIndex(index);
+  emit({ type: 'write', id, ns: saveNamespace() });
 }
 
 export function setActiveSlot(id: string | null): void {
@@ -326,8 +393,8 @@ export function adoptLegacySave(): string | null {
 
   // Verify before deleting. Reading it back costs one parse and removes the
   // only way this could lose data.
-  if (ls.getItem(SLOT_PREFIX + id) !== legacy) {
-    ls.removeItem(SLOT_PREFIX + id);
+  if (ls.getItem(slotKey(id)) !== legacy) {
+    ls.removeItem(slotKey(id));
     return null;
   }
   ls.removeItem(LEGACY_KEY);

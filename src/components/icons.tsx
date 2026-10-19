@@ -201,6 +201,24 @@ export const IconDiamond = svg(
   'IconDiamond',
 );
 
+export const IconShirt = svg(
+  <path d="M8.5 3.5 4 6l-1.5 4.5 3 1.2V20.5h13V11.7l3-1.2L20 6l-4.5-2.5c-.6 1.6-2 2.6-3.5 2.6s-2.9-1-3.5-2.6Z" />,
+  'IconShirt',
+);
+export const IconJournal = svg(
+  <>
+    <path d="M6 3.5h11.5a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H6a1.5 1.5 0 0 1-1.5-1.5v-14A1.5 1.5 0 0 1 6 3.5Z" />
+    <path d="M8.5 8h6.5M8.5 11.5h6.5M8.5 15h4" />
+  </>,
+  'IconJournal',
+);
+export const IconUser = svg(
+  <>
+    <circle cx="12" cy="8.5" r="3.8" />
+    <path d="M4.5 20c.9-3.6 3.9-5.6 7.5-5.6s6.6 2 7.5 5.6" />
+  </>,
+  'IconUser',
+);
 export const IconTrophy = svg(
   <>
     <path d="M7 4h10v5a5 5 0 0 1-10 0z" />

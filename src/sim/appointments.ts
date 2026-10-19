@@ -153,12 +153,15 @@ export function resolveScene(a: Appointment, choice: string, p: Persona, ctx: { 
 /** Bailing on them, or not turning up. */
 export function noShow(a: Appointment, p: Persona, how: 'bail' | 'missed' | 'slept', seed: string): SceneResult & { post?: string } {
   const first = a.npcName.split(' ')[0];
-  const hurt = Math.round((how === 'bail' ? 6 : 10) * (1.3 - p.forgiveness) * (a.kind === 'studio' ? 1.2 : 1));
+  // Standing someone up costs more with people who need respect (ego) and
+  // who don't let things go; a business meeting no-show also costs reputation.
+  const hurt = Math.round((how === 'bail' ? 6 : 10) * (1.3 - p.forgiveness) * (0.8 + p.ego * 0.5) * (a.kind === 'studio' ? 1.2 : 1));
   const goesPublic = p.messy > 0.55 && (hashString(`nos|${seed}`) % 100) / 100 < p.messy;
   const npcLine = how === 'bail'
     ? (p.forgiveness > 0.65 ? 'No stress, another time 🙏🏾' : p.forgiveness < 0.3 ? 'Wow. I cleared my whole night for this.' : 'Ok… let me know when you\'re serious')
     : (p.forgiveness > 0.65 ? 'You good? Didn\'t see you tonight' : p.forgiveness < 0.3 ? 'You really stood me up? Noted.' : 'Waited for you. Not cool');
   const effects: MomentEffect[] = [{ k: 'rel', npcId: a.npcId, v: -hurt }];
+  if (how !== 'bail' && a.kind === 'meeting') effects.push({ k: 'reputation', v: -1 });
   let post: string | undefined;
   if (goesPublic) {
     effects.push({ k: 'reputation', v: -1 });

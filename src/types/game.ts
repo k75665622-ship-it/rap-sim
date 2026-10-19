@@ -8,6 +8,9 @@ import type { Venture } from '../sim/ventures';
 import type { DevProject } from '../sim/realestate';
 import type { BlackjackHand, Fixture, SportsBet } from '../sim/casino';
 import type { FootballState } from '../sim/football';
+import type { DripState } from '../sim/drip';
+import type { Memory } from '../sim/memories';
+import type { Look } from '../sim/look';
 
 export type Background = 'broke_hustler' | 'middle_class' | 'industry_connect';
 export type Gender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say';
@@ -95,6 +98,8 @@ export interface Player {
   energy: number;
   maxEnergy: number;
   createdAt: string;
+  /** How they look: body, face, hair, tattoos and the fit they have on. */
+  look?: Look;
 }
 
 // ─── SONGS ───────────────────────────────────────────────────────────────
@@ -682,6 +687,8 @@ export interface Appointment {
   lateBy?: number;
   outcome?: string;
   chips?: string[];
+  /** Left on read: the invite was seen and not answered. */
+  ignored?: boolean;
 }
 
 // ─── FEATURE NEGOTIATION ──────────────────────────────────────────────────
@@ -2074,6 +2081,10 @@ export interface ChartEntry {
 
 export type GameScreen =
   | 'splash'
+  | 'welcome'
+  | 'account'
+  | 'style'
+  | 'journal'
   | 'create_artist'
   | 'dashboard'
   | 'studio'
@@ -2411,6 +2422,12 @@ export interface GameState {
   appointments?: Appointment[];
   /** The plan happening right now (the modal is open). */
   activeAppointment?: string | null;
+  /** Clothes, jewellery, the shop's drops and the wardrobe. */
+  drip?: DripState;
+  /** The career's journal. The AI reads it so people remember. */
+  memories?: Memory[];
+  /** Last headline and notification already written into the journal. */
+  memoryCursor?: { headline?: string; notification?: string };
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

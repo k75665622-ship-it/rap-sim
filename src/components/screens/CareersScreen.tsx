@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { Button, Card, Badge } from '../ui/Card';
-import { MAX_SLOTS, type SaveSlotMeta } from '../../store/saves';
+import { maxSlots, type SaveSlotMeta } from '../../store/saves';
 import { money } from '@/utils/format';
 
 export function CareersScreen({ standalone = false }: { standalone?: boolean } = {}) {
@@ -82,14 +82,14 @@ export function CareersScreen({ standalone = false }: { standalone?: boolean } =
           <h1 className="text-xl font-black text-ink">Careers</h1>
           <p className="text-[12px] text-ink3 mt-1 leading-relaxed">
             Each career is saved on its own. Starting a new one does not touch
-            the others — you can keep {MAX_SLOTS} going and move between them
+            the others — you can keep {maxSlots()} going and move between them
             whenever you like.
           </p>
         </div>
         <Button
           variant="gold"
           size="sm"
-          disabled={slots.length >= MAX_SLOTS}
+          disabled={slots.length >= maxSlots()}
           onClick={() => { if (newCareer()) setScreen('create_artist'); }}
         >
           + New career
@@ -203,8 +203,8 @@ export function CareersScreen({ standalone = false }: { standalone?: boolean } =
 
       {slots.length > 0 && (
         <p className="text-[11px] text-ink3">
-          {slots.length} of {MAX_SLOTS} careers · {Math.round(totalBytes / 1024)} kB used.
-          {slots.length >= MAX_SLOTS && ' Delete one to start another.'}
+          {slots.length} of {maxSlots()} careers · {Math.round(totalBytes / 1024)} kB used.
+          {slots.length >= maxSlots() && ' Delete one to start another.'}
         </p>
       )}
     </div>

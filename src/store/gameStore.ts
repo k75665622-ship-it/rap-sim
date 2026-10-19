@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer';
 import { setAutoFreeze, current, isDraft } from 'immer';
 import { v4 as uuidv4 } from 'uuid';
 import type {
+  Headline,
   GameState, GameScreen, Player, Song, NPC, DMMessage, SocialPost,
   ActiveContract, Show, Investment, Business,
   Certification, Interview, ChartEntry,
@@ -127,7 +128,6 @@ import { worldBeefs } from '../data/rivalries';
 import { fanGrowthFor, fanbaseReport, type FanbaseReport } from '../sim/fanbase';
 import { videoShootDays } from '../sim/work';
 import {
-  adoptLegacySave,
   newSlotId,
   readIndex,
   readSlot,
@@ -135,7 +135,7 @@ import {
   renameSlot as renameSaveSlot,
   setActiveSlot,
   writeSlot,
-  MAX_SLOTS,
+  maxSlots,
   type SaveSlotMeta,
 } from './saves';
 import {
@@ -418,7 +418,10 @@ import { isSilentOption, playerLine, npcReply, toneOf, followUpFor, outcomeChips
 import { defaultSlot, whenLabel, placeFor, KIND_LABEL, lateness, sceneChoices, resolveScene, noShow, type SceneResult } from '../sim/appointments';
 import { aiActiveFor } from '../sim/ai';
 import { newBrand, weekTick, unitCostFor, fairPrice, rollDesign, MATERIALS, SUPPLIERS, PRODUCT_NAMES, type BrandState, type Product, type ProductKind, type Material, type SupplierId, type WeekCtx } from '../sim/clothing';
-import { newFootball, fixturesForDay, selectionWon, addToTable, finalScore, pickLabel, MATCH_LENGTH, LEAGUE_BY_ID, type FootballState, type Market, type Pick as BetPick } from '../sim/football';
+import { defaultLook, lookFor, type Look, type Slot, type TattooSpot, type TattooDesign, type HairStyle, type FacialHair, type Wearable } from '../sim/look';
+import { newDrip, runDrops, dripScore, dripReach, resaleValue, tattooQuote, removalQuote, barberQuote, type DripState, type OwnedItem } from '../sim/drip';
+import { addMemory, type Memory, type MemoryKind } from '../sim/memories';
+import { newFootball, fixturesForDay, selectionWon, addToTable, addRow, finalScore, pickLabel, koWinner, seasonYearOf, seasonInfo, seasonLabel, sortRows, MATCH_LENGTH, LEAGUE_BY_ID, type FootballState, type Match as FootballMatch, type Market, type Pick as BetPick } from '../sim/football';
 import { isRealId } from '../sim/realPeople';
 
 /**
@@ -1032,6 +1035,9 @@ function getInitialState(): GameState {
     pendingDMs: [],
     appointments: [],
     activeAppointment: null,
+    drip: undefined,
+    memories: [],
+    memoryCursor: undefined,
     socialStats: {},
     fanbaseName: undefined,
     postsToday: undefined,
@@ -2464,6 +2470,7 @@ interface GameActions {
     country: string;
     city: string;
     background: Background;
+    look?: Look;
   }) => void;
 
   // Music
@@ -2716,7 +2723,7 @@ interface GameActions {
    * it supports, reaches that app's followers, and keeps collecting for three
    * days. Tagged people see it and decide what to do about it.
    */
-  publishPost: (opts: { apps: string[]; kind: string; content: string; tags?: string[]; songId?: string; soundSongId?: string }) => { ok: boolean; message: string; viral?: boolean };
+  publishPost: (opts: { apps: string[]; kind: string; content: string; tags?: string[]; songId?: string; soundSongId?: string; /** A fit pic: the drip carries it. */ fit?: boolean }) => { ok: boolean; message: string; viral?: boolean };
   repostPost: (postId: string) => FeatureActionResult;
   quotePost: (postId: string, text: string) => FeatureActionResult;
   /** Comment on a post, or reply to a comment on it. People answer. */
@@ -2841,7 +2848,26 @@ interface GameActions {
   cancelAppointment: (id: string) => FeatureActionResult;
   /** What you do when the plan is happening. */
   attendAppointment: (choiceId: string) => FeatureActionResult;
-  bailAppointment: () => FeatureActionResult;
+  /** Don't go: text an excuse, or just don't show up. */
+  bailAppointment: (mode?: 'excuse' | 'ghost') => FeatureActionResult;
+  /** Leave an invite on read. How that lands depends on who sent it. */
+  ignoreInvite: (appointmentId: string) => FeatureActionResult;
+
+  // Drip, tattoos, the barber
+  /** Open the shop: stocks it and puts the current look in the wardrobe on first visit. */
+  openDrip: () => void;
+  buyDrip: (itemId: string) => FeatureActionResult;
+  equipDrip: (slot: Slot, itemId: string | null) => FeatureActionResult;
+  sellDrip: (itemId: string) => FeatureActionResult;
+  getTattoo: (spot: TattooSpot, design: TattooDesign) => FeatureActionResult;
+  removeTattoo: (tattooId: string) => FeatureActionResult;
+  visitBarber: (next: { hair: HairStyle; hairColor: string; facialHair: FacialHair }) => FeatureActionResult;
+  /** A fit pic on Snapgram. New pieces carry it further. */
+  postFit: (caption: string) => FeatureActionResult;
+
+  // The journal
+  pinMemory: (id: string, pinned: boolean) => void;
+  addJournalNote: (text: string) => void;
   /** Answer an invite somebody sent you (optionally at a different time). */
   respondToPlan: (appointmentId: string, accept: boolean, atMinute?: number) => FeatureActionResult;
   // The AI writes back (see ai/bridge.ts)
@@ -3007,6 +3033,8 @@ interface GameActions {
 
   // Save/Load
   saveGame: () => void;
+  /** Close whatever career is open (switching accounts). */
+  resetSession: () => void;
   loadGame: () => boolean;
   newGame: () => void;
 
@@ -6329,6 +6357,11 @@ function moneyTick(state: GameState, serial: number, days: number, log: string[]
   ensureFixtures(state);
   settleFootball(state, nowMinuteOf(state));
 
+  // The shops: a new drop every other Friday.
+  dripTick(state);
+  // The journal picks up the day's big moments.
+  captureMemories(state);
+
   // Net worth, weekly.
   const hist = state.wealthHistory ?? (state.wealthHistory = []);
   if (!hist.length || serial - hist[hist.length - 1].serial >= 7) {
@@ -6475,14 +6508,76 @@ function footballOf(state: GameState): FootballState {
   return state.football;
 }
 
-/** Today's and tomorrow's matches exist; old ones are cleared out. */
+/** Count a finished match: league table, cup table or knockout, results feed. */
+function recordMatch(state: GameState, fb: FootballState, m: FootballMatch): void {
+  const season = seasonYearOf(Math.floor(m.kickoff / MINUTES_PER_DAY));
+  const { h, a } = finalScore(m);
+  const pens = m.pens ? ` (${m.pens === 'h' ? m.home : m.away} on pens)` : '';
+  fb.results = [`${LEAGUE_BY_ID[m.league]?.flag ?? '⚽'} ${m.home} ${h}–${a} ${m.away}${pens}${m.stage ? ` · ${m.stage}` : ''}`, ...fb.results].slice(0, 60);
+  if (season !== fb.season) {
+    // Last season's final, whistled after the calendar ticked over.
+    if (m.ko === 'final') honour(state, fb, season, 'ucl', koWinner(m));
+    return;
+  }
+  if (m.league === 'ucl') {
+    const cup = fb.cup ?? (fb.cup = { season, table: {}, ko: {} });
+    if (m.ko) {
+      cup.ko[m.ko] = koWinner(m);
+      if (m.ko === 'final') honour(state, fb, season, 'ucl', koWinner(m));
+    } else addRow(cup.table, m);
+  } else addToTable(fb.tables, m);
+}
+
+function honour(state: GameState, fb: FootballState, season: number, league: string, team: string): void {
+  const list = fb.honours ?? (fb.honours = []);
+  if (list.some((x) => x.season === season && x.league === league)) return;
+  list.unshift({ season, league, team });
+  fb.honours = list.slice(0, 80);
+  const L = LEAGUE_BY_ID[league];
+  if (state.player) pushNotification(state, { kind: 'business', title: `${L?.flag ?? '🏆'} ${team} ${league === 'ucl' ? 'win the Champions Cup' : `are ${L?.name.split(' · ')[0]} champions`}`, body: `Season ${seasonLabel(season)} is in the books.`, artSeed: `honour|${season}|${league}` });
+}
+
+/** A new season: crown the champions, wipe the tables, draw the cup. */
+function rollSeason(state: GameState, fb: FootballState, year: number): void {
+  if (fb.season !== undefined) {
+    for (const [lg, rows] of Object.entries(fb.tables)) {
+      const top = Object.entries(rows).sort((x, y) => sortRows(x[1], y[1]))[0];
+      if (top && top[1].p > 0) honour(state, fb, fb.season, lg, top[0]);
+    }
+  } else {
+    // A save from before seasons existed: its fixtures were random pairings.
+    // Keep only matches someone has money on, and rebuild from the calendar.
+    const openIds = new Set(fb.bets.filter((b) => b.status === 'open').flatMap((b) => b.selections.map((x) => x.matchId)));
+    fb.matches = fb.matches.filter((m) => openIds.has(m.id));
+    fb.scheduled = [];
+    fb.through = seasonInfo(year).start - 1;
+  }
+  fb.tables = {};
+  fb.cup = { season: year, table: {}, ko: {} };
+  fb.season = year;
+}
+
+/**
+ * The fixture board: today's and tomorrow's matches are up with odds. Days the
+ * player slept through are played out of sight so the tables stay true, and a
+ * new career starts mid-season with the season so far already played.
+ */
 function ensureFixtures(state: GameState): void {
   const fb = footballOf(state);
   const today = dateToSerial(state.gameDate);
-  for (const d of [today, today + 1]) {
+  if (fb.through === undefined && fb.season === undefined) fb.through = seasonInfo(seasonYearOf(today)).start - 1;
+  for (let d = (fb.through ?? today - 1) + 1; d <= today + 1; d++) {
+    const yr = seasonYearOf(d);
+    if (fb.season !== yr) rollSeason(state, fb, yr);
     if (fb.scheduled.includes(d)) continue;
-    fb.matches.push(...fixturesForDay(d, Math.random));
-    fb.scheduled.push(d);
+    const ms = fixturesForDay(d, fb.cup, Math.random);
+    if (d < today) {
+      for (const m of ms) recordMatch(state, fb, m);
+    } else {
+      fb.matches.push(...ms);
+      fb.scheduled.push(d);
+    }
+    fb.through = d;
   }
   fb.scheduled = fb.scheduled.filter((d) => d >= today - 3);
   const openIds = new Set(fb.bets.filter((b) => b.status === 'open').flatMap((b) => b.selections.map((x) => x.matchId)));
@@ -6499,9 +6594,7 @@ function settleFootball(state: GameState, now: number): void {
     if (m.settled || m.kickoff + MATCH_LENGTH > now) continue;
     m.settled = true;
     any = true;
-    addToTable(fb.tables, m);
-    const { h, a } = finalScore(m);
-    fb.results = [`${LEAGUE_BY_ID[m.league]?.flag ?? '⚽'} ${m.home} ${h}–${a} ${m.away}`, ...fb.results].slice(0, 40);
+    if (m.stage) recordMatch(state, fb, m);
   }
   if (!any) return;
   const byId = new Map(fb.matches.map((m) => [m.id, m]));
@@ -6539,9 +6632,17 @@ function minuteTick(state: GameState, reason: 'clock' | 'rest' | 'skip' = 'clock
     if (a.status === 'live' && state.activeAppointment !== a.id) a.status = 'confirmed';
     if (a.status === 'proposed' && a.atMinute <= now) {
       a.status = 'cancelled';
-      a.outcome = 'You never answered the invite.';
+      a.outcome = a.ignored ? 'You left it on read.' : 'You never answered the invite.';
       const n = state.npcs.find((x) => x.id === a.npcId);
-      if (n) n.relationshipScore = Math.max(-100, n.relationshipScore - 2);
+      if (n) {
+        // Leaving someone on read lands differently depending on who they are.
+        const pp = personaOf(n);
+        const hurt = a.ignored ? Math.round(3 + (1 - pp.forgiveness) * 5 + pp.ego * 2) : Math.round(1 + (1 - pp.forgiveness) * 2);
+        n.relationshipScore = Math.max(-100, n.relationshipScore - hurt);
+        if (a.ignored && pp.messy > 0.6 && Math.random() < pp.messy * 0.5 && !isRealId(n.id)) npcPost(state, n, pickLine(['Left on read by people I put on. Noted 🤐', 'Funny how quick people forget who picked up the phone for them.', 'Read 8:02pm. Cool cool cool.'], a.id));
+        n.memoryLog = [...(n.memoryLog ?? []).slice(-9), `[${a.kind}] ${a.ignored ? 'Left my invite on read' : 'Never answered my invite'}`];
+      }
+      remember(state, 'plans', a.ignored ? `You left ${a.npcName} on read about the ${KIND_LABEL[a.kind].label.toLowerCase()}.` : `You never answered ${a.npcName}'s invite.`, { npcIds: [a.npcId], weight: 2, tone: 'bad' });
       continue;
     }
     if (a.status !== 'confirmed' || a.atMinute > now) continue;
@@ -6593,15 +6694,121 @@ function finishAppointment(state: GameState, a: Appointment, res: SceneResult & 
   if (npc) npc.memoryLog = [...(npc.memoryLog ?? []).slice(-9), `[${a.kind}] ${status === 'missed' ? 'You did not show up' : res.text.slice(0, 60)}`];
   pushDM(state, a.npcId, { fromPlayer: false, system: true, content: a.outcome, chips: a.chips });
   if (res.npcLine && !isRealId(a.npcId)) scheduleDM(state, a.npcId, res.npcLine, nowMinuteOf(state) + (status === 'missed' ? 20 : 45));
-  if (res.post && npc) {
-    state.socialPosts.unshift({
-      id: uuidv4(), platform: 'chirp', authorId: npc.id, authorName: npc.name, content: res.post,
-      likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 40, daySerial: serial,
-    } as SocialPost);
-    livenPost(state, state.socialPosts[0]);
-  }
+  if (res.post && npc) npcPost(state, npc, res.post);
   state.lastEventLog.unshift(`${KIND_LABEL[a.kind].emoji} ${a.title}: ${a.outcome}`);
   state.lastEventLog = state.lastEventLog.slice(0, 12);
+  const what = KIND_LABEL[a.kind].label.toLowerCase();
+  const hurt = res.effects.some((e) => e.k === 'rel' && e.v < 0);
+  remember(state, 'plans',
+    status === 'missed' ? `You didn't show up to the ${what} with ${a.npcName}.`
+      : status === 'cancelled' ? `You bailed on the ${what} with ${a.npcName}.`
+        : `${KIND_LABEL[a.kind].label} with ${a.npcName} at ${a.place}: ${res.text}`,
+    { npcIds: [a.npcId], weight: status === 'done' ? 2 : 3, tone: status === 'done' && !hurt ? 'good' : 'bad' });
+}
+
+/**
+ * Time spent in a chair (tattoo, barber): the clock moves on even if the
+ * player had it paused, exactly as the running clock would move it.
+ */
+function passTime(minutes: number): void {
+  const st = useGameStore.getState();
+  const paused = st.clockPaused;
+  if (paused) useGameStore.setState({ clockPaused: false });
+  useGameStore.getState().advanceClock(minutes);
+  if (paused) useGameStore.setState({ clockPaused: true });
+}
+
+// ─── THE JOURNAL ───────────────────────────────────────────────────────────
+
+/** Write a line in the career's journal. */
+function remember(state: GameState, kind: MemoryKind, text: string, opts: { npcIds?: string[]; weight?: number; tone?: Memory['tone'] } = {}): void {
+  if (!state.player) return;
+  state.memories = addMemory(state.memories ?? [], {
+    id: uuidv4(), serial: dateToSerial(state.gameDate), minute: nowMinuteOf(state), kind, text: text.slice(0, 220),
+    npcIds: opts.npcIds?.filter((id) => !!id), weight: opts.weight ?? 2, tone: opts.tone,
+  });
+}
+
+const HEADLINE_KIND: Record<string, MemoryKind> = { award: 'career', chart: 'music', beef: 'beef', feature: 'music', show: 'career', scandal: 'life', business: 'money', general: 'career' };
+const NOTE_KIND: Partial<Record<string, { kind: MemoryKind; weight: number }>> = { chart_number_one: { kind: 'music', weight: 5 }, chart_debut: { kind: 'music', weight: 3 }, certification: { kind: 'music', weight: 4 }, milestone: { kind: 'career', weight: 4 } };
+
+/** Headlines about the player and the big notifications go in the journal. */
+function captureMemories(state: GameState): void {
+  const p = state.player;
+  if (!p) return;
+  const cur = state.memoryCursor ?? (state.memoryCursor = {});
+  const npcIds = new Set(state.npcs.map((n) => n.id));
+  const heads: Headline[] = [];
+  for (const h of state.headlines ?? []) { if (h.id === cur.headline || heads.length >= 30) break; heads.push(h); }
+  if (state.headlines?.[0]) cur.headline = state.headlines[0].id;
+  for (const h of heads.reverse()) {
+    if (!h.relatedEntities?.includes(p.id) || (h.priority ?? 0) < 3) continue;
+    remember(state, HEADLINE_KIND[h.category] ?? 'career', h.text, { npcIds: h.relatedEntities.filter((id: string) => id !== p.id && npcIds.has(id)), weight: h.priority >= 6 ? 4 : 3, tone: h.category === 'scandal' ? 'bad' : undefined });
+  }
+  const notes: GameNotification[] = [];
+  for (const n of state.notifications ?? []) { if (n.id === cur.notification || notes.length >= 30) break; notes.push(n); }
+  if (state.notifications?.[0]) cur.notification = state.notifications[0].id;
+  for (const n of notes.reverse()) {
+    const k = NOTE_KIND[n.kind];
+    if (k) remember(state, k.kind, n.title.replace(/^[^\p{L}\p{N}"“]+/u, ''), { weight: k.weight, tone: 'good' });
+  }
+}
+
+/** An NPC posts on Chirp about something that just happened. */
+function npcPost(state: GameState, npc: NPC, content: string): void {
+  state.socialPosts.unshift({
+    id: uuidv4(), platform: 'chirp', authorId: npc.id, authorName: npc.name, content,
+    likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 40, daySerial: dateToSerial(state.gameDate),
+  } as SocialPost);
+  livenPost(state, state.socialPosts[0]);
+}
+
+// ─── DRIP ──────────────────────────────────────────────────────────────────
+
+/** The player's look, filled in for careers from before looks existed. */
+function lookOfPlayer(state: GameState): Look | null {
+  const p = state.player;
+  if (!p) return null;
+  if (!p.look) p.look = lookFor(p.id, p.gender === 'female' ? 'female' : p.gender === 'male' ? 'male' : undefined);
+  return p.look;
+}
+
+/** What you were already wearing becomes your first wardrobe: plain basics. */
+function asOwned(w: Wearable, serial: number): OwnedItem {
+  return { ...w, price: 0, paid: 0, bought: serial, brand: 'Own clothes', tier: 'basic', hype: 18, released: serial - 120, classic: true };
+}
+
+function dripOf(state: GameState): DripState {
+  const serial = dateToSerial(state.gameDate);
+  if (!state.drip) {
+    state.drip = newDrip();
+    const look = lookOfPlayer(state);
+    if (look) for (const w of Object.values(look.outfit)) if (w && !state.drip.wardrobe.some((x) => x.id === w.id)) state.drip.wardrobe.push(asOwned(w, serial));
+    runDrops(state.drip, serial, Math.random, collabNames(state));
+  }
+  return state.drip;
+}
+
+/** Fictional artists hot enough for a sneaker collab. Never real people. */
+function collabNames(state: GameState): string[] {
+  return (raw(state.npcs) as NPC[]).filter((n) => n.role === 'artist' && n.fame >= 62 && !isRealId(n.id)).slice(0, 30).map((n) => n.name);
+}
+
+/** The shop restocks every other Friday. */
+function dripTick(state: GameState): void {
+  if (!state.player) return;
+  const d = dripOf(state);
+  const fresh = runDrops(d, dateToSerial(state.gameDate), Math.random, collabNames(state));
+  if (!fresh.length) return;
+  const star = fresh.find((x) => x.collab) ?? fresh.find((x) => x.limited) ?? fresh.find((x) => x.slot === 'shoes');
+  pushNotification(state, { kind: 'business', title: `👟 New drop: ${star?.name ?? `${fresh.length} pieces`}`, body: `${fresh.length} new pieces in the shop${fresh.some((x) => x.limited) ? ' — some are limited and will sell out' : ''}.`, artSeed: `drop|${d.drops}` });
+}
+
+/** Today's drip score for the player. */
+function playerDrip(state: GameState): number {
+  const look = state.player?.look;
+  if (!look) return 20;
+  return dripScore(look.outfit, dateToSerial(state.gameDate), state.drip, look.tattoos).score;
 }
 
 // ─── CLOTHING BRAND ────────────────────────────────────────────────────────
@@ -7033,12 +7240,21 @@ export const useGameStore = create<GameState & GameActions>()(
           energy: MAX_ENERGY,
           maxEnergy: MAX_ENERGY,
           createdAt: new Date().toISOString(),
+          look: data.look ?? defaultLook(data.gender === 'female' ? 'femme' : 'masc'),
         };
 
         state.gameDate = gameDate;
         state.initialized = true;
         state.screen = 'dashboard';
         state.cityFame[`${data.country}:${data.city}`] = career.localFame;
+        // The football season is already under way: play it up to today.
+        ensureFixtures(state);
+        // The wardrobe starts with what they walked in wearing; the shop is stocked.
+        state.drip = undefined;
+        dripOf(state);
+        state.memories = [];
+        state.memoryCursor = undefined;
+        remember(state, 'life', `You started out in ${data.city}, ${data.country}, with $${Math.round(career.money).toLocaleString()} to your name.`, { weight: 5 });
 
         // ─── THE WORLD WAS ALREADY RUNNING ───────────────────────────────
         // The player does not switch the industry on. Every record already in
@@ -9931,7 +10147,9 @@ export const useGameStore = create<GameState & GameActions>()(
           const kind = kindOnApp(k0.id, app, !!song);
           const craft = kind === 'freestyle' ? p.stats.freestyle : kind === 'skit' ? p.stats.charisma : kind === 'challenge' ? p.stats.stagePresence : p.stats.marketing;
           // The blue tick and a trending sound both carry a post further.
-          const lift = (state.verified ? 1.15 : 1) * (soundIsTheirs && app === 'clip' ? 1.35 : 1);
+          // What you're wearing shows on the visual apps; a fit pic in new pieces most of all.
+          const looks = app === 'snapgram' || app === 'clip' ? dripReach(playerDrip(state)) * (opts.fit ? 1.12 : 1) : 1;
+          const lift = (state.verified ? 1.15 : 1) * (soundIsTheirs && app === 'clip' ? 1.35 : 1) * looks;
           const r = postReach({ boost: socialBoost(state),
             app, kind, followers: Math.round(stats[app].followers * lift), fame: blendedFame(p), momentum: p.career.momentum,
             songQuality: (song ?? sound)?.quality, postsToday: today, taggedFame: tagged.map((n) => n.fame), controversy, craft, roll: Math.random(),
@@ -12102,19 +12320,199 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    bailAppointment: () => {
+    bailAppointment: (mode = 'excuse') => {
       let result: FeatureActionResult = { ok: false, message: 'Nothing to bail on.' };
       set((state) => {
         const a = (state.appointments ?? []).find((x) => x.id === state.activeAppointment);
         const npc = a ? state.npcs.find((n) => n.id === a.npcId) : undefined;
         if (!a || !npc) { state.activeAppointment = null; return; }
-        const res = noShow(a, personaOf(npc), 'bail', a.id);
-        finishAppointment(state, a, res, 'cancelled');
+        if (mode === 'excuse') pushDM(state, a.npcId, { fromPlayer: true, content: pickLine(['Something came up, I can\'t make it tonight 🙏🏾', 'Bro I\'m so sorry, can\'t make it', 'Can\'t come through tonight, my bad'], a.id) });
+        const res = noShow(a, personaOf(npc), mode === 'ghost' ? 'missed' : 'bail', a.id);
+        finishAppointment(state, a, res, mode === 'ghost' ? 'missed' : 'cancelled');
         state.clockPaused = false;
         result = { ok: true, message: res.text };
       });
       return result;
     },
+
+    ignoreInvite: (appointmentId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That invite has gone.' };
+      set((state) => {
+        const a = (state.appointments ?? []).find((x) => x.id === appointmentId && x.status === 'proposed');
+        const npc = a ? state.npcs.find((n) => n.id === a.npcId) : undefined;
+        if (!a || !npc) return;
+        a.ignored = true;
+        const pp = personaOf(npc);
+        const now = nowMinuteOf(state);
+        const first = npc.name.split(' ')[0];
+        // Some people chase a read receipt. Some take the hint, loudly.
+        if (!isRealId(npc.id)) {
+          if (pp.warmth > 0.55 && pp.forgiveness > 0.4) scheduleDM(state, npc.id, pickLine(['You saw my message? 👀', 'Hello?? lol', 'No pressure, just let me know'], a.id), now + 60 + Math.floor(Math.random() * 120));
+          else if (pp.ego > 0.65) scheduleDM(state, npc.id, pickLine(['Say less.', 'Aight. Noted.', 'Cool.'], a.id), now + 20 + Math.floor(Math.random() * 60));
+        }
+        const read = isRealId(npc.id) ? '' : pp.forgiveness < 0.35 || pp.ego > 0.7 ? `${first} won't take that well.` : pp.forgiveness > 0.65 ? `${first} probably won't hold it against you.` : `${first} will notice.`;
+        result = { ok: true, message: `Left on read.${read ? ` ${read}` : ''}` };
+      });
+      return result;
+    },
+
+    // ─── DRIP ───────────────────────────────────────────────────────────
+    openDrip: () => set((state) => { if (state.player) dripOf(state); }),
+
+    buyDrip: (itemId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That piece is gone.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const d = dripOf(state);
+        const item = d.shop.find((x) => x.id === itemId);
+        if (!item) return;
+        if (d.wardrobe.some((x) => x.id === itemId)) { result.message = 'Already in your wardrobe.'; return; }
+        if (item.limited && (item.stock ?? 0) <= 0) { result.message = 'Sold out. Resellers have it at a markup now.'; return; }
+        if (p.career.money < item.price) { result.message = `That's $${item.price.toLocaleString()}. You have $${Math.floor(p.career.money).toLocaleString()}.`; return; }
+        p.career.money -= item.price;
+        if (item.limited && item.stock) item.stock -= 1;
+        const serial = dateToSerial(state.gameDate);
+        d.wardrobe.unshift({ ...item, bought: serial, paid: item.price });
+        const look = lookOfPlayer(state);
+        if (look) look.outfit = { ...look.outfit, [item.slot]: { id: item.id, slot: item.slot, shape: item.shape, name: item.name, c1: item.c1, c2: item.c2, c3: item.c3, text: item.text } };
+        if (item.price >= 2500 || item.limited || item.tier === 'grail') remember(state, 'style', `You copped the ${item.name}${item.colorway ? ` (${item.colorway})` : ''} for $${item.price.toLocaleString()}.`, { weight: item.tier === 'grail' ? 4 : 2, tone: 'good' });
+        result = { ok: true, message: `Copped: ${item.name}. You've got it on.` };
+      });
+      return result;
+    },
+
+    equipDrip: (slot, itemId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not in your wardrobe.' };
+      set((state) => {
+        const look = lookOfPlayer(state);
+        if (!look) return;
+        const d = dripOf(state);
+        if (!itemId) {
+          if (slot === 'top' || slot === 'bottom' || slot === 'shoes') { result.message = 'You need something on.'; return; }
+          look.outfit = { ...look.outfit, [slot]: undefined };
+          result = { ok: true, message: 'Taken off.' };
+          return;
+        }
+        const it = d.wardrobe.find((x) => x.id === itemId && x.slot === slot);
+        if (!it) return;
+        look.outfit = { ...look.outfit, [slot]: { id: it.id, slot: it.slot, shape: it.shape, name: it.name, c1: it.c1, c2: it.c2, c3: it.c3, text: it.text } };
+        result = { ok: true, message: `Wearing ${it.name}.` };
+      });
+      return result;
+    },
+
+    sellDrip: (itemId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not in your wardrobe.' };
+      set((state) => {
+        const p = state.player;
+        const look = lookOfPlayer(state);
+        if (!p || !look) return;
+        const d = dripOf(state);
+        const it = d.wardrobe.find((x) => x.id === itemId);
+        if (!it) return;
+        const worn = look.outfit[it.slot]?.id === it.id;
+        if (worn && (it.slot === 'top' || it.slot === 'bottom' || it.slot === 'shoes')) { result.message = 'Change out of it first.'; return; }
+        const serial = dateToSerial(state.gameDate);
+        const value = resaleValue(it, serial, d.lines);
+        p.career.money += value;
+        d.wardrobe = d.wardrobe.filter((x) => x.id !== itemId);
+        if (worn) look.outfit = { ...look.outfit, [it.slot]: undefined };
+        result = { ok: true, message: value > 0 ? `Sold ${it.name} for $${value.toLocaleString()}${value > it.paid ? ' — more than you paid' : ''}.` : `Gave ${it.name} away.` };
+      });
+      return result;
+    },
+
+    getTattoo: (spot, design) => {
+      let result: FeatureActionResult = { ok: false, message: 'The studio is closed.' };
+      let minutes = 0;
+      set((state) => {
+        const p = state.player;
+        const look = lookOfPlayer(state);
+        if (!p || !look) return;
+        const q = tattooQuote(spot, design);
+        const existing = look.tattoos.find((t) => t.spot === spot);
+        const price = Math.round(q.price * (existing ? 1.3 : 1));
+        if (p.career.money < price) { result.message = `That piece is $${price.toLocaleString()}.`; return; }
+        const energy = Math.min(24, q.hours * 4);
+        if (!spendEnergy(state, energy, { admin: true })) { result.message = `${q.hours} hours in the chair takes ${energy} energy. Rest first.`; return; }
+        p.career.money -= price;
+        const serial = (look.tattoos.reduce((m, t) => Math.max(m, t.serial), 0) || 0) + 1;
+        look.tattoos = [...look.tattoos.filter((t) => t.spot !== spot), { id: uuidv4(), spot, design, serial }];
+        minutes = q.hours * 60;
+        const where = spot.replace('_', ' ');
+        remember(state, 'style', existing ? `You covered up your ${where} tattoo with a ${q.label.toLowerCase()}.` : `You got a ${q.label.toLowerCase()} tattoo on your ${where}.`, { weight: spot === 'face' || design === 'sleeve' ? 4 : 2 });
+        if (spot === 'face' && blendedFame(p) >= 20) state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} debuts a new face tattoo`, fullStory: `Fans are split on the new ${q.label.toLowerCase()}.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 3, category: 'general' });
+        result = { ok: true, message: `${q.hours} hour${q.hours > 1 ? 's' : ''} later: fresh ink. ${existing ? 'The old one is gone under it.' : 'It\'s permanent.'}` };
+      });
+      if (minutes) passTime(minutes);
+      return result;
+    },
+
+    removeTattoo: (tattooId) => {
+      let result: FeatureActionResult = { ok: false, message: 'No such tattoo.' };
+      let minutes = 0;
+      set((state) => {
+        const p = state.player;
+        const look = lookOfPlayer(state);
+        if (!p || !look) return;
+        const t = look.tattoos.find((x) => x.id === tattooId);
+        if (!t) return;
+        const q = removalQuote(t);
+        if (p.career.money < q.price) { result.message = `Laser removal is $${q.price.toLocaleString()} — three times what it cost to put on.`; return; }
+        p.career.money -= q.price;
+        look.tattoos = look.tattoos.filter((x) => x.id !== tattooId);
+        minutes = q.hours * 60;
+        remember(state, 'style', `You had your ${t.spot.replace('_', ' ')} tattoo lasered off.`, { weight: 2 });
+        result = { ok: true, message: `Gone, for $${q.price.toLocaleString()}. That stung.` };
+      });
+      if (minutes) passTime(minutes);
+      return result;
+    },
+
+    visitBarber: (next) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to change.' };
+      let minutes = 0;
+      set((state) => {
+        const p = state.player;
+        const look = lookOfPlayer(state);
+        if (!p || !look) return;
+        const q = barberQuote(look, next);
+        if (!q.price) return;
+        if (p.career.money < q.price) { result.message = `That's $${q.price} at the shop.`; return; }
+        p.career.money -= q.price;
+        const big = next.hair !== look.hair;
+        p.look = { ...look, hair: next.hair, hairColor: next.hairColor, facialHair: next.facialHair };
+        minutes = Math.max(30, q.hours * 60);
+        if (big) remember(state, 'style', `New hair: ${next.hair.replace(/_/g, ' ')}.`, { weight: 1 });
+        result = { ok: true, message: `Fresh. $${q.price}${q.hours > 1 ? `, ${q.hours} hours in the chair` : ''}.` };
+      });
+      if (minutes) passTime(minutes);
+      return result;
+    },
+
+    postFit: (caption) => {
+      const st = get();
+      const look = st.player?.look;
+      const d = st.drip;
+      if (!look || !d) return { ok: false, message: 'Get dressed first.' };
+      const fresh = Object.values(look.outfit).filter((w): w is Wearable => !!w && !d.flexed.includes(w.id) && d.wardrobe.some((x) => x.id === w.id && x.paid > 0));
+      const pieces = fresh.map((w) => w.name).slice(0, 2);
+      const content = caption.trim() || (pieces.length ? `Fit check. ${pieces.join(' + ')} 🔥` : 'Fit check 📸');
+      const r = st.publishPost({ apps: ['snapgram'], kind: 'photo', content, fit: true });
+      if (r.ok) set((state) => { const dd = dripOf(state); dd.flexed = [...dd.flexed, ...fresh.map((w) => w.id)].slice(-200); remember(state, 'style', `You posted a fit pic${pieces.length ? ` in the ${pieces[0]}` : ''}${r.viral ? ' and it went viral' : ''}.`, { weight: r.viral ? 3 : 1, tone: 'good' }); });
+      return r;
+    },
+
+    // ─── THE JOURNAL ────────────────────────────────────────────────────
+    pinMemory: (id, pinned) => set((state) => {
+      const m = (state.memories ?? []).find((x) => x.id === id);
+      if (m) m.pinned = pinned;
+    }),
+    addJournalNote: (text) => set((state) => {
+      const t = text.trim();
+      if (t) remember(state, 'life', t.slice(0, 200), { weight: 3 });
+    }),
 
 
     askToDropAct: (offerId, npcId) => {
@@ -13589,6 +13987,7 @@ export const useGameStore = create<GameState & GameActions>()(
           const p = personaOf(npc);
           npc.relationshipScore = Math.max(-100, npc.relationshipScore - (p.ego > 0.7 ? 3 : 1));
           scheduleDM(state, a.npcId, p.warmth > 0.6 ? 'No wahala, another time' : 'Ok', now + 6);
+          remember(state, 'plans', `You turned down ${a.npcName}'s ${KIND_LABEL[a.kind].label.toLowerCase()} invite.`, { npcIds: [a.npcId], weight: 1 });
           result = { ok: true, message: 'Declined.' };
         }
       });
@@ -16853,6 +17252,9 @@ export const useGameStore = create<GameState & GameActions>()(
           wealthHistory: state.wealthHistory,
           pendingDMs: state.pendingDMs,
           football: state.football,
+          drip: state.drip,
+          memories: state.memories,
+          memoryCursor: state.memoryCursor,
           appointments: (state.appointments ?? []).slice(-40),
           activeAppointment: null,
           investments: state.investments,
@@ -16922,7 +17324,7 @@ export const useGameStore = create<GameState & GameActions>()(
       if (next < MINUTES_PER_DAY) {
         const nowAbs = dateToSerial(before.gameDate) * MINUTES_PER_DAY + next;
         const due = (before.pendingDMs ?? []).some((d) => d.atMinute <= nowAbs)
-          || (before.appointments ?? []).some((a) => a.status === 'confirmed' && a.atMinute <= nowAbs)
+          || (before.appointments ?? []).some((a) => (a.status === 'confirmed' || a.status === 'proposed') && a.atMinute <= nowAbs)
           || clockEventsDue(before, nowAbs);
         set((state) => {
           state.clockMinute = next;
@@ -17158,6 +17560,8 @@ export const useGameStore = create<GameState & GameActions>()(
       }),
 
     // ─── SAVE/LOAD ───────────────────────────────────────────────────────
+    resetSession: () => set((state) => { Object.assign(state, getInitialState()); }),
+
     saveGame: () => {
       const state = get();
       if (!state.activeSlotId) {
@@ -17215,6 +17619,9 @@ export const useGameStore = create<GameState & GameActions>()(
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
         football: state.football,
+        drip: state.drip,
+        memories: state.memories,
+        memoryCursor: state.memoryCursor,
         appointments: (state.appointments ?? []).slice(-40),
         activeAppointment: null,
         investments: state.investments,
@@ -17317,10 +17724,10 @@ export const useGameStore = create<GameState & GameActions>()(
      */
     newCareer: () => {
       const index = readIndex();
-      if (index.slots.length >= MAX_SLOTS) {
+      if (index.slots.length >= maxSlots()) {
         set((s) => {
           s.saveError =
-            `You are already keeping ${MAX_SLOTS} careers, which is as many as this ` +
+            `You are already keeping ${maxSlots()} careers, which is as many as this ` +
             'browser will hold. Delete one you are finished with, then start another.';
         });
         return false;
@@ -17394,4 +17801,4 @@ export const useGameStore = create<GameState & GameActions>()(
 // not lose it — and the old key is only removed after the copy has been read
 // back and compared, so an interrupted migration leaves the original intact
 // rather than destroying the only copy of somebody's career.
-adoptLegacySave();
+// (Run by the boot in main.tsx once the local database is open.)

@@ -3,6 +3,9 @@
 // diary, how the music and the money are doing, and what happened while you
 // were away.
 
+import { Character } from '../avatar/Character';
+import { dripScore } from '../../sim/drip';
+import { dateToSerial } from '../../sim/gameClock';
 import { useMemo } from 'react';
 import { useGameStore, blendedFame, nowMinuteOf, netWorthOf } from '../../store/gameStore';
 import { MomentCard, MomentsInbox } from '../moments/MomentCard';
@@ -30,6 +33,7 @@ export function Dashboard() {
   const notifications = useGameStore((s) => s.notifications);
   const appointments = useGameStore((s) => s.appointments);
   const football = useGameStore((s) => s.football);
+  const dripState = useGameStore((s) => s.drip);
   const now = useGameStore((s) => nowMinuteOf(s));
 
   if (!player) return null;
@@ -43,22 +47,28 @@ export function Dashboard() {
   const openBets = (football?.bets ?? []).filter((b) => b.status === 'open').length;
   const energyPct = Math.round((player.energy / Math.max(1, player.maxEnergy)) * 100);
   const [g1, g2] = gradientFor(player.id);
+  const drip = dripScore(player.look?.outfit ?? {}, dateToSerial(gameDate), dripState, player.look?.tattoos ?? []);
 
   return (
     <div className="max-w-[1040px] mx-auto space-y-5 pb-10">
       {/* Hero */}
       <section className="relative rounded-[22px] border border-line overflow-hidden" style={{ background: `radial-gradient(120% 140% at 0% 0%, ${g1}33, rgba(10,11,16,0) 55%), radial-gradient(100% 120% at 100% 100%, ${g2}22, rgba(10,11,16,0) 60%), #14161e` }}>
         <div className="p-5 sm:p-6">
-          <div className="flex items-start gap-4">
-            <Avatar name={player.artistName} seed={player.id} size={68} ring="#ffb800" />
-            <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1 pt-1">
               <div className="flex items-center gap-1.5 min-w-0">
                 <h1 className="text-[26px] sm:text-[32px] font-black text-ink leading-tight truncate">{player.artistName}</h1>
                 {verified && <span className="text-new shrink-0"><IconVerified size={20} /></span>}
               </div>
               <div className="text-[13px] text-ink2 truncate">{player.genre.replace(/_/g, ' ')} · {player.city}, {player.country} · {player.age}</div>
               <div className="text-[12px] text-ink3 mt-0.5">{formatLong(gameDate)} · {formatClockTime(clockMinute ?? 0)}</div>
+              <button onClick={() => setScreen('style')} className="mt-2.5 inline-flex items-center gap-2 h-8 pl-2.5 pr-3 rounded-full border border-line bg-black/30 hover:border-amber/60 text-[12px]">
+                <span className="text-ink3">Drip</span><b className="text-amber num">{drip.score}</b><span className="text-ink2">{drip.label}</span>
+              </button>
             </div>
+            <button onClick={() => setScreen('style')} aria-label="Your look" className="shrink-0 -my-3 w-[96px] h-[168px] sm:w-[128px] sm:h-[220px] rounded-[16px] hover:bg-white/[0.03] transition">
+              {player.look ? <Character look={player.look} className="w-full h-full" /> : <Avatar name={player.artistName} seed={player.id} size={68} ring="#ffb800" />}
+            </button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-5">

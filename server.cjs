@@ -113,7 +113,7 @@ function send(res, status, body, headers = {}) {
 function cors() {
   // Bearer tokens, no cookies: any origin may call the API (the game can be
   // hosted somewhere else, e.g. GitHub Pages, and point at this server).
-  return { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS', 'access-control-max-age': '86400' };
+  return { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS', 'access-control-max-age': '86400', 'access-control-expose-headers': 'x-rl-proxy, retry-after' };
 }
 
 function readBody(req, limit = MAX_BODY) {
@@ -172,7 +172,7 @@ async function aiProxy(req, res) {
   try {
     const r = await fetch(target, isGet ? { method: 'GET', headers, signal: AbortSignal.timeout(20000) } : { method: 'POST', headers, body: JSON.stringify(b.body || {}), signal: AbortSignal.timeout(30000) });
     const text = await r.text();
-    const out = { 'content-type': r.headers.get('content-type') || 'application/json', ...cors() };
+    const out = { 'content-type': r.headers.get('content-type') || 'application/json', 'x-rl-proxy': '1', ...cors() };
     const ra = r.headers.get('retry-after');
     if (ra) out['retry-after'] = ra;
     res.writeHead(r.status, out);

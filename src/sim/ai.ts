@@ -292,7 +292,7 @@ const TIMEOUT_MS = 25000;
 let proxyUrl: string | null = null;
 let proxyBroken = false;
 /** Shown on the AI page so you can tell whether the newest build is loaded. */
-export const AI_BUILD = '2026-10-19 · j2';
+export const AI_BUILD = '2026-10-19 · j3';
 export function setAIProxy(url: string | null): void { proxyUrl = url; if (url) proxyBroken = false; }
 /**
  * The game's own pass-through: set when the server answered, or — when this
@@ -306,8 +306,14 @@ function proxyFor(): string | null {
   if (/^(localhost|127\.|0\.0\.0\.0)/.test(location.hostname)) return null;
   return `${location.origin}/api/ai`;
 }
-/** Providers that refuse calls straight from a web page: go through the server first. */
-const PROXY_FIRST = new Set<string>(['groq', 'deepseek', 'mistral', 'xai']);
+/**
+ * Providers to send through the server first. Empty: everyone is tried
+ * directly, and the server only steps in when the browser blocks a call
+ * (remembered per provider in `needsProxy`).
+ */
+const PROXY_FIRST = new Set<string>();
+/** True once the page's own address turned out to be a static site (no server). */
+export function aiHasNoServer(): boolean { return proxyBroken; }
 
 interface Wired { url: string; headers: Record<string, string>; body: Record<string, unknown> }
 interface Parsed { text: string; input: number; output: number; cacheRead: number; cacheWrite: number }
@@ -387,8 +393,13 @@ async function send(w: Wired, viaProxy: boolean): Promise<Response> {
       // No pass-through here (a static host): stop trying it. A provider's own
       // 404 ("that model doesn't exist") comes back through the pass-through
       // too, so only a 404 that isn't the provider talking means "no server".
+      // A static site answers every address with the game's own page: that
+      // isn't a pass-through, whatever the status says.
+      const type = r.headers.get('content-type') ?? '';
+      const head = type.includes('json') ? '' : (await r.clone().text().catch(() => '')).trimStart().slice(0, 200);
+      if (type.includes('text/html') || head.startsWith('<')) { proxyBroken = true; throw new TypeError('No game server to pass the request through'); }
       if (r.status === 404 || r.status === 405) {
-        const txt = await r.clone().text().catch(() => '');
+        const txt = head || (await r.clone().text().catch(() => ''));
         const fromProvider = r.headers.get('x-rl-proxy') === '1' || /model|does not exist|not_found|invalid_request|"error"\s*:\s*\{/i.test(txt);
         if (!fromProvider) { proxyBroken = true; throw new TypeError('No game server to pass the request through'); }
       }
@@ -465,9 +476,9 @@ export function callAI(req: AICall): Promise<string> {
         ? `Can't reach ${a.base}. Is it running (and allowing this page)?`
         : e instanceof DOMException && e.name === 'AbortError'
           ? `${a.def.label} took too long to answer. Try again, or pick a faster model.`
-          : proxyFor()
-            ? `Couldn't reach ${a.def.label} — check your internet connection.`
-            : `${a.def.label} doesn't accept calls straight from a web page. Play the game from its server address (the online version) so the call can go through it.`;
+          : proxyBroken
+            ? `${a.def.label} blocked the call from this page, and this site has no game server to pass it through (it's hosted as a static site). Host the game as a Render Web Service with "npm start" — or use OpenRouter, which allows calls from web pages.`
+            : `Couldn't reach ${a.def.label} — check your internet connection.`;
       bumpUsage({ errors: 1, lastError: msg });
       throw new AIError(msg, 'network');
     }
@@ -505,7 +516,12 @@ export function callAI(req: AICall): Promise<string> {
         ? `${a.def.label} says the model "${model}" doesn't exist on your key${why ? ` (${why.slice(0, 120)})` : ''}. Pick one from the list.`
         : `API error ${res.status}${/model/i.test(why) ? ` with model "${model}"` : ''}${why ? `: ${why.slice(0, 160)}` : ''}`, 'bad');
     }
-    const parsed = parseResponse(a.def.wire, await res.json());
+    let data: unknown;
+    try { data = await res.json(); } catch {
+      bumpUsage({ errors: 1, lastError: 'The answer wasn\'t JSON' });
+      throw new AIError(proxyBroken || proxyFor() ? 'Got a web page back instead of an AI answer — this site has no game server. Host it as a Render Web Service ("npm start"), or use OpenRouter.' : 'The provider sent back something that isn\'t an answer. Try again.', 'network');
+    }
+    const parsed = parseResponse(a.def.wire, data);
     bumpUsage({ input: Math.max(0, parsed.input), output: parsed.output, cacheRead: parsed.cacheRead, cacheWrite: parsed.cacheWrite });
     if (!parsed.text) throw new AIError('Empty answer', 'bad');
     return parsed.text;
@@ -539,6 +555,7 @@ export async function fetchModels(provider?: ProviderId): Promise<string[]> {
   } catch {
     try { res = await viaProxy(); } catch { throw new AIError(`Couldn't reach ${a.def.label} to list models.`, 'network'); }
   }
+  if ((res.headers.get('content-type') ?? '').includes('text/html')) { proxyBroken = true; throw new AIError(`Couldn't list ${a.def.label} models from this page — type the model name instead (e.g. ${a.def.defaultModel}).`, 'network'); }
   if (!res.ok) throw new AIError(res.status === 401 || res.status === 403 ? 'The API key was rejected' : `Could not list models (${res.status})`, res.status === 401 ? 'auth' : 'bad');
   const d = (await res.json()) as { data?: { id: string }[]; models?: { name: string; supportedGenerationMethods?: string[] }[] };
   if (d.models) return d.models.filter((m) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''));

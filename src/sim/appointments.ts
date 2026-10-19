@@ -123,7 +123,7 @@ export function sceneChoices(a: Appointment, hasUnreleased: boolean): SceneChoic
 export interface SceneResult { text: string; npcLine: string; effects: MomentEffect[] }
 
 /** What happens. `roll` 0-1; better with warmth and relationship. */
-export function resolveScene(a: Appointment, choice: string, p: Persona, ctx: { rel: number; unreleasedQuality: number; playerFame: number }, roll: number): SceneResult {
+export function resolveScene(a: Appointment, choice: string, p: Persona, ctx: { rel: number; unreleasedQuality: number; playerFame: number; producerSkill?: number }, roll: number): SceneResult {
   const id = a.npcId;
   const first = a.npcName.split(' ')[0];
   const luck = roll + p.warmth * 0.15 + ctx.rel / 400;
@@ -131,6 +131,15 @@ export function resolveScene(a: Appointment, choice: string, p: Persona, ctx: { 
   if (a.kind === 'gig') return gigScene(a, choice, p, ctx, roll, late);
   switch (choice) {
     case 'record': {
+      // A session with a producer leaves something you can use: the beat you
+      // built together goes in Studio → Beats.
+      if (ctx.producerSkill && luck > 0.25) {
+        const quality = Math.round(Math.max(20, Math.min(99, ctx.producerSkill + 2 + (luck - 0.55) * 16)));
+        const beat: MomentEffect = { k: 'beat', npcId: id, npcName: a.npcName, quality, price: 0, how: 'bought' };
+        return luck > 0.7
+          ? { text: `${late}${first} cooked from scratch while you wrote over it. The beat is yours — it's in Studio → Beats.`, npcLine: 'That beat is crazy. It\'s yours, go kill it 🔥', effects: [{ k: 'energy', v: -25 }, { k: 'rel', npcId: id, v: 9 }, { k: 'stat', stat: 'beatSelection', v: 1 }, beat] }
+          : { text: `${late}Long session. You left with a beat that works — it's in Studio → Beats.`, npcLine: 'Sent you the beat. Let me hear what you do on it', effects: [{ k: 'energy', v: -25 }, { k: 'rel', npcId: id, v: 6 }, beat] };
+      }
       if (luck > 0.85) return { text: `${late}Magic. You two made a record everyone in the room was replaying. ${first} wants you on it — free.`, npcLine: 'Bro we just made a hit. I\'m not even joking 🔥', effects: [{ k: 'energy', v: -25 }, { k: 'rel', npcId: id, v: 12 }, { k: 'stat', stat: 'songwriting', v: 1 }, { k: 'stat', stat: 'creativity', v: 1 }, { k: 'inboundAsk', npcId: id, free: true }] };
       if (luck > 0.55) return { text: `${late}Solid session. A couple of good ideas, one hook you can't stop humming.`, npcLine: 'Good session. We need to finish that one', effects: [{ k: 'energy', v: -25 }, { k: 'rel', npcId: id, v: 8 }, { k: 'stat', stat: 'creativity', v: 1 }] };
       if (luck > 0.25) return { text: `${late}Long night, nothing usable. Still — you showed up.`, npcLine: 'Wasn\'t our night but we go again', effects: [{ k: 'energy', v: -25 }, { k: 'rel', npcId: id, v: 4 }] };

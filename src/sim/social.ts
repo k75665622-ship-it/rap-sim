@@ -206,9 +206,9 @@ export function generateComments(post: Pick<SocialPost, 'id' | 'content'>, count
     else if (r < 0.14 + hateShare + stanShare) tone = 'stan';
     else if (r < 0.85) tone = 'love';
     else tone = 'neutral';
-    const friend = ctx.artistFriends.length && unit(`${ctx.seed}|f|${i}`) < 0.12 ? ctx.artistFriends[i % ctx.artistFriends.length] : null;
+    const friend = ctx.artistFriends.length && unit(`${ctx.seed}|f|${i}`) < 0.2 ? ctx.artistFriends[i % ctx.artistFriends.length] : null;
     const text = friend
-      ? pick(['🔥🔥🔥', 'Talk to them 😤', 'This is the one', 'Big bro moves', 'We locked in 🔒'], `${ctx.seed}|${i}|fr`)
+      ? pick(['🔥🔥🔥', 'Talk to them 😤', 'This is the one', 'Big bro moves', 'We locked in 🔒', 'Studio this week? 👀', 'Send me this one', 'You snapped on this', 'Chale this one dey 🔥', 'Na you dey run am', 'Respect 🙏🏾', 'When are we cooking?', 'Say less 🤝🏾', 'Proud of you fam', 'The vision is clear 💯', 'Remix. Me. Now. 😂'], `${ctx.seed}|${i}|fr`)
       : pick(LINES[tone], `${ctx.seed}|${post.id}|${i}|t`)
           .replace('{RIVALFANS}', ctx.rivalFans ?? 'Y\'all')
           .replace('{RIVAL}', ctx.rivalName ?? 'someone')

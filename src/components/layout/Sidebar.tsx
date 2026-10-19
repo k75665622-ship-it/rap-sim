@@ -11,6 +11,7 @@ import { energyColor, energyLabel, needsRest, restRefusal, restOutcomeLine, REST
 import { crewBonuses } from '../../sim/roles';
 import { money } from '@/utils/format';
 import { GameClock } from './GameClock';
+import { goBack, useCanGoBack } from './nav';
 import { Portrait } from '../avatar/Portrait';
 import { currentAccount } from '../../store/accounts';
 import {
@@ -65,6 +66,7 @@ export function Sidebar() {
   // actually give back rather than what it would give back alone.
   const restMult = useMemo(() => crewBonuses(crew).energyRecovery, [crew]);
   const [open, setOpen] = useState(false);
+  const canBack = useCanGoBack();
   /** The result of the last sleep, so the control answers back. */
   const [restNotice, setRestNotice] = useState<string | null>(null);
 
@@ -324,6 +326,15 @@ export function Sidebar() {
         >
           <IconMenu />
         </button>
+        {canBack ? (
+          <button
+            onClick={goBack}
+            aria-label="Go back"
+            className="w-9 h-9 -ml-2 rounded-[10px] flex items-center justify-center text-ink hover:bg-white/5 text-[20px] leading-none"
+          >
+            ←
+          </button>
+        ) : null}
         <span className="text-[13px] font-black tracking-widest text-ink">RAP LIFE</span>
         <div className="ml-auto">
           <GameClock compact />

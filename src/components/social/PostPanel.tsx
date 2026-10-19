@@ -12,6 +12,7 @@ import { APP_META, kindDef, type PostKind, type SocialApp } from '../../sim/soci
 import { visibleComments, liveCounts, minutesAgo } from '../../sim/socialLive';
 import type { SocialComment, SocialPost } from '../../types/game';
 import { IconVerified } from '../icons';
+import { repliesForComment } from '../../ai/bridge';
 import { Avatar, RichText, ToneTag, handleOf } from './shared';
 
 function CommentRow({
@@ -74,6 +75,7 @@ export function PostPanel({ post, songTitle, onClose, now, verified, onOpenProfi
   function send() {
     if (!text.trim() || !post) return;
     const r = quoting ? quotePost(post.id, text) : commentOnPost(post.id, text, replyTo?.id);
+    if (!quoting && r.ok) void repliesForComment(post.id);
     setFlash(r);
     setText('');
     setReplyTo(null);

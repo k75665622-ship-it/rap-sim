@@ -5,7 +5,7 @@
 // per account.
 
 import { useEffect, useState } from 'react';
-import { AI_BUILD, PROVIDERS, activeProvider, aiConfigured, aiSettings, aiUsage, estimateCost, fetchModels, onAIChange, saveAISettings, testKey, type AIFeature } from '../../sim/ai';
+import { AI_BUILD, rankChatModels, PROVIDERS, activeProvider, aiConfigured, aiSettings, aiUsage, estimateCost, fetchModels, onAIChange, saveAISettings, testKey, type AIFeature } from '../../sim/ai';
 import { currentAccount } from '../../store/accounts';
 import { Button } from '../ui/kit';
 import { cn } from '@/utils/cn';
@@ -43,7 +43,10 @@ export function AISettingsScreen() {
       const r = await testKey();
       setTest({ ok: true, msg: `Connected to ${a.def.label} (${a.model}). Replied: "${r.slice(0, 30)}"` });
     } catch (e) {
-      setTest({ ok: false, msg: e instanceof Error ? e.message : 'Could not connect.' });
+      const msg = e instanceof Error ? e.message : 'Could not connect.';
+      setTest({ ok: false, msg });
+      // The model isn't on this key: show what IS, so it's one tap to fix.
+      if (/doesn't exist|does not exist|model/i.test(msg)) void loadModels();
     } finally {
       setTesting(false);
     }
@@ -51,7 +54,7 @@ export function AISettingsScreen() {
 
   async function loadModels() {
     setLoadingModels(true);
-    try { setModels(await fetchModels()); } catch (e) { setTest({ ok: false, msg: e instanceof Error ? e.message : 'Could not list models.' }); } finally { setLoadingModels(false); }
+    try { setModels(rankChatModels(await fetchModels())); } catch (e) { setTest({ ok: false, msg: e instanceof Error ? e.message : 'Could not list models.' }); } finally { setLoadingModels(false); }
   }
 
   return (
@@ -129,7 +132,16 @@ export function AISettingsScreen() {
               ))}
             </div>
           )}
-          {models && <div className="text-[11px] text-ink3 mt-1.5">{models.length} models available with this key — type or pick one above.</div>}
+          {models && (
+            <div className="mt-2">
+              <div className="text-[11px] text-ink3 mb-1.5">Models your key can use — tap one:</div>
+              <div className="flex flex-wrap gap-1.5">
+                {models.slice(0, 12).map((m) => (
+                  <button key={m} onClick={() => { saveAISettings({ models: { [a.def.id]: m } }); setTest(null); }} className={cn('h-8 px-3 rounded-full border text-[12px] num', a.model === m ? 'border-re bg-re/10 text-ink' : 'border-line text-ink2 hover:text-ink')}>{m}</button>
+                ))}
+              </div>
+            </div>
+          )}
           {a.model !== a.def.defaultModel && a.def.defaultModel && <button onClick={() => saveAISettings({ models: { [a.def.id]: a.def.defaultModel } })} className="mt-1.5 text-[11px] font-semibold text-re">Use the recommended model ({a.def.defaultModel})</button>}
         </div>
         <div className="flex items-center gap-3 flex-wrap">

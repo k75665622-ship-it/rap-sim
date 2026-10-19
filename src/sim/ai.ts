@@ -292,7 +292,7 @@ const TIMEOUT_MS = 25000;
 let proxyUrl: string | null = null;
 let proxyBroken = false;
 /** Shown on the AI page so you can tell whether the newest build is loaded. */
-export const AI_BUILD = '2026-10-19 · j3';
+export const AI_BUILD = '2026-10-19 · j4';
 export function setAIProxy(url: string | null): void { proxyUrl = url; if (url) proxyBroken = false; }
 /**
  * The game's own pass-through: set when the server answered, or — when this
@@ -486,14 +486,32 @@ export function callAI(req: AICall): Promise<string> {
     // The model isn't on this key (a typo, a retired model, something pasted
     // into the wrong box): fall back to the provider's recommended model once,
     // and keep it if it works.
-    if (!res.ok && a.model !== a.def.defaultModel && a.def.defaultModel) {
+    // If even that isn't there, ask the provider which models this key CAN
+    // use and take the best chat model on the list.
+    if (!res.ok) {
       const txt = await res.clone().text().catch(() => '');
       const missing = res.status === 404 || (res.status === 400 && /model/i.test(txt) && /not found|does not exist|decommission|not supported|invalid/i.test(txt));
       if (missing) {
         const bad = a.model;
-        w.body.model = a.def.defaultModel;
-        try { res = await go(); } catch { /* keep the first answer */ }
-        if (res.ok) { saveAISettings({ models: { [a.def.id]: a.def.defaultModel } }); bumpUsage({ lastError: `"${bad}" isn't available on your ${a.def.label} key — switched to ${a.def.defaultModel}.` }); }
+        const tried = new Set([bad]);
+        const candidates: string[] = [];
+        if (a.def.defaultModel && !tried.has(a.def.defaultModel)) candidates.push(a.def.defaultModel);
+        try { candidates.push(...rankChatModels(await fetchModels(a.def.id))); } catch { /* the list isn't reachable: just the default */ }
+        for (const m of candidates) {
+          if (tried.has(m)) continue;
+          tried.add(m);
+          if (tried.size > 4) break;
+          w.body.model = m;
+          // Thinking settings belong to the model, so rebuild them for this one.
+          const fresh = buildRequest({ ...a, model: m }, req);
+          w.body = fresh.body;
+          try { res = await go(); } catch { continue; }
+          if (res.ok) {
+            saveAISettings({ models: { [a.def.id]: m } });
+            bumpUsage({ lastError: `"${bad}" isn't available on your ${a.def.label} key — switched to ${m}.` });
+            break;
+          }
+        }
       }
     }
 
@@ -560,6 +578,17 @@ export async function fetchModels(provider?: ProviderId): Promise<string[]> {
   const d = (await res.json()) as { data?: { id: string }[]; models?: { name: string; supportedGenerationMethods?: string[] }[] };
   if (d.models) return d.models.filter((m) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''));
   return (d.data ?? []).map((m) => m.id).sort();
+}
+
+/**
+ * The chat models in a provider's list, best first for writing dialogue.
+ * Speech, transcription and safety models are dropped.
+ */
+export function rankChatModels(ids: string[]): string[] {
+  const chat = ids.filter((id) => !/whisper|tts|orpheus|playai|guard|safeguard|embed|vision-only|distil|compound|audio|transcri|moderation|image|dall-e|sora/i.test(id));
+  const prefer = [/llama-3\.3-70b/i, /gpt-oss-120b/i, /llama-4/i, /kimi/i, /gpt-oss-20b/i, /qwen/i, /llama-3\.1-8b/i, /gemma/i, /mistral|mixtral/i, /llama/i];
+  const score = (id: string) => { const i = prefer.findIndex((re) => re.test(id)); return i < 0 ? prefer.length : i; };
+  return [...chat].sort((x, y) => score(x) - score(y));
 }
 
 /** Pull the first JSON object or array out of a model answer. */

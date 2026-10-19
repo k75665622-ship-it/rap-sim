@@ -61,11 +61,14 @@ export const PROVIDERS: ProviderDef[] = [
     ] },
   { id: 'gemini', label: 'Google Gemini', wire: 'gemini', base: 'https://generativelanguage.googleapis.com/v1beta', defaultModel: 'gemini-3.6-flash', keyHint: 'AIza…', keyUrl: 'https://aistudio.google.com/apikey',
     models: [{ id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', note: 'Fast; has a free tier.' }] },
-  { id: 'groq', label: 'Groq', wire: 'openai', base: 'https://api.groq.com/openai/v1', defaultModel: 'openai/gpt-oss-20b', keyHint: 'gsk_…', keyUrl: 'https://console.groq.com/keys', reasoning: 'groq',
+  // Groq's free tier is the easiest way in. Llama 3.3 70B writes the best
+  // casual dialogue there and doesn't spend tokens "thinking" first.
+  { id: 'groq', label: 'Groq', wire: 'openai', base: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile', keyHint: 'gsk_…', keyUrl: 'https://console.groq.com/keys', note: 'Free tier. Get a key at console.groq.com/keys.',
     models: [
-      { id: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B', note: 'Very fast, very cheap.', inPrice: 0.075, outPrice: 0.3 },
-      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B', note: 'Smarter, still cheap.', inPrice: 0.15, outPrice: 0.6 },
-      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B' },
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', note: 'Best for chats. Recommended.' },
+      { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', note: 'Fastest, higher free limits.' },
+      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B', note: 'Thinks first; smarter, slower.' },
+      { id: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B', note: 'Thinks first; fast.' },
     ] },
   { id: 'xai', label: 'Grok (xAI)', wire: 'openai', base: 'https://api.x.ai/v1', defaultModel: 'grok-4.3', keyHint: 'xai-…', keyUrl: 'https://console.x.ai',
     models: [{ id: 'grok-4.3', label: 'Grok 4.3', inPrice: 1.25, outPrice: 2.5 }] },
@@ -266,6 +269,8 @@ export interface AICall {
   maxTokens?: number;
   /** Skip the on/off switches (the settings screen's test button). */
   force?: boolean;
+  /** The answer must be a JSON object (asks the provider for JSON mode). */
+  json?: boolean;
 }
 
 let chain: Promise<unknown> = Promise.resolve();
@@ -280,7 +285,22 @@ const TIMEOUT_MS = 25000;
  * stored. Set by the cloud module when a server answers.
  */
 let proxyUrl: string | null = null;
-export function setAIProxy(url: string | null): void { proxyUrl = url; }
+let proxyBroken = false;
+export function setAIProxy(url: string | null): void { proxyUrl = url; if (url) proxyBroken = false; }
+/**
+ * The game's own pass-through: set when the server answered, or — when this
+ * page is served from a real address — the same address, before anybody has
+ * checked. A page opened as a file has none.
+ */
+function proxyFor(): string | null {
+  if (proxyBroken) return null;
+  if (proxyUrl) return proxyUrl;
+  if (typeof location === 'undefined' || !/^https?:$/.test(location.protocol)) return null;
+  if (/^(localhost|127\.|0\.0\.0\.0)/.test(location.hostname)) return null;
+  return `${location.origin}/api/ai`;
+}
+/** Providers that refuse calls straight from a web page: go through the server first. */
+const PROXY_FIRST = new Set<string>(['groq', 'deepseek', 'mistral', 'xai']);
 
 interface Wired { url: string; headers: Record<string, string>; body: Record<string, unknown> }
 interface Parsed { text: string; input: number; output: number; cacheRead: number; cacheWrite: number }
@@ -312,17 +332,22 @@ function buildRequest(a: ReturnType<typeof activeProvider>, req: AICall): Wired 
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (a.key) headers.authorization = `Bearer ${a.key}`;
   if (a.def.id === 'openrouter') { headers['x-title'] = 'RAP LIFE'; }
-  const body: Record<string, unknown> = { model: a.model, messages: [{ role: 'system', content: system }, ...req.messages] };
-  if (a.def.reasoning) {
-    // Reasoning models spend tokens thinking before they answer: keep the
-    // thinking short and give the budget room for both.
-    body.reasoning_effort = 'low';
+  const body: Record<string, unknown> = { model: a.model, messages: [{ role: 'system', content: system }, ...req.messages], temperature: 0.9 };
+  // Thinking models spend tokens before they answer: keep the thinking short
+  // and give the budget room for both. Decided by the model, not the
+  // provider — Llama on Groq doesn't think, GPT-OSS on Groq does.
+  const thinks = a.def.reasoning === 'openai' || /gpt-oss|qwen3|deepseek-r|reasoner|\bo[34]\b/i.test(a.model);
+  if (thinks) {
+    body.reasoning_effort = /qwen/i.test(a.model) ? 'none' : 'low';
+    if (a.def.id === 'groq' && /gpt-oss/i.test(a.model)) body.include_reasoning = false;
+    if (a.def.id === 'openai') delete body.temperature;
     body.max_completion_tokens = max * 4 + 256;
-  } else if (a.def.id === 'openai') {
+  } else if (a.def.id === 'openai' || a.def.id === 'groq') {
     body.max_completion_tokens = max;
   } else {
     body.max_tokens = max;
   }
+  if (req.json && a.def.id !== 'ollama' && a.def.id !== 'custom') body.response_format = { type: 'json_object' };
   return { url: `${a.base}/chat/completions`, headers, body };
 }
 
@@ -348,9 +373,13 @@ function parseResponse(wire: Wire, data: unknown): Parsed {
 async function send(w: Wired, viaProxy: boolean): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const proxy = proxyFor();
   try {
-    if (viaProxy && proxyUrl) {
-      return await fetch(proxyUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: w.url, headers: w.headers, body: w.body }), signal: ctrl.signal });
+    if (viaProxy && proxy) {
+      const r = await fetch(proxy, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: w.url, headers: w.headers, body: w.body }), signal: ctrl.signal });
+      // No pass-through here (a static host): stop trying it.
+      if (r.status === 404 || r.status === 405) { proxyBroken = true; throw new TypeError('No game server to pass the request through'); }
+      return r;
     }
     return await fetch(w.url, { method: 'POST', headers: w.headers, body: JSON.stringify(w.body), signal: ctrl.signal });
   } finally {
@@ -376,13 +405,16 @@ export function callAI(req: AICall): Promise<string> {
 
     const w = buildRequest(a, req);
     const local = a.base.startsWith('http://localhost') || a.base.startsWith('http://127.');
-    let proxied = needsProxy.has(a.def.id) && !!proxyUrl && !local && a.def.id !== 'custom';
+    let proxied = (needsProxy.has(a.def.id) || PROXY_FIRST.has(a.def.id)) && !!proxyFor() && !local && a.def.id !== 'custom';
     const go = async (): Promise<Response> => {
       try {
         return await send(w, proxied);
       } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') throw e;
+        // The pass-through isn't there: try the provider directly.
+        if (proxied) { proxied = false; return await send(w, false); }
         // Blocked by the browser (CORS) or unreachable: try the game's server once.
-        if (!proxied && proxyUrl && !local && a.def.id !== 'custom' && !(e instanceof DOMException && e.name === 'AbortError')) {
+        if (proxyFor() && !local && a.def.id !== 'custom') {
           proxied = true;
           needsProxy.add(a.def.id);
           return await send(w, true);
@@ -402,7 +434,9 @@ export function callAI(req: AICall): Promise<string> {
           delete w.body.thinking;
           if (w.body.generationConfig) delete (w.body.generationConfig as Record<string, unknown>).thinkingConfig;
           changed = true;
-        } else if (/reasoning/i.test(txt) && w.body.reasoning_effort) { delete w.body.reasoning_effort; changed = true; }
+        } else if (/reasoning/i.test(txt) && (w.body.reasoning_effort || w.body.include_reasoning !== undefined)) { delete w.body.reasoning_effort; delete w.body.include_reasoning; changed = true; }
+        else if (/response_format|json/i.test(txt) && w.body.response_format) { delete w.body.response_format; changed = true; }
+        else if (/temperature/i.test(txt) && w.body.temperature !== undefined) { delete w.body.temperature; changed = true; }
         else if (/max_completion_tokens/i.test(txt) && w.body.max_completion_tokens) { w.body.max_tokens = w.body.max_completion_tokens; delete w.body.max_completion_tokens; changed = true; }
         else if (/max_tokens/i.test(txt) && w.body.max_tokens) { w.body.max_completion_tokens = w.body.max_tokens; delete w.body.max_tokens; changed = true; }
         if (!changed) break;
@@ -414,9 +448,15 @@ export function callAI(req: AICall): Promise<string> {
         res = await go();
       }
     } catch (e) {
-      const msg = local ? `Can't reach ${a.base}. Is it running (and allowing this page)?` : 'Network error or timeout';
+      const msg = local
+        ? `Can't reach ${a.base}. Is it running (and allowing this page)?`
+        : e instanceof DOMException && e.name === 'AbortError'
+          ? `${a.def.label} took too long to answer. Try again, or pick a faster model.`
+          : proxyFor()
+            ? `Couldn't reach ${a.def.label} — check your internet connection.`
+            : `${a.def.label} doesn't accept calls straight from a web page. Play the game from its server address (the online version) so the call can go through it.`;
       bumpUsage({ errors: 1, lastError: msg });
-      throw new AIError(e instanceof Error && !local ? e.message : msg, 'network');
+      throw new AIError(msg, 'network');
     }
 
     bumpUsage({ calls: 1 });
@@ -431,7 +471,9 @@ export function callAI(req: AICall): Promise<string> {
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
       bumpUsage({ errors: 1, lastError: `API error ${res.status}: ${txt.slice(0, 140)}` });
-      throw new AIError(`API error ${res.status}${res.status === 404 ? ' — check the model name' : ''}`, 'bad');
+      let why = '';
+      try { const j = JSON.parse(txt) as { error?: { message?: string } | string }; why = typeof j.error === 'string' ? j.error : j.error?.message ?? ''; } catch { why = txt.slice(0, 160); }
+      throw new AIError(`API error ${res.status}${res.status === 404 || /model/i.test(why) ? ' — check the model name' : ''}${why ? `: ${why.slice(0, 160)}` : ''}`, 'bad');
     }
     const parsed = parseResponse(a.def.wire, await res.json());
     bumpUsage({ input: Math.max(0, parsed.input), output: parsed.output, cacheRead: parsed.cacheRead, cacheWrite: parsed.cacheWrite });
@@ -456,7 +498,17 @@ export async function fetchModels(provider?: ProviderId): Promise<string[]> {
   else if (a.def.wire === 'gemini') headers['x-goog-api-key'] = a.key;
   else if (a.key) headers.authorization = `Bearer ${a.key}`;
   if (a.def.wire === 'anthropic') url += '?limit=100';
-  const res = await fetch(url, { headers });
+  const viaProxy = async () => {
+    const proxy = proxyFor();
+    if (!proxy) throw new TypeError('no proxy');
+    return fetch(proxy, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: url, method: 'GET', headers }) });
+  };
+  let res: Response;
+  try {
+    res = PROXY_FIRST.has(a.def.id) && proxyFor() ? await viaProxy() : await fetch(url, { headers });
+  } catch {
+    try { res = await viaProxy(); } catch { throw new AIError(`Couldn't reach ${a.def.label} to list models.`, 'network'); }
+  }
   if (!res.ok) throw new AIError(res.status === 401 || res.status === 403 ? 'The API key was rejected' : `Could not list models (${res.status})`, res.status === 401 ? 'auth' : 'bad');
   const d = (await res.json()) as { data?: { id: string }[]; models?: { name: string; supportedGenerationMethods?: string[] }[] };
   if (d.models) return d.models.filter((m) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''));

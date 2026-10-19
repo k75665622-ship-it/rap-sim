@@ -330,6 +330,18 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 ### AI: Groq in a minute
 - AI Brain now opens with a **free Groq quick start**: a link to console.groq.com/keys, three steps, and a "Use Groq" button. Every provider's "get a key" line is a clickable link.
 
+## 2026-10-19 (j) — The AI actually connects (Groq), and DMs that don't read like a form
+
+### Groq works
+- **Groq blocks calls made straight from a web page**, so the game now sends them through its own server (the online version at your Render address) automatically — no setup. Model lists come through the server too ("Fetch models").
+- The default Groq model is now **Llama 3.3 70B** — the best for casual chat and it doesn't "think" first. Also listed: Llama 3.1 8B (fastest, higher free limits), GPT-OSS 120B and 20B. Thinking settings are only sent to models that use them.
+- Replies are requested in **JSON mode**, so answers parse reliably.
+- When something goes wrong, the AI page now says what: the provider's own error message, a model name it doesn't know, a timeout, or that the page has to be opened from the server address.
+
+### DMs with some life in them
+- The built-in writing (used when the AI is off or fails) has far more to say: more lines for every kind of message, a follow-up question instead of a dead "Mhm", light Ghanaian and Nigerian flavour for people from home, and each person's texting style (some never use capitals, business people skip the emojis).
+- One-word answers ("Ok", "ok", "Thanks") after you decide something in a chat are replaced with real replies.
+
 ## How to run
 
 ```

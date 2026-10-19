@@ -110,7 +110,7 @@ async function chatReply(npcId: string): Promise<void> {
   if (!npc || !st.player) return;
   const context = `${playerBlock(st)}\n\n${npcBlock(st, npc)}`;
   const ask = `Conversation so far:\n${transcript(st, npcId, npc.name)}\n\nWrite ${npc.name}'s next message to ${st.player.artistName}. Answer as JSON: {"reply": "...", "rel": 0, "action": "none", "time": ""}`;
-  const text = await callClaude({ feature: 'dms', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 220 });
+  const text = await callClaude({ json: true, feature: 'dms', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 220 });
   const out = parseJSON<ChatOut>(text);
   if (!out?.reply || mentionsAny(out.reply, realNames(st))) throw new AIError('Unusable reply', 'bad');
   useGameStore.getState().applyAIChat(npcId, out);
@@ -123,7 +123,7 @@ async function momentReply(npcId: string, momentId: string): Promise<void> {
   if (!npc || !m || !st.player) return;
   const context = `${playerBlock(st)}\n\n${npcBlock(st, npc)}`;
   const ask = `Conversation so far:\n${transcript(st, npcId, npc.name, 10)}\n\nWhat the player decided: "${m.resolution?.label ?? ''}". What it led to: ${m.resolution?.text ?? ''}\n\nWrite ${npc.name}'s short reply to the player's last message, reacting naturally to that outcome. Answer as JSON: {"reply": "..."}`;
-  const text = await callClaude({ feature: 'moments', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 120 });
+  const text = await callClaude({ json: true, feature: 'moments', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 120 });
   const out = parseJSON<{ reply: string }>(text);
   if (!out?.reply || mentionsAny(out.reply, realNames(st))) throw new AIError('Unusable reply', 'bad');
   useGameStore.getState().applyAIMomentReply(npcId, momentId, out.reply);
@@ -159,7 +159,7 @@ export async function commentsForPost(postId: string): Promise<void> {
   const context = `${playerBlock(st)}\nThe player just posted on ${post.platform}: "${post.content}".${friends.length ? `\nFriends who might comment (use their exact names): ${friends.map((f) => f.name).join(', ')}.` : ''}${rivals.length ? `\nRivals whose fans might troll: ${rivals.join(', ')}.` : ''}`;
   const ask = 'Write 8 comments under this post from a realistic mix: excited fans with believable usernames (like "kwame_vibes" or "naija_queen23"), a couple of jokers, one hater or troll, and at most one or two of the friends listed (by name). React to what the post actually says. Answer as JSON: {"comments":[{"name":"...","text":"...","tone":"stan|love|neutral|hater|troll|artist"}]}';
   try {
-    const text = await callClaude({ feature: 'social', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 500 });
+    const text = await callClaude({ json: true, feature: 'social', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 500 });
     const out = parseJSON<{ comments: { name: string; text: string; tone?: string }[] }>(text);
     const names = realNames(st);
     const ok = (out?.comments ?? []).filter((c) => c?.name && c?.text && !mentionsAny(`${c.name} ${c.text}`, names));
@@ -209,7 +209,7 @@ export async function runDirector(): Promise<void> {
   }).join('\n')}`;
   const ask = 'Decide what 2 to 4 of these people do today, each acting from their own personality and history with the player. Options: "dm" (text the player), "post" (a public post on "chirp" or "snapgram", can mention the player), "invite" (invite the player to a "studio" session, "linkup" or "party" at a time like "21:00", with the message they send), "gossip" (only bloggers/media: a short headline about the player). Keep it believable and varied — not everyone talks to the player every day. Answer as JSON: {"events":[{"who":"N1","type":"dm|post|invite|gossip","text":"...","kind":"studio|linkup|party","time":"21:00","app":"chirp|snapgram"}]}';
   try {
-    const text = await callClaude({ feature: 'director', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 600 });
+    const text = await callClaude({ json: true, feature: 'director', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 600 });
     const out = parseJSON<{ events: { who: string; type: string; text?: string; kind?: string; time?: string; app?: string }[] }>(text);
     const names = realNames(st);
     const events = (out?.events ?? [])
@@ -238,7 +238,7 @@ export async function interviewFollowUp(): Promise<void> {
   const context = `${playerBlock(st)}\nInterview: ${live.outletName}, host ${live.host}, format: ${live.format.replace(/_/g, ' ')}.`;
   const ask = `${last ? `The host asked: "${last.q}"\nThe player answered: "${last.a}"\nHow it landed: ${last.reaction}\n\n` : ''}The host's next question (keep its meaning and topic, because the player's answer options are written for it): "${q.host}"\nThe player's possible answers: ${q.options.map((o) => `"${o.text}"`).join(' / ')}\n\nRewrite the host's next line so it sounds live and natural: ${last ? 'a quick, in-character reaction to the last answer, then ' : 'a short on-air welcome, then '}the question. Two or three sentences at most. Answer as JSON: {"host": "..."}`;
   try {
-    const text = await callClaude({ feature: 'interviews', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 160 });
+    const text = await callClaude({ json: true, feature: 'interviews', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 160 });
     const out = parseJSON<{ host: string }>(text);
     if (out?.host && !mentionsAny(out.host, names)) useGameStore.getState().rewriteInterviewQuestion(live.idx, out.host);
   } catch { /* keep the written question */ }

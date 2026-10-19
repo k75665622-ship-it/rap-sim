@@ -26,6 +26,10 @@ export interface Persona {
   warmth: number;
   /** 0-1: how likely they are to take it public. */
   messy: number;
+  /** 0-1: do they deliver what they agreed to, on time? Low = late, or takes the money and vanishes. */
+  reliability: number;
+  /** 0-1: how quickly a dispute ends up in court. */
+  litigious: number;
   style: TextStyle;
   /** Short readable tags: "Always on time", "Holds grudges". */
   tags: string[];
@@ -59,6 +63,15 @@ export function personaOf(npc: Pick<NPC, 'id' | 'personality' | 'role' | 'fame' 
   if (W(p, 'petty', 'reckless', 'volatile', 'image_conscious')) messy += 0.3;
   if (W(p, 'strategic', 'disciplined', 'selective', 'humble')) messy -= 0.2;
 
+  let reliability = 0.62 + jitter(21) + (punctuality - 0.55) * 0.4;
+  if (W(p, 'disciplined', 'workaholic', 'loyal', 'strategic', 'selective')) reliability += 0.22;
+  if (W(p, 'reckless', 'volatile', 'easygoing', 'creative')) reliability -= 0.18;
+  if (W(p, 'ruthless', 'calculating', 'cynical')) reliability -= 0.12;
+
+  let litigious = 0.22 + jitter(25) + npc.fame / 400;
+  if (W(p, 'ruthless', 'calculating', 'petty', 'arrogant', 'paranoid')) litigious += 0.3;
+  if (W(p, 'humble', 'easygoing', 'spiritual', 'loyal', 'generous')) litigious -= 0.15;
+
   const business = ['manager', 'lawyer', 'label_ceo', 'ar', 'a_and_r_scout', 'distributor', 'investor', 'venue_owner', 'promoter', 'tour_manager', 'radio_owner', 'media', 'blogger'].includes(npc.role);
   const style: TextStyle = W(p, 'spiritual') ? 'spiritual'
     : W(p, 'brutally_honest') ? 'blunt'
@@ -76,6 +89,7 @@ export function personaOf(npc: Pick<NPC, 'id' | 'personality' | 'role' | 'fame' 
   const P: Persona = {
     temperament,
     forgiveness: clamp(forgiveness), punctuality: clamp(punctuality), ego: clamp(ego), warmth: clamp(warmth), messy: clamp(messy),
+    reliability: clamp(reliability + (business ? 0.08 : 0)), litigious: clamp(litigious + (business ? 0.15 : 0)),
     style, tags: [],
   };
   if (P.punctuality > 0.72) P.tags.push('Always on time'); else if (P.punctuality < 0.35) P.tags.push('Always late');
@@ -83,6 +97,8 @@ export function personaOf(npc: Pick<NPC, 'id' | 'personality' | 'role' | 'fame' 
   if (P.messy > 0.6) P.tags.push('Takes it public'); else if (P.messy < 0.18) P.tags.push('Keeps it private');
   if (P.ego > 0.75) P.tags.push('Big ego');
   if (P.warmth > 0.72) P.tags.push('Warm'); else if (P.warmth < 0.3) P.tags.push('Cold at first');
+  if (P.reliability > 0.8) P.tags.push('Delivers'); else if (P.reliability < 0.38) P.tags.push('Flaky with deals');
+  if (P.litigious > 0.66) P.tags.push('Quick to sue');
   return P;
 }
 

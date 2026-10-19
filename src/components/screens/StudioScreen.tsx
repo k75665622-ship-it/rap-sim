@@ -61,6 +61,7 @@ import {
   type GearSlotId,
 } from '../../sim/room';
 import { StudioVault } from './StudioVault';
+import { FeaturesPanel } from '../studio/FeaturesPanel';
 import { GENRE_LIST, GENRE_BY_ID, FAMILY_LABEL, type GenreFamily } from '../../data/genres';
 import { RemixDialog } from './RemixDialog';
 import { Segmented } from '../ui/kit';
@@ -519,7 +520,8 @@ export function StudioScreen() {
   // Three jobs live in this room: cutting a single, assembling a body of work
   // out of the singles you already have, and going back to something you
   // recorded and never put out.
-  const [mode, setMode] = useState<'home' | 'single' | 'beats' | 'album' | 'room' | 'vault' | 'remix'>('home');
+  const [mode, setMode] = useState<'home' | 'single' | 'beats' | 'album' | 'room' | 'vault' | 'remix' | 'guest'>(() => (useGameStore.getState().consumeStudioMode() as 'guest' | null) ?? 'home');
+  const featureDue = useGameStore((s) => s.inboundRequests.filter((r) => r.status === 'agreed').length + s.featureRequests.filter((r) => r.status === 'verse_ready').length);
   const [beatsView, setBeatsView] = useState<'library' | 'store' | 'order'>('library');
   /** A beat from the player's own library, when the session is cut over one. */
   const [libBeatId, setLibBeatId] = useState<string | null>(null);
@@ -949,6 +951,7 @@ export function StudioScreen() {
             { id: 'single', label: 'Record' },
             { id: 'beats', label: 'Beats', badge: readyCount ? String(readyCount) : undefined },
             { id: 'vault', label: 'Masters', badge: unmixedCount ? String(unmixedCount) : undefined },
+            { id: 'guest', label: 'Features', badge: featureDue ? String(featureDue) : undefined },
             { id: 'album', label: 'Projects' },
             { id: 'room', label: 'My studio' },
             { id: 'remix', label: 'Remix' },
@@ -1004,6 +1007,8 @@ export function StudioScreen() {
         <StudioVault onRelease={setReleaseDialog} onMix={setMixDialog} />
       ) : mode === 'remix' ? (
         <RemixPanel />
+      ) : mode === 'guest' ? (
+        <FeaturesPanel />
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 pb-24 lg:pb-0">
         {/* ── EDITOR ─────────────────────────────────────────────────── */}

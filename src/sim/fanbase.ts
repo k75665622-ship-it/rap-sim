@@ -54,7 +54,8 @@ export interface FanGrowthInput {
 export function fanGrowthFor(i: FanGrowthInput): number {
   const net = i.managerNet ?? 0;
   const mult = i.fanMult ?? 1;
-  return Math.floor((i.weeklyStreams * 0.001 + i.momentum * 0.1) * (1 + net / 500) * mult);
+  // Per week: about one fan for every 650 streams that week, plus the buzz.
+  return Math.floor((i.weeklyStreams * 0.0015 + i.momentum * 0.4) * (1 + net / 500) * mult);
 }
 
 // ─── Shapes ───────────────────────────────────────────────────────────────

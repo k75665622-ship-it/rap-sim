@@ -9,7 +9,7 @@ import { compact, initials } from '@/utils/format';
 import { gradientFor } from '../ui/kit';
 import { IconComment, IconVerified } from '../icons';
 import { APP_META, kindDef, type PostKind, type SocialApp } from '../../sim/social';
-import { liveCounts, minutesAgo } from '../../sim/socialLive';
+import { liveCounts, minutesAgo, visibleComments } from '../../sim/socialLive';
 import type { SocialComment, SocialPost } from '../../types/game';
 import { Character } from '../avatar/Character';
 import { usePortrait } from '../avatar/usePortrait';
@@ -231,7 +231,7 @@ export function PhotoCard(p: PostCardProps) {
         </div>
         <div className="mt-1 text-[13px] text-ink leading-snug"><span className="font-semibold mr-1.5">{post.authorName.replace(/^@/, '')}</span><RichText text={post.content} className="inline" /></div>
         {live.comments > 0 && <button onClick={p.onOpen} className="mt-1 text-[12px] text-ink3">View all {live.comments.toLocaleString()} comments</button>}
-        {post.comments.slice(0, 2).map((c) => <div key={c.id} className="text-[12px] text-ink2 mt-0.5 truncate"><span className="font-semibold text-ink mr-1">{c.authorName.replace(/^@/, '')}</span>{c.content}</div>)}
+        {visibleComments(post.comments, now).slice(0, 2).map((c) => <div key={c.id} className="text-[12px] text-ink2 mt-0.5 truncate"><span className="font-semibold text-ink mr-1">{c.authorName.replace(/^@/, '')}</span>{c.content}</div>)}
         <div className="mt-1 text-[10px] uppercase tracking-wide text-ink3"><Ago post={post} now={now} nowSerial={nowSerial} /> ago</div>
       </div>
     </article>

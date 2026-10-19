@@ -20,6 +20,7 @@ import { RivalsTab } from '../social/Rivals';
 import { StoriesBar, StoryViewer, StoryComposer } from '../social/Stories';
 import { SoundsList, GoLivePanel, type Sound } from '../social/ClipExtras';
 import { ActivityList } from '../social/Activity';
+import { ProfileView } from '../social/ProfileView';
 import { isRealId } from '../../sim/realPeople';
 
 type Tab = 'feed' | 'activity' | 'profile' | 'rivals';
@@ -63,12 +64,12 @@ export function SocialScreen({ platform }: { platform: Platform }) {
   const unfollowAccount = useGameStore((s) => s.unfollowAccount);
   const unblockAccount = useGameStore((s) => s.unblockAccount);
   const markActivityRead = useGameStore((s) => s.markActivityRead);
-  const openArtist = useGameStore((s) => s.openArtist);
 
   const now = useNow();
   const [tab, setTab] = useState<Tab>('feed');
   const [filter, setFilter] = useState<Filter>('foryou');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [composing, setComposing] = useState<null | { kind?: PostKind; soundSongId?: string; soundTitle?: string; soundMine?: boolean }>(null);
   const [flash, setFlash] = useState<{ ok: boolean; message: string; viral?: boolean } | null>(null);
   const [editingName, setEditingName] = useState(false);
@@ -93,6 +94,7 @@ export function SocialScreen({ platform }: { platform: Platform }) {
   const blockSet = useMemo(() => new Set(blocked ?? []), [blocked]);
   const isVerified = (id: string) => {
     if (id === 'player') return !!verifiedMe;
+    if (id.startsWith('org:') || id === 'scene_watch') return true;
     const n = npcById.get(id);
     return !!n && (isRealId(n.id) || n.fame >= 50 || ((n.role === 'media' || n.role === 'blogger') && n.fame >= 25));
   };
@@ -165,8 +167,14 @@ export function SocialScreen({ platform }: { platform: Platform }) {
       onLike: () => likePost(p.id),
       onRepost: () => setFlash(p.authorId === 'player' ? { ok: false, message: 'That is your own post.' } : repostPost(p.id)),
       onFollow: npcById.has(p.authorId) ? () => setFlash(followAccount(p.authorId)) : undefined,
-      onAuthor: npcById.has(p.authorId) ? () => openArtist(p.authorId) : undefined,
+      onAuthor: () => openProfile(p.repostOf ? byId.get(p.repostOf)?.authorId ?? p.authorId : p.authorId),
     };
+  }
+
+  /** Somebody's page on this app; your own is the Profile tab. */
+  function openProfile(id: string) {
+    if (id === 'player') { setProfileId(null); setOpenId(null); setTab('profile'); return; }
+    setProfileId(id);
   }
 
   function renderPost(p: SocialPost, asApp: SocialApp = app) {
@@ -305,7 +313,7 @@ export function SocialScreen({ platform }: { platform: Platform }) {
           )}
 
           {tab === 'activity' && (
-            <ActivityList items={activityNow.slice(0, 60)} now={now} onOpenPost={(id) => (byId.has(id) ? setOpenId(id) : undefined)} onOpenArtist={(id) => openArtist(id)} />
+            <ActivityList items={activityNow.slice(0, 60)} now={now} onOpenPost={(id) => (byId.has(id) ? setOpenId(id) : undefined)} onOpenArtist={openProfile} />
           )}
 
           {tab === 'profile' && player && (
@@ -350,7 +358,7 @@ export function SocialScreen({ platform }: { platform: Platform }) {
                 blocked={(blocked ?? []).map((id) => npcById.get(id)).filter(Boolean) as NPC[]}
                 onUnfollow={(id) => setFlash(unfollowAccount(id))}
                 onUnblock={(id) => { unblockAccount(id); setFlash({ ok: true, message: 'Unblocked.' }); }}
-                onOpen={(id) => openArtist(id)}
+                onOpen={openProfile}
               />
               {mine.length === 0 ? <div className="p-10 text-center text-[13px] text-ink3">No posts on {meta.name} yet.</div>
                 : app === 'clip' ? <div className="grid grid-cols-3 gap-1 p-1">{mine.slice(0, 30).map((p) => <ClipTile key={p.id} {...cardProps(p)} />)}</div>
@@ -363,7 +371,8 @@ export function SocialScreen({ platform }: { platform: Platform }) {
         <aside className="hidden lg:block">{rail}</aside>
       </div>
 
-      <PostPanel post={open} songTitle={songTitle(open?.relatedSongId)} now={now} verified={open ? isVerified(open.authorId) : false} onClose={() => setOpenId(null)} />
+      <ProfileView id={profileId} app={app} now={now} onClose={() => setProfileId(null)} onOpenPost={setOpenId} onOpenProfile={openProfile} renderPost={(p, a) => renderPost(p, a)} onFlash={setFlash} />
+      <PostPanel post={open} songTitle={songTitle(open?.relatedSongId)} now={now} verified={open ? isVerified(open.authorId) : false} onClose={() => setOpenId(null)} onOpenProfile={(id) => { setOpenId(null); openProfile(id); }} />
       {composing && <Composer open app={app} preset={composing} onClose={() => setComposing(null)} onPosted={(r) => { setFlash(r); setRevealed(nowMinuteOf(useGameStore.getState())); }} />}
       {storyAt !== null && <StoryViewer stories={storiesNow} start={storyAt} now={now} onClose={() => setStoryAt(null)} />}
       {storyComposer && <StoryComposer open onClose={() => setStoryComposer(false)} onDone={setFlash} />}

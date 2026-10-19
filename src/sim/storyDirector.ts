@@ -4,6 +4,8 @@
 import type { GameState, OpenThread, NPC } from '../types/game';
 import { generateStoryEvent } from '../ai/offlineProvider';
 import { v4 as uuidv4 } from 'uuid';
+import { dateToSerial } from './gameClock';
+import { isSongReleased } from './release';
 
 export interface StoryEvent {
   id: string;
@@ -15,7 +17,12 @@ export interface StoryEvent {
   effectValue: number;
   openThread?: Partial<OpenThread>;
   priority: number;
+  /** Dedupe key: the store remembers when each story last ran. */
+  key?: string;
 }
+
+/** How long before the same story can run again, in days. Milestones never repeat. */
+const COOLDOWN: Record<string, number> = { label_interest: 60, national_push: 45, money_crisis: 21, beef: 30, feature_offer: 45, wildcard: 14 };
 
 // ─── LAYER 1: TRIGGER SCAN ────────────────────────────────────────────────
 
@@ -37,14 +44,29 @@ function sampleMatching(npcs: NPC[], match: (n: NPC) => boolean): NPC | undefine
   return found;
 }
 
+/** Release dates are stored formatted ("DD/MM/YYYY"); read one back. */
+function parseLooseDate(d: string): { day: number; month: number; year: number } {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d);
+  if (m) return { day: +m[1], month: +m[2], year: +m[3] };
+  const t = new Date(d);
+  return isNaN(t.getTime()) ? { day: 1, month: 1, year: 2000 } : { day: t.getUTCDate(), month: t.getUTCMonth() + 1, year: t.getUTCFullYear() };
+}
+
 function scanTriggers(state: GameState): StoryEvent[] {
   const events: StoryEvent[] = [];
   const { player, npcs, openThreads, songs, turnCount } = state;
   if (!player) return events;
+  const today = dateToSerial(state.gameDate);
+  const fired = state.storyFired ?? {};
+  const ready = (key: string, kind: string) => fired[key] === undefined || (COOLDOWN[kind] !== undefined && today - fired[key] >= COOLDOWN[kind]);
+  const released = songs.filter((s) => isSongReleased(s));
+  const push = events.push.bind(events);
+  // Every story carries its key so it isn't told again tomorrow.
+  const add = (key: string, kind: string, e: StoryEvent) => { if (ready(key, kind)) push({ ...e, key }); };
 
   // Fame threshold events
-  if (player.career.localFame >= 30 && !openThreads.some(t => t.type === 'label' && !t.resolved)) {
-    events.push({
+  if (player.career.localFame >= 30 && released.length > 0 && !openThreads.some(t => t.type === 'label' && !t.resolved)) {
+    add('label_interest', 'label_interest', {
       id: uuidv4(),
       type: 'label_interest',
       headline: 'Local Label Shows Interest',
@@ -58,7 +80,7 @@ function scanTriggers(state: GameState): StoryEvent[] {
   }
 
   if (player.career.localFame >= 50 && player.career.nationalFame < 20) {
-    events.push({
+    add('national_push', 'national_push', {
       id: uuidv4(),
       type: 'national_push',
       headline: 'Fans Want More',
@@ -73,7 +95,7 @@ function scanTriggers(state: GameState): StoryEvent[] {
 
   // Low money trigger
   if (player.career.money < 500 && turnCount > 4) {
-    events.push({
+    add('money_crisis', 'money_crisis', {
       id: uuidv4(),
       type: 'money_crisis',
       headline: 'Running Low on Funds',
@@ -89,7 +111,7 @@ function scanTriggers(state: GameState): StoryEvent[] {
   // rather than materialising an array of every hostile artist just to use one.
   const rival = sampleMatching(npcs, n => n.relationshipScore < -30 && n.role === 'artist');
   if (rival && Math.random() < 0.15) {
-    events.push({
+    add(`beef:${rival.id}`, 'beef', {
       id: uuidv4(),
       type: 'beef',
       headline: `${rival.name} Takes a Shot`,
@@ -108,7 +130,7 @@ function scanTriggers(state: GameState): StoryEvent[] {
     n => n.relationshipScore > 50 && n.role === 'artist' && n.tier !== 'international',
   );
   if (ally && Math.random() < 0.12) {
-    events.push({
+    add(`feature_offer:${ally.id}`, 'feature_offer', {
       id: uuidv4(),
       type: 'feature_offer',
       headline: `${ally.name} Wants a Collab`,
@@ -122,9 +144,10 @@ function scanTriggers(state: GameState): StoryEvent[] {
   }
 
   // Song milestone
-  const hitSong = songs.find(s => s.totalStreams > 100_000 && !openThreads.some(t => t.description.includes(s.title)));
+  // Once per song, ever — and only for records that are actually out.
+  const hitSong = released.find(s => s.totalStreams > 100_000 && fired[`ms100k:${s.id}`] === undefined);
   if (hitSong) {
-    events.push({
+    add(`ms100k:${hitSong.id}`, 'milestone', {
       id: uuidv4(),
       type: 'song_milestone',
       headline: `"${hitSong.title}" Crosses 100K Streams!`,
@@ -137,7 +160,8 @@ function scanTriggers(state: GameState): StoryEvent[] {
   }
 
   // Wildcard events (small chance per turn)
-  if (Math.random() < 0.08) {
+  if (Math.random() < 0.08 && released.length > 0) {
+    const oldEnough = released.some((s) => s.releaseDate && today - dateToSerial(parseLooseDate(s.releaseDate)) >= 60);
     const wildcards = [
       {
         type: 'wildcard',
@@ -161,8 +185,10 @@ function scanTriggers(state: GameState): StoryEvent[] {
         effectValue: 4,
       },
     ];
-    const wildcard = wildcards[Math.floor(Math.random() * wildcards.length)];
-    events.push({
+    // "A freestyle you dropped months ago" needs something dropped months ago.
+    const pool = wildcards.filter((w) => w.headline !== 'Old Verse Gets Attention' || oldEnough);
+    const wildcard = pool[Math.floor(Math.random() * pool.length)];
+    add(`wildcard:${wildcard.headline}`, 'wildcard', {
       id: uuidv4(),
       ...wildcard,
       involvedNPCIds: [],
@@ -171,7 +197,9 @@ function scanTriggers(state: GameState): StoryEvent[] {
   }
 
   // Open thread escalation — if an existing thread hasn't been resolved
-  const unresolvedThreads = openThreads.filter(t => !t.resolved && t.escalationCount < 3);
+  // Only trouble escalates. A collab offer you haven't answered doesn't "heat
+  // up" and cost you reputation — it just goes cold (the store expires it).
+  const unresolvedThreads = openThreads.filter(t => !t.resolved && t.escalationCount < 3 && (t.type === 'beef' || t.type === 'legal' || t.type === 'scandal'));
   for (const thread of unresolvedThreads) {
     if (Math.random() < 0.2) {
       events.push({
@@ -230,16 +258,19 @@ export function runStoryDirector(state: GameState): {
   events: StoryEvent[];
   newOpenThreads: OpenThread[];
   headlines: string[];
+  escalated: string[];
 } {
   const candidates = scanTriggers(state);
   const picked = pickEvents(candidates, state.openThreads);
 
   const newOpenThreads: OpenThread[] = [];
   const headlines: string[] = [];
+  const escalated: string[] = [];
 
   for (const event of picked) {
     headlines.push(event.headline);
 
+    if (event.type.startsWith('escalate_') && event.openThread?.id) escalated.push(event.openThread.id);
     if (event.openThread) {
       const existing = state.openThreads.find(t =>
         t.type === event.openThread?.type &&
@@ -263,7 +294,7 @@ export function runStoryDirector(state: GameState): {
     }
   }
 
-  return { events: picked, newOpenThreads, headlines };
+  return { events: picked, newOpenThreads, headlines, escalated };
 }
 
 // ─── NPC WORLD SIMULATION (background, no AI) ─────────────────────────────
@@ -299,13 +330,11 @@ export function simulateNPCWorld(npcs: NPC[], turnCount: number): string[] {
   for (const npc of eligible) {
     if (Math.random() >= 0.06) continue;
 
-    const eventTypes = ['released_song', 'performed_show', 'signed_deal', 'beef_started'];
+    // Releases are real now (npcReleaseTick); this is the colour around them.
+    const eventTypes = ['performed_show', 'signed_deal', 'beef_started'];
     const etype = eventTypes[Math.floor(Math.random() * eventTypes.length)];
 
     switch (etype) {
-      case 'released_song':
-        events.push(`${npc.name} dropped new music.`);
-        break;
       case 'performed_show':
         events.push(`${npc.name} performed at a show in ${npc.city ?? npc.country}.`);
         break;

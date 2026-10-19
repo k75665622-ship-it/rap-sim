@@ -201,6 +201,20 @@ export const IconDiamond = svg(
   'IconDiamond',
 );
 
+export const IconScale = svg(
+  <>
+    <path d="M12 4v16M7 20h10M5 7h14" />
+    <path d="M5 7 2.5 13a3 3 0 0 0 5 0L5 7ZM19 7l-2.5 6a3 3 0 0 0 5 0L19 7Z" />
+  </>,
+  'IconScale',
+);
+export const IconKey = svg(
+  <>
+    <circle cx="8" cy="15" r="4.5" />
+    <path d="m11.2 11.8 8.3-8.3M16.5 6.5l2.5 2.5M14 9l2 2" />
+  </>,
+  'IconKey',
+);
 export const IconShirt = svg(
   <path d="M8.5 3.5 4 6l-1.5 4.5 3 1.2V20.5h13V11.7l3-1.2L20 6l-4.5-2.5c-.6 1.6-2 2.6-3.5 2.6s-2.9-1-3.5-2.6Z" />,
   'IconShirt',

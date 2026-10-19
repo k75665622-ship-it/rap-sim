@@ -43,6 +43,10 @@ import { AccountScreen } from './components/screens/AccountScreen';
 import { useAccount } from './hooks/useAccount';
 import { JournalScreen } from './components/screens/JournalScreen';
 import { AppointmentModal } from './components/moments/AppointmentModal';
+import { CourtModal } from './components/moments/CourtModal';
+import { CeremonyModal } from './components/moments/CeremonyModal';
+import { AwardsScreen } from './components/screens/AwardsScreen';
+import { CourtScreen } from './components/screens/CourtScreen';
 import type { Platform } from './types/game';
 
 function GameLayout({ children }: { children: React.ReactNode }) {
@@ -56,6 +60,8 @@ function GameLayout({ children }: { children: React.ReactNode }) {
           visible whichever page the player pressed it from. */}
       <TurnReportModal />
       <AppointmentModal />
+      <CourtModal />
+      <CeremonyModal />
     </div>
   );
 }
@@ -116,6 +122,8 @@ export default function App() {
       case 'style': return <StyleScreen />;
       case 'journal': return <JournalScreen />;
       case 'account': return <AccountScreen />;
+      case 'court': return <CourtScreen />;
+      case 'awards': return <AwardsScreen />;
       case 'investments': return <MoneyScreen />;
       case 'trophy_room': return <TrophyRoomScreen />;
       case 'news': return <NewsScreen />;

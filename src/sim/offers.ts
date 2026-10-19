@@ -11,6 +11,7 @@
 // ARCHETYPE (business, street, creative, status) and are attributed to "their
 // camp", never to a named celebrity.
 
+import { costIndex } from './home';
 import type { NPC, ShowOffer, OfferTerms, OfferBilling, OfferCancel, Archetype, DeclineReason } from '../types/game';
 import { hashString } from './rng';
 
@@ -102,8 +103,10 @@ export const CANCEL_LABEL: Record<OfferCancel, { label: string; pct: number }> =
 };
 
 /** What the room can fairly pay this artist for this slot. Capacity-bounded by construction. */
-export function fairFee(capacity: number, hostFame: number, playerFame: number, billing: OfferBilling): number {
-  const ticket = 8 + Math.max(0, hostFame) * 1.15;
+export function fairFee(capacity: number, hostFame: number, playerFame: number, billing: OfferBilling, country?: string): number {
+  // What a ticket costs depends on the night and on the city: a club night in
+  // Accra is not a club night in London.
+  const ticket = (6 + Math.max(0, hostFame) * 0.7) * costIndex(country);
   const gate = capacity * 0.7 * ticket;
   const standing = 0.55 + Math.min(1, Math.max(0, playerFame) / 80) * 0.6;
   return Math.max(100, Math.round((gate * BILLING_SHARE[billing] * standing) / 10) * 10);
@@ -149,7 +152,7 @@ export interface BuildOfferInput {
 export function buildOffer(i: BuildOfferInput): ShowOffer {
   const archetype = archetypeOf(i.host);
   const t = traitsOf(i.host);
-  const fair = fairFee(i.capacity, i.host.fame, i.playerFame, i.billing);
+  const fair = fairFee(i.capacity, i.host.fame, i.playerFame, i.billing, i.country);
 
   // How they open. Business lowballs, street shakes hands, creative offers
   // freedom instead of money, status dictates.

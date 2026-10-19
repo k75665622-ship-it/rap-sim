@@ -27,10 +27,10 @@ import { rollMoment, resolveMoment, expireMoment, buildFollowUp, buildFeatureTwi
 import { chatReply, detectIntent } from '../sim/chat';
 import {
   SOCIAL_APPS, APP_META, kindDef, seedFollowers, postReach, generateComments as socialComments, tagResponse,
-  fanWarDay, fanWarMove, fanbaseNameFor, FANWAR_ACTIONS,
+  fanWarDay, fanWarMove, fanbaseNameFor, fanHandle, FANWAR_ACTIONS,
   type SocialApp, type PostKind, type CommentContext as SocialCommentContext, type FanWarAction,
 } from '../sim/social';
-import { audienceOf, postTarget, liveCounts, npcStory, liveSession, STORY_KINDS, type LiveSession, type StoryKind } from '../sim/socialLive';
+import { audienceOf, postTarget, liveCounts, commentMinutes, npcStory, liveSession, STORY_KINDS, type LiveSession, type StoryKind } from '../sim/socialLive';
 import {
   outletsFor, buildInterview, resolveAnswer, mergeEffects, headlineFor, pickInvite, pitchAccepted, FORMAT_INFO, KIND_EMOJI,
   type Outlet, type InterviewFormat, type IvContext,
@@ -192,7 +192,6 @@ import {
   playerReleaseReactions,
   buildTrending,
 } from '../sim/socialEngine';
-import { showsDueThisTurn, runAwardShow } from '../sim/awards';
 import { generateManagerOffers, generateLabelOffers, bestSongQuality } from '../sim/career';
 import {
   newSongPlatformState,
@@ -316,7 +315,6 @@ import {
 import {
   dateToSerial,
   chartWeekEnding,
-  daysBetween,
   lastCompletedWeekSerial,
   formatGameDate as formatDateString,
   parseGameDate,
@@ -411,6 +409,8 @@ import { generateJobBoard, JOB_CATEGORY_LABEL } from '../data/jobs';
 import { newMarket, stepMarket, holdingValue, STOCK_FEE, COIN_FEE, type MarketState, type MarketNews, type Portfolio } from '../sim/markets';
 import { VENTURE_BY_TYPE, newVenture, ventureMonth, ventureValue, dropCost, resolveDrop, resolveSpecial, type Venture, type VentureCtx, type VentureType, type PricePoint, type DropPlan } from '../sim/ventures';
 import { zoneOf, buildOf, buildCostFor, projectValue, monthlyRent, buildMonth, type Zone, type BuildType } from '../sim/realestate';
+import { creditScore, personalOffer, mortgageOffer, paymentFor, LENDERS } from '../sim/bank';
+import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, type HomeState, type HomeTier } from '../sim/home';
 import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, rollDice, playFixture, tableLimit, vipTier, type BlackjackHand, type RouletteBet, type DiceBet } from '../sim/casino';
 import { assignmentsFor, weekOfWork } from '../sim/assignments';
 import { specialSkillOf, crewWithSkill, personaOf } from '../sim/persona';
@@ -421,6 +421,10 @@ import { newBrand, weekTick, unitCostFor, fairPrice, rollDesign, MATERIALS, SUPP
 import { defaultLook, lookFor, type Look, type Slot, type TattooSpot, type TattooDesign, type HairStyle, type FacialHair, type Wearable } from '../sim/look';
 import { newDrip, runDrops, dripScore, dripReach, resaleValue, tattooQuote, removalQuote, barberQuote, type DripState, type OwnedItem } from '../sim/drip';
 import { addMemory, type Memory, type MemoryKind } from '../sim/memories';
+import { payTermsFor, upfrontShare, planDelivery, planPayment, refundResponse, suesForUndelivered, chaseLine, lateExcuse, TERMS_LABEL, VERSE_DEADLINE_DAYS, GRACE_DAYS } from '../sim/deals';
+import { CASE_LABEL, lawyerOptions, opposingLawyer, courtFor, nextCourtDate, npcAnswer, npcSettlement, npcAcceptsOffer, plaintiffOdds, testimonyEffect, judgment, newsworthy, type LegalCase, type CaseKind, type Lawyer } from '../sim/court';
+import { awardBodies, nextCalendar, nominate, voteDay, decide, winRewards, carpetVerdict, type AwardBody, type CategoryState, type World as AwardWorld, type Entrant, type SongEntry, type Calendar } from '../sim/awardSeasons';
+import { MODES, COMEBACK_DAYS, comebackHype, reaches, producerIncome, type CareerMode } from '../sim/careerMode';
 import { newFootball, fixturesForDay, selectionWon, addToTable, addRow, finalScore, pickLabel, koWinner, seasonYearOf, seasonInfo, seasonLabel, sortRows, MATCH_LENGTH, LEAGUE_BY_ID, type FootballState, type Match as FootballMatch, type Market, type Pick as BetPick } from '../sim/football';
 import { isRealId } from '../sim/realPeople';
 
@@ -433,9 +437,6 @@ import { isRealId } from '../sim/realPeople';
 export const REACH_OUT_COOLDOWN_DAYS = 7;
 
 /** Small local helper for picking a random item. */
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
 
 // ─── ENERGY / STANDING HELPERS ────────────────────────────────────────────
 
@@ -673,6 +674,22 @@ function addMomentum(state: GameState, amount: number, reason?: string): void {
     state.lastEventLog.unshift(`🔥 Momentum +${delta.toFixed(1)} — ${reason}`);
     state.lastEventLog = state.lastEventLog.slice(0, 10);
   }
+}
+
+/**
+ * Momentum from posting. Posting keeps you in the conversation, but it can't
+ * make you hot on its own: at most a few points a week, and nothing past 35 —
+ * beyond that only records, shows and real moments move the needle.
+ */
+function socialMomentum(state: GameState, amount: number): void {
+  const p = state.player;
+  if (!p) return;
+  const week = Math.floor(dateToSerial(state.gameDate) / 7);
+  const m = state.socialMomentum && state.socialMomentum.week === week ? state.socialMomentum : (state.socialMomentum = { week, gained: 0 });
+  const add = Math.min(amount, 3 - m.gained, Math.max(0, 35 - p.career.momentum));
+  if (add <= 0) return;
+  m.gained += add;
+  addMomentum(state, add);
 }
 
 // ─── SAVE/LOAD HELPERS ────────────────────────────────────────────────────
@@ -1038,6 +1055,12 @@ function getInitialState(): GameState {
     drip: undefined,
     memories: [],
     memoryCursor: undefined,
+    cases: [],
+    activeHearing: null,
+    pendingStudioMode: null,
+    awardSeasons: {},
+    awardFollows: undefined,
+    activeCeremony: null,
     socialStats: {},
     fanbaseName: undefined,
     postsToday: undefined,
@@ -1790,7 +1813,7 @@ function openInboundAsk(
     id: uuidv4(),
     npcId: npc.id,
     fromPlayer: false,
-    content: reason,
+    content: isRealId(npc.id) ? `📨 ${npc.name}'s team: ${reason}` : reason,
     timestamp: new Date().toISOString(),
     attachedSongId: npcSong.id,
     read: false,
@@ -2055,7 +2078,23 @@ function finishWork(state: GameState, item: WorkItem, log: string[]): void {
 
     if (req) {
       req.status = 'delivered';
-      req.agreedFee = w.fee;
+      req.deliveredSerial = dateToSerial(state.gameDate);
+      // Whatever the terms left for delivery is owed now. Who they are decides
+      // whether it arrives today, in a few weeks, or never.
+      const owed = Math.max(0, (req.agreedFee ?? w.fee) - (req.paidSoFar ?? 0));
+      if (owed > 0 && npc) {
+        const plan = planPayment(personaOf(npc), Math.random());
+        req.balanceDue = owed;
+        req.balancePlan = plan.outcome;
+        req.balanceDueSerial = dateToSerial(state.gameDate) + (plan.outcome === 'on_time' ? 0 : plan.days);
+        if (plan.outcome === 'on_time') {
+          req.balanceDue = 0;
+          req.paidSoFar = (req.paidSoFar ?? 0) + owed;
+          state.player!.career.money += owed;
+          state.player!.career.totalEarnings += owed;
+          receipt(state, npc.id, owed, `💰 ${npc.name} paid $${owed.toLocaleString()} on delivery for your verse on "${w.songTitle}".`, { memory: `${npc.name} paid you $${owed.toLocaleString()} for the verse on "${w.songTitle}".` });
+        }
+      }
     }
 
     if (npc) {
@@ -2082,14 +2121,14 @@ function finishWork(state: GameState, item: WorkItem, log: string[]): void {
     log.push(
       hostSong
         ? `✍️ The verse for ${w.npcName}'s "${w.songTitle}" is sent — ${days} day${days > 1 ? 's' : ''}, and it reads ${gradeLabel(w.verseQuality)}.`
-        : `✍️ The verse for ${w.npcName}'s "${w.songTitle}" is written — ${days} day${days > 1 ? 's' : ''}, but the record is no longer in the world. The fee was already paid.`,
+        : `✍️ The verse for ${w.npcName}'s "${w.songTitle}" is written — ${days} day${days > 1 ? 's' : ''}, but the record is no longer in the world.`,
     );
     pushNotification(state, {
       kind: 'artist_release',
       title: hostSong ? `Your verse is on "${w.songTitle}"` : `"${w.songTitle}" is gone`,
       body: hostSong
         ? `${w.npcName}'s record is out with you on it. The verse reads ${gradeLabel(w.verseQuality)}.`
-        : `You finished the verse for ${w.npcName}, but the record is no longer in circulation. You keep the fee.`,
+        : `You finished the verse for ${w.npcName}, but the record is no longer in circulation. You keep what was paid.`,
       artSeed: `song|${w.songId}`,
       action: { type: 'song', id: w.songId },
     });
@@ -2657,7 +2696,44 @@ interface GameActions {
    * Write and send the verse. Costs the days a verse takes, and the fee was
    * banked when the number was agreed — they pay, then you deliver.
    */
-  sendInboundVerse: (requestId: string) => FeatureActionResult;
+  sendInboundVerse: (requestId: string, effort?: 'quick' | 'standard' | 'polished') => FeatureActionResult;
+  /** A no-fee ask: do it for the love. */
+  acceptFreeAsk: (requestId: string) => FeatureActionResult;
+  /** Give back what they paid and call the verse off. */
+  refundInbound: (requestId: string) => FeatureActionResult;
+  /** Nudge them for the balance they owe you. */
+  chaseBalance: (requestId: string) => FeatureActionResult;
+  /** Nudge them for the verse you paid for. */
+  chaseVerse: (requestId: string) => FeatureActionResult;
+  /** Ask for your money back on a verse that never came. */
+  askVerseRefund: (requestId: string) => FeatureActionResult;
+  /** Open Studio on a section (e.g. 'guest' for Features). */
+  openStudioAt: (mode: string) => void;
+  consumeStudioMode: () => string | null;
+
+  // Award seasons
+  followAward: (bodyId: string, on: boolean) => void;
+  /** Spend on an academy campaign (radio, press, a full push). */
+  campaignAward: (key: string, tier: 'radio' | 'press' | 'full') => FeatureActionResult;
+  /** Post to get the fans voting (once a day). */
+  rallyVotes: (key: string) => FeatureActionResult;
+  /** Accept the invite, or buy a ticket. */
+  rsvpAward: (key: string, going: boolean) => FeatureActionResult;
+  /** The night itself, step by step. */
+  ceremonyAct: (action: 'carpet' | 'slip_in' | 'perform' | 'watch' | 'reveal' | 'speech_grateful' | 'speech_hype' | 'speech_short' | 'close') => FeatureActionResult;
+
+  // The courthouse
+  /** Sue over a deal (feature request id or inbound request id) or a post. */
+  fileCase: (o: { kind: CaseKind; refId: string; lawyer: Lawyer['source'] }) => FeatureActionResult;
+  hireLawyer: (caseId: string, source: Lawyer['source']) => FeatureActionResult;
+  /** As defendant: pay, try to settle, or fight. */
+  answerCase: (caseId: string, answer: 'pay' | 'settle' | 'fight') => FeatureActionResult;
+  offerSettlement: (caseId: string, amount: number) => FeatureActionResult;
+  acceptSettlement: (caseId: string, offerId: string) => FeatureActionResult;
+  rejectSettlement: (caseId: string, offerId: string) => FeatureActionResult;
+  withdrawCase: (caseId: string) => FeatureActionResult;
+  /** At the courthouse: let the lawyer lead, take the stand, or leave. */
+  attendHearing: (mode: 'lawyer' | 'testify' | 'leave') => FeatureActionResult;
 
   // Jobs
   /** Roll the board for the current turn, if it has not been rolled already. */
@@ -2982,6 +3058,22 @@ interface GameActions {
 
   // Luxury
   buyLuxuryItem: (itemId: string) => void;
+  /** Sell something you bought — what it fetches today. */
+  sellLuxury: (assetId: string) => FeatureActionResult;
+  /** Move: rent a place, buy one (cash or mortgage), or move into one you already own. */
+  moveHome: (tier: HomeTier, how: 'rent' | 'buy' | 'mortgage' | 'own', ownedId?: string) => FeatureActionResult;
+  /** Borrow from the bank — a personal loan over 12 months. */
+  takeLoan: (amount: number) => FeatureActionResult;
+  /** Pay a loan off early (the whole balance). */
+  repayLoan: (loanId: string) => FeatureActionResult;
+  /** Pay the rent the landlord is waiting on. */
+  payRent: () => FeatureActionResult;
+  /** Sell a home you own (not the one you live in). */
+  sellHome: (id: string) => FeatureActionResult;
+  /** Let a home you own to tenants, or take it back. */
+  setHomeRentedOut: (id: string, on: boolean) => FeatureActionResult;
+  /** Film a house tour for Clip — once per place. */
+  houseTour: () => FeatureActionResult;
 
   // Mailbox
   readMail: (mailId: string) => void;
@@ -3033,6 +3125,10 @@ interface GameActions {
 
   // Save/Load
   saveGame: () => void;
+  /** Full-time, semi-retired, business focus or retired. */
+  setCareerMode: (mode: CareerMode) => FeatureActionResult;
+  /** From any step-back mode: tell the world you're back, then drop something. */
+  announceComeback: () => FeatureActionResult;
   /** Close whatever career is open (switching accounts). */
   resetSession: () => void;
   loadGame: () => boolean;
@@ -3562,6 +3658,9 @@ function rollShowOffers(
   if (open.length >= 5) return [];
 
   const fame = blendedFame(player);
+  // Nobody books an act with nothing out and no name.
+  const out0 = songs.filter((s) => isSongReleased(s)).length;
+  if (out0 === 0 && fame < 15) return [];
   let perDay = 0.08 + fame / 400 + (hasManager ? 0.05 : 0) + (hasPromoter ? 0.04 : 0);
   if (!hasManager) perDay *= 0.6;
   const chance = 1 - Math.pow(1 - perDay, Math.min(days, 14));
@@ -3570,7 +3669,7 @@ function rollShowOffers(
 
   const HOST_ROLES = ['promoter', 'venue_owner', 'dj', 'artist'];
   const hostsOpen = new Set(open.map((o) => o.hostId));
-  const recentHit = songs.some((s) => (s.releaseDate ? true : false) && s.quality >= 70);
+  const recentHit = songs.some((s) => isSongReleased(s) && (s.weeksOut ?? 99) <= 10 && s.quality >= 70);
 
   for (let a = 0; a < attempts; a++) {
     if (Math.random() > chance) continue;
@@ -4049,7 +4148,7 @@ function applyShowOutcome(
 
   state.headlines.unshift({
     id: uuidv4(),
-    text: generateHeadline('show', state.player!.artistName, `${venue.city} show`),
+    text: generateHeadline('show', state.player!.artistName, venue.city),
     fullStory: `${state.player!.artistName} played ${venue.name} in ${venue.city} to ${attendance.toLocaleString()} of ${venue.capacity.toLocaleString()}. Performance quality: ${opts.performanceQuality}/100.`,
     date: formatGameDate(serialToDate(nowSerial)),
     relatedEntities: [state.player!.id],
@@ -5166,6 +5265,14 @@ function labelMonthEnd(
     label.debtMonths = 0;
   }
 
+  // A retired artist running the business side (or managing the acts) shows up in the numbers.
+  const postRole = state.legacy?.mode === 'retired' ? state.legacy.postCareerRole : undefined;
+  if ((postRole === 'executive' || postRole === 'manager') && label.monthRevenue > 0) {
+    const bonus = Math.round(label.monthRevenue * (postRole === 'executive' ? 0.1 : 0.06));
+    label.monthRevenue += bonus;
+    label.cash += bonus;
+  }
+
   const profit = label.monthRevenue - label.monthCosts;
   label.history.push({ key: label.monthKey, revenue: Math.round(label.monthRevenue), costs: Math.round(label.monthCosts), profit: Math.round(profit) });
   if (label.history.length > 36) label.history = label.history.slice(-36);
@@ -5233,6 +5340,7 @@ function momentWorld(state: GameState, npcs: NPC[], serial: number): MomentWorld
     hasUpcomingShow: state.scheduledShows.some((s) => s.serial - serial > 3),
     activeBeefIds: beefs,
     hasLawyer: state.crew.some((c) => c.role === 'lawyer'),
+    hasPlayedShow: (state.shows ?? []).length > 0,
     ownsCar: (state.ownedAssets ?? []).some((a) => a.category === 'car'),
     releasedTitles: (state.songs ?? []).filter((s) => isSongReleased(s)).slice(-3).reverse().map((s) => s.title),
   };
@@ -5591,6 +5699,9 @@ function livenPost(state: GameState, post: SocialPost, opts: { npcs?: NPC[]; at?
       artistFriends: [], seed: `${at}|${post.id}`,
     }, new Date().toISOString()));
   }
+  // Comments arrive through the hours after posting, not all at once.
+  const when = commentMinutes(at, post.comments.length, hashString(post.id) >>> 0);
+  post.comments.forEach((c, i) => { if (c.minute === undefined) c.minute = when[i]; });
 }
 
 const STAR_CAPTIONS = ['📸', '🎥', '🌍', '✈️', '🏟️', '🖤', '🔥', '🌙', '🙏🏾', '💿', '🎤', '⚡️'];
@@ -5601,11 +5712,13 @@ const STAR_CAPTIONS = ['📸', '🎥', '🌍', '✈️', '🏟️', '🖤', '�
  */
 function starPost(state: GameState, star: NPC, app: SocialApp, at: number, npcs: NPC[]): SocialPost {
   const real = isRealId(star.id);
-  const song = Math.random() < 0.35 ? state.npcSongs.find((x) => x.ownerId === star.id) : undefined;
+  // Their newest record, not the first one on file.
+  const song = Math.random() < 0.35 ? (state.npcSongs as Song[]).filter((x) => x.ownerId === star.id).pop() : undefined;
+  const fresh = song && (song.weeksOut ?? 9) <= 2;
   const lines = ['Thank you for everything this year.', 'Back in the studio. You know what that means.', 'Tour mode 🌍', 'New era loading…', 'Different energy tonight.', 'Grateful 🙏'];
   const content = real
     ? song ? `🎵 "${song.title}"` : STAR_CAPTIONS[Math.floor(Math.random() * STAR_CAPTIONS.length)]
-    : song ? `"${song.title}" — out now. Run it.` : lines[Math.floor(Math.random() * lines.length)];
+    : song ? (fresh ? `"${song.title}" — out now. Run it.` : `"${song.title}" still in rotation 🔁`) : lines[Math.floor(Math.random() * lines.length)];
   const post: SocialPost = {
     id: uuidv4(), platform: app, authorId: star.id, authorName: star.name, content,
     likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(),
@@ -5642,7 +5755,12 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
       if (stats[post.platform]) stats[post.platform].followers += follows;
       const newComments = Math.min(add(post.growth.comments), 5);
       if (newComments > 0 && post.comments.length < 30) {
-        post.comments.push(...socialComments(post, newComments, commentContext(state, post.content.includes('@') && post.trendingScore > 50, `${serial}|${post.id}`), now));
+        const more = socialComments(post, newComments, commentContext(state, post.content.includes('@') && post.trendingScore > 50, `${serial}|${post.id}`), now);
+        // Spread through the day that just started, not all at midnight.
+        more.forEach((c, i) => { c.minute = minute + 30 + Math.round(((i + 1) / (more.length + 1)) * 900); });
+        post.comments.push(...more);
+        const one = more[0];
+        if (one) pushActivity(state, { kind: 'comment', text: `${one.authorName} commented: "${one.content}"`, actorName: one.authorName, postId: post.id, minute: one.minute! });
       }
       post.growth = {
         likes: post.growth.likes - add(post.growth.likes), shares: post.growth.shares - add(post.growth.shares),
@@ -5663,6 +5781,8 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
 
   // 3. The scene posts on every app and puts up stories; some of it is about you.
   scenePosts(state, npcs, serial, Math.min(days, 3));
+  // 3b. Fans talk — about you, and about the rest of the scene.
+  fanChatter(state, npcs, serial, days);
 
   // 4. People who rate you follow you. A star following you is news.
   if (Math.random() < 1 - Math.pow(0.7, Math.min(days, 5))) {
@@ -5829,6 +5949,112 @@ function feedForSave(posts: SocialPost[]): SocialPost[] {
  * posts spread across the coming hours (they "arrive" as the clock runs) and a
  * handful of stories; a refresh puts up a few right now.
  */
+/** A teaser or a release-day post from the artist (cards only for real people). */
+function releasePosts(state: GameState, npc: NPC, song: Song, stage: 'teaser' | 'out', dayName: string): void {
+  const real = isRealId(npc.id);
+  const posts: [SocialApp, string, PostKind][] = real
+    ? stage === 'teaser' ? [['snapgram', `🗓️ "${song.title}" · ${dayName}`, 'cover']] : [['snapgram', `🎵 "${song.title}" — out now`, 'cover'], ['chirp', `🎵 "${song.title}"`, 'announce']]
+    : stage === 'teaser'
+      ? [['chirp', `New single "${song.title}" drops ${dayName} 🗓️ you ready?`, 'announce'], ['snapgram', `"${song.title}" · ${dayName} 🖤`, 'cover']]
+      : [['chirp', `"${song.title}" is OUT NOW 🔥 go run it up`, 'announce'], ['snapgram', `"${song.title}" out everywhere. Link in bio 🎧`, 'cover'], ['clip', `Behind the scenes of "${song.title}" 🎬`, 'bts']];
+  const minute = gameMinute(state);
+  posts.forEach(([app, content, kind], i) => {
+    const post: SocialPost = { id: uuidv4(), platform: app, authorId: npc.id, authorName: npc.name, content, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 45 + npc.fame / 2, daySerial: dateToSerial(state.gameDate), kind, relatedSongId: stage === 'out' ? song.id : undefined, soundSongId: app === 'clip' && stage === 'out' ? song.id : undefined };
+    livenPost(state, post, { at: minute + 30 + i * 45 + Math.floor(Math.random() * 120), heat: stage === 'out' ? 1.4 : 1 });
+    state.socialPosts.unshift(post);
+  });
+}
+
+/** Big names announce, then release; songs already announced come out today. */
+function rolloutReleases(state: GameState, fresh: Song[], events: string[], npcs: NPC[], serial: number): void {
+  const queue = state.npcUpcoming ?? (state.npcUpcoming = []);
+  const byId = npcIndex(npcs);
+  const follows = (id: string) => (state.subscriptions ?? []).some((s) => s.artistId === id);
+  // Announce: hold the big names' new records for a few days.
+  for (let i = fresh.length - 1; i >= 0; i--) {
+    const song = fresh[i];
+    const npc = song.ownerId ? byId.get(song.ownerId) : undefined;
+    if (!npc || npc.fame < 45) continue;
+    const day = serial + 2 + Math.floor(Math.random() * 3);
+    queue.push({ song, releaseSerial: day });
+    fresh.splice(i, 1);
+    const at = events.findIndex((e) => e.includes(`"${song.title}"`));
+    if (at >= 0) events.splice(at, 1);
+    const dayName = new Date(day * 86_400_000).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+    releasePosts(state, npc, song, 'teaser', dayName);
+    events.push(`🗓️ ${npc.name} announced "${song.title}" for ${dayName}.`);
+    if (follows(npc.id)) {
+      pushNotification(state, { kind: 'artist_release', title: `${npc.name} announced "${song.title}"`, body: `Out ${dayName}.`, artSeed: `song|${song.id}` });
+    }
+  }
+  // Release what's due (the subscriber notification goes out with the rest).
+  const due = queue.filter((u) => u.releaseSerial <= serial);
+  if (!due.length) return;
+  state.npcUpcoming = queue.filter((u) => u.releaseSerial > serial);
+  for (const u of due) {
+    const npc = u.song.ownerId ? byId.get(u.song.ownerId) : undefined;
+    // Signed to the player's label since the announcement: the label owns the drop now.
+    if (state.label && npc && labelSigneeIds(state.label).has(npc.id)) continue;
+    u.song.releaseDate = formatGameDate(serialToDate(serial));
+    u.song.weeksOut = 0;
+    fresh.push(u.song);
+    if (npc) { releasePosts(state, npc, u.song, 'out', ''); events.push(`🎵 ${npc.name} dropped "${u.song.title}".`); }
+  }
+}
+
+/**
+ * Fans post too: about your songs, your shows, your news — and about the rest
+ * of the scene. How much depends on how many fans you have and what you just
+ * did. Fan accounts are ordinary people with handles, not anyone famous.
+ */
+function fanChatter(state: GameState, npcs: NPC[], serial: number, days: number): void {
+  const p = state.player;
+  if (!p) return;
+  const minute = gameMinute(state);
+  const fans = p.career.fanbase;
+  const crew = state.fanbaseName ?? fanbaseNameFor(p.artistName, p.id);
+  const released = (state.songs ?? []).filter((s) => isSongReleased(s));
+  const latest = released[released.length - 1];
+  const fresh = latest && state.platformStats?.[latest.id] && serial - state.platformStats[latest.id].release <= 14 ? latest : undefined;
+  const nom = Object.values(state.awardSeasons ?? {}).find((x) => x.phase === 'nominations' && x.categories.some((c) => c.nominees.some((n) => n.isPlayer)));
+  const nomBody = nom ? bodiesFor(state).find((b) => b.id === nom.bodyId) : undefined;
+  const liveCase = (state.cases ?? []).find((c) => c.public && (c.status === 'served' || c.status === 'hearing'));
+  const beef = state.beefs.find((b) => !b.resolution);
+  const mom = p.career.momentum;
+  const lines: [SocialApp, string, PostKind][] = [];
+  // About you.
+  if (fresh) lines.push(['chirp', pick2([`"${fresh.title}" on repeat since it dropped 🔁`, `${p.artistName} really cooked on "${fresh.title}" 🔥`, `If you haven't heard "${fresh.title}" yet what are you doing`, `"${fresh.title}" is the song of the summer, I'm calling it now`], fresh.id), 'thought'], ['clip', pick2([`My edit to "${fresh.title}" 🎬`, `POV: "${fresh.title}" comes on in the car`], fresh.id + 'c'), 'challenge']);
+  if (latest && !fresh && released.length >= 2) lines.push(['chirp', pick2([`Underrated ${p.artistName} song: "${released[Math.floor(Math.random() * released.length)].title}". Don't argue.`, `${p.artistName} needs to drop. We're starving 😩`], latest.id + serial), 'thought']);
+  if (!released.length && fans >= 300) lines.push(['chirp', `When is ${p.artistName} dropping? Heard them freestyle once, it was crazy 👀`, 'thought']);
+  if (nom && nomBody) lines.push(['chirp', pick2([`${crew} vote vote VOTE 🗳️ ${p.artistName} for the ${nomBody.short}!!`, `${p.artistName} nominated at the ${nomBody.name}. Deserved. 🏆`], nom.key + serial), 'thought']);
+  if (liveCase) lines.push(['chirp', pick2([`The ${liveCase.plaintiff.name} v ${liveCase.defendant.name} case is wild 😭⚖️`, `Not ${p.artistName} in court 💀 somebody explain`, `${p.artistName} and ${liveCase.side === 'plaintiff' ? liveCase.defendant.name : liveCase.plaintiff.name} need to settle this offline`], liveCase.id + serial), 'thought']);
+  if (beef) lines.push(['chirp', pick2([`${p.artistName} vs ${beef.npcName}… who's winning this one? 🍿`, `${crew} ready for war 😤`, `This ${p.artistName} and ${beef.npcName} thing is getting out of hand`], beef.npcId + serial), 'thought']);
+  if (mom >= 60) lines.push(['snapgram', pick2([`${p.artistName} era 🖤`, `Nobody moving like ${p.artistName} right now`], `mom${serial}`), 'photo']);
+  if (fans >= 2000) lines.push(['circle', pick2([`${crew} check in 🫡 where y'all listening from?`, released.length >= 3 ? `Ranking every ${p.artistName} song. Go.` : `What do we want on the next ${p.artistName} record?`, `${crew} appreciation thread 🧵`], `circ${serial}`), 'community']);
+  if (fans >= 500 && Math.random() < 0.3) lines.push(['chirp', pick2([`${p.artistName} is overrated. There, I said it.`, `I don't get the ${p.artistName} hype tbh`], `hate${serial}`), 'thought']);
+  // About the scene: the hottest fictional record this week.
+  const hot = (state.npcSongs ?? []).filter((x) => x.ownerId && !isRealId(x.ownerId) && (x.weeksOut ?? 99) <= 3).sort((a, b) => (b.weeklyStreams ?? 0) - (a.weeklyStreams ?? 0))[0];
+  if (hot) lines.push(['chirp', pick2([`"${hot.title}" by ${hot.ownerName} has no skips 🔥`, `${hot.ownerName} dropped and nobody's talking about it enough`, `Is "${hot.title}" the best thing out right now? Be honest`, `${hot.ownerName} - "${hot.title}". That's it. That's the tweet.`, `Played "${hot.title}" five times on the way to work 😭`], hot.id + serial), 'thought']);
+  // The same take twice in a week reads like a bot.
+  const said = new Set(state.socialPosts.filter((x) => x.authorId.startsWith('fan:') && (x.daySerial ?? 0) >= serial - 14).map((x) => x.content));
+  for (let i = lines.length - 1; i >= 0; i--) if (said.has(lines[i][1])) lines.splice(i, 1);
+  if (!lines.length) return;
+  // How many of these actually get posted today.
+  const n = Math.min(lines.length, Math.max(1, Math.round(Math.log10(1 + fans) - 1 + mom / 50 + (fresh ? 1 : 0))) * Math.min(days, 2));
+  const chosen = [...lines].sort(() => Math.random() - 0.5).slice(0, n);
+  chosen.forEach(([app, content, kind], i) => {
+    const handle = `@${fanHandle(`${serial}|${i}|${content.length}`)}`;
+    const post: SocialPost = { id: uuidv4(), platform: app, authorId: `fan:${handle}`, authorName: handle, content, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 20 + Math.min(40, mom / 2), daySerial: serial, kind, relatedSongId: fresh?.id, soundSongId: app === 'clip' ? fresh?.id : undefined, tags: content.includes(p.artistName) ? [{ id: 'player', name: p.artistName }] : undefined };
+    livenPost(state, post, { npcs, at: minute + 20 + Math.floor(((i + 0.5) / chosen.length) * 900), minComments: 3 });
+    state.socialPosts.unshift(post);
+    if (post.tags) pushActivity(state, { kind: 'mention', text: `${handle} mentioned you: "${content.slice(0, 60)}"`, actorName: handle, actorId: post.authorId, postId: post.id, minute: post.postedMinute! });
+  });
+}
+
+function pick2<T>(arr: T[], seed: string): T {
+  return arr[(hashString(seed) >>> 0) % arr.length];
+}
+
 function scenePosts(state: GameState, npcs: NPC[], _serial: number, days: number, opts: { app?: SocialApp; live?: boolean } = {}): number {
   const p = state.player;
   if (!p) return 0;
@@ -5906,7 +6132,7 @@ function scenePosts(state: GameState, npcs: NPC[], _serial: number, days: number
     const content = friendShout
       ? `Shout out @${p.artistName.replace(/\s+/g, '')} — one of the realest in the game right now 🙌`
       : song && app !== 'circle'
-        ? pick3([`"${song.title}" out now 🔥 run it up`, `Y'all slept on "${song.title}" 😴 wake up`, `"${song.title}" challenge — show me what you got 💃`], `${who.id}|${song.id}|${at}`)
+        ? pick3((song.weeksOut ?? 9) <= 2 ? [`"${song.title}" out now 🔥 run it up`, `Thank you for the love on "${song.title}" 🙏`, `"${song.title}" challenge — show me what you got 💃`] : [`Y'all slept on "${song.title}" 😴 wake up`, `"${song.title}" still hitting different 🔁`, `Throwback: "${song.title}" 🎧`], `${who.id}|${song.id}|${at}`)
         : bank[app][Math.floor(Math.random() * bank[app].length)];
     const post: SocialPost = {
       id: uuidv4(), platform: app, authorId: who.id, authorName: who.name, content,
@@ -6210,7 +6436,8 @@ export function netWorthOf(state: GameState): { cash: number; stocks: number; cr
   const crypto = pf ? holdingValue(pf.coins, prices) : 0;
   const businesses = (state.ventures ?? []).filter((v) => !v.closed).reduce((a, v) => a + ventureValue(v), 0) + state.businesses.reduce((a, b) => a + (b.monthlyRevenue / 0.026) * 0.7, 0);
   const serial = dateToSerial(state.gameDate);
-  const property = (state.devProjects ?? []).reduce((a, d) => a + projectValue(d, m?.propertyIndex ?? 100, serial), 0) + state.investments.reduce((a, i) => a + i.currentValue, 0);
+  const property = (state.devProjects ?? []).reduce((a, d) => a + projectValue(d, m?.propertyIndex ?? 100, serial), 0) + state.investments.reduce((a, i) => a + i.currentValue, 0)
+    + (state.homes ?? []).reduce((a, h) => a + ownedValue(h, m?.propertyIndex ?? 100), 0);
   const other = (state.ownedAssets ?? []).reduce((a, x) => a + (x.cost ?? 0) * 0.6, 0);
   return { cash, stocks, crypto, businesses, property, other, total: Math.round(cash + stocks + crypto + businesses + property + other) };
 }
@@ -6278,6 +6505,9 @@ function moneyTick(state: GameState, serial: number, days: number, log: string[]
         const ctx = ventureCtx(state, v);
         const res = ventureMonth(v, ctx, Math.random);
         let profit = res.month.profit;
+        // Your attention: business focus (or retirement) means the companies get more of it.
+        const focus = MODES[state.legacy?.mode ?? 'active'].ventures;
+        if (profit > 0 && focus !== 1) profit = Math.round(profit * focus);
         if (res.events.length && profit < 0) {
           const lawyer = crewOn(state, 'lawyer', 'disputes');
           const shark = lawyer && specialSkillOf(lawyer.npcId, lawyer.role, lawyer.skill)?.id === 'shark';
@@ -6357,6 +6587,8 @@ function moneyTick(state: GameState, serial: number, days: number, log: string[]
   ensureFixtures(state);
   settleFootball(state, nowMinuteOf(state));
 
+  // Retirement, semi-retirement, business focus, comebacks.
+  careerModeTick(state, serial, days, log);
   // The shops: a new drop every other Friday.
   dripTick(state);
   // The journal picks up the day's big moments.
@@ -6436,6 +6668,12 @@ function canStake(state: GameState, stake: number): string | null {
 // ─── DMS THAT READ LIKE DMS, AND PLANS ON THE CLOCK ────────────────────────
 
 function pushDM(state: GameState, npcId: string, msg: Omit<DMMessage, 'id' | 'npcId' | 'timestamp' | 'read'> & { read?: boolean }): DMMessage {
+  // Real people don't text you in this game; their people do. Anything that
+  // reaches a real-named thread is labelled as coming from their team.
+  if (isRealId(npcId) && !msg.fromPlayer && !msg.system && !msg.content.startsWith('📨')) {
+    const who = (raw(state.npcs) as NPC[]).find((n) => n.id === npcId)?.name ?? 'Their';
+    msg = { ...msg, content: `📨 ${who}'s team: ${msg.content}` };
+  }
   const thread = state.dmThreads[npcId] ?? (state.dmThreads[npcId] = { npcId, messages: [], unread: 0 });
   const m: DMMessage = { id: uuidv4(), npcId, timestamp: new Date().toISOString(), read: msg.read ?? true, ...msg };
   thread.messages.push(m);
@@ -6627,6 +6865,28 @@ function minuteTick(state: GameState, reason: 'clock' | 'rest' | 'skip' = 'clock
   const now = nowMinuteOf(state);
   deliverPendingDMs(state, now);
   settleFootball(state, now);
+  // Award nights: you're in the room (the modal opens), or the world tells you.
+  for (const season of Object.values(state.awardSeasons ?? {})) {
+    if (season.phase !== 'nominations' || season.cal.ceremonyMinute > now) continue;
+    const late = now - season.cal.ceremonyMinute;
+    const going = !!season.rsvp && reason === 'clock' && late <= 180 && !state.activeAppointment && !state.activeHearing && !state.activeCeremony;
+    runCeremony(state, season, going);
+    if (going) { state.activeCeremony = { key: season.key, step: 'carpet', revealed: 0, notes: [] }; state.clockPaused = true; }
+  }
+  // Court dates: you're there (the modal opens), or your lawyer is, or nobody is.
+  for (const c of state.cases ?? []) {
+    if (c.status !== 'hearing') continue;
+    for (const h of c.hearings) {
+      if (h.done || h.atMinute > now) continue;
+      const late = now - h.atMinute;
+      if (reason === 'clock' && late <= 120 && !state.activeHearing && !state.activeAppointment) {
+        state.activeHearing = `${c.id}|${h.id}`;
+        state.clockPaused = true;
+      } else if (state.activeHearing !== `${c.id}|${h.id}`) {
+        runHearing(state, c, h, c.ourLawyer ? 'lawyer' : 'absent');
+      }
+    }
+  }
   for (const a of state.appointments ?? []) {
     // A plan that was mid-scene when the game was closed goes back in the diary.
     if (a.status === 'live' && state.activeAppointment !== a.id) a.status = 'confirmed';
@@ -6706,6 +6966,542 @@ function finishAppointment(state: GameState, a: Appointment, res: SceneResult & 
     { npcIds: [a.npcId], weight: status === 'done' ? 2 : 3, tone: status === 'done' && !hurt ? 'good' : 'bad' });
 }
 
+// ─── MONEY THAT MOVES BETWEEN PEOPLE ───────────────────────────────────────
+
+/** A payment with a receipt: the chat shows it, the journal keeps it. */
+function receipt(state: GameState, npcId: string, amount: number, text: string, opts: { notify?: boolean; memory?: string } = {}): void {
+  if (!state.player || !amount) return;
+  pushDM(state, npcId, { fromPlayer: false, system: true, content: text });
+  if (opts.notify !== false) pushNotification(state, { kind: 'business', title: amount > 0 ? `💰 +$${amount.toLocaleString()}` : `💸 -$${Math.abs(amount).toLocaleString()}`, body: text.replace(/^[^\p{L}\p{N}$]+/u, ''), artSeed: `pay|${npcId}|${amount}` });
+  if (opts.memory) remember(state, 'money', opts.memory, { npcIds: [npcId], weight: Math.abs(amount) >= 5000 ? 3 : 2 });
+}
+
+// ─── FEATURE DEALS ─────────────────────────────────────────────────────────
+
+/** A number is agreed on a verse for THEIR record: the terms decide what moves now. */
+function sealInboundDeal(state: GameState, req: InboundRequest, fee: number): void {
+  const p = state.player!;
+  const npc = state.npcs.find((n) => n.id === req.npcId);
+  const persona = npc ? personaOf(npc) : null;
+  const terms = fee <= 0 ? 'free' : (req.payTerms ?? (persona ? payTermsFor(persona, npc!.fame, blendedFame(p), fee, Math.random()) : 'half'));
+  const now = upfrontShare(terms, fee);
+  const serial = dateToSerial(state.gameDate);
+  req.status = 'agreed';
+  req.agreedFee = fee;
+  req.agreedDate = formatGameDate(state.gameDate);
+  req.payTerms = terms;
+  req.paidSoFar = now;
+  req.dueSerial = serial + VERSE_DEADLINE_DAYS;
+  if (now > 0) {
+    p.career.money += now;
+    p.career.totalEarnings += now;
+    receipt(state, req.npcId, now, `💰 ${req.npcName} paid you $${now.toLocaleString()} ${terms === 'upfront' ? 'up front' : 'now (half)'} for your verse on "${req.npcSongTitle}".${terms === 'half' ? ` The other $${(fee - now).toLocaleString()} comes when you deliver.` : ''}`, { memory: `${req.npcName} paid you $${now.toLocaleString()} for a verse on "${req.npcSongTitle}".` });
+  } else {
+    pushDM(state, req.npcId, { fromPlayer: false, system: true, content: terms === 'free' ? `🤝 Deal: a verse on "${req.npcSongTitle}", no fee. Due in ${VERSE_DEADLINE_DAYS} days.` : `🤝 Deal: $${fee.toLocaleString()} for your verse on "${req.npcSongTitle}", paid when you deliver. Due in ${VERSE_DEADLINE_DAYS} days.` });
+  }
+  pushNotification(state, { kind: 'feature', title: `"${req.npcSongTitle}" is in your studio`, body: `Add your verse in Studio → Features. Due in ${VERSE_DEADLINE_DAYS} days.`, artSeed: `npc|${req.npcId}`, action: { type: 'features', id: req.id } });
+}
+
+/** Days and quality for the three ways to write a guest verse. */
+export const VERSE_EFFORT = {
+  quick: { label: 'Quick sixteen', days: 1, quality: -8, energy: 0.7 },
+  standard: { label: 'Proper verse', days: 0, quality: 0, energy: 1 },
+  polished: { label: 'Take your time', days: 3, quality: 7, energy: 1.25 },
+} as const;
+
+/** Bring a new case. `them` is an NPC; `side` is the player's side. */
+function openCase(state: GameState, o: { kind: CaseKind; side: 'plaintiff' | 'defendant'; npcId: string; npcName: string; claim: number; evidence: number; facts: string[]; refId?: string; lawyer?: Lawyer }): LegalCase {
+  const p = state.player!;
+  const npc = state.npcs.find((n) => n.id === o.npcId);
+  const serial = dateToSerial(state.gameDate);
+  const seed = hashString(`${o.npcId}|${serial}|${o.kind}`) >>> 0;
+  const me = { id: 'player' as const, name: p.artistName };
+  const them = { id: o.npcId, name: o.npcName };
+  const c: LegalCase = {
+    id: uuidv4(), kind: o.kind, side: o.side,
+    plaintiff: o.side === 'plaintiff' ? me : them, defendant: o.side === 'plaintiff' ? them : me,
+    claim: Math.round(o.claim), facts: o.facts, evidence: Math.round(Math.max(5, Math.min(95, o.evidence))),
+    filedSerial: serial, status: 'served', court: courtFor(p.city, o.claim), hearings: [],
+    ourLawyer: o.lawyer, theirLawyer: opposingLawyer(npc?.fame ?? 20, seed), offers: [], log: [], costs: 0, refId: o.refId,
+    answerBy: o.side === 'defendant' ? serial + 10 : undefined,
+    nextMoveSerial: o.side === 'plaintiff' ? serial + 3 + (seed % 5) : undefined,
+  };
+  c.log.push({ serial, text: o.side === 'plaintiff' ? `You filed ${CASE_LABEL[o.kind].title.toLowerCase()} against ${o.npcName} for $${c.claim.toLocaleString()}.` : `${o.npcName} sued you: ${CASE_LABEL[o.kind].title.toLowerCase()}, $${c.claim.toLocaleString()}.` });
+  (state.cases ?? (state.cases = [])).unshift(c);
+  if (npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - (o.side === 'plaintiff' ? 25 : 15));
+  const big = newsworthy(blendedFame(p), npc?.fame ?? 0, c.claim);
+  if (big) {
+    c.public = true;
+    state.headlines.unshift({ id: uuidv4(), text: o.side === 'plaintiff' ? `${p.artistName} sues ${o.npcName}` : `${o.npcName} takes ${p.artistName} to court`, fullStory: `${CASE_LABEL[o.kind].blurb} The claim: $${c.claim.toLocaleString()}.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id, o.npcId], priority: 6, category: 'scandal' });
+  }
+  remember(state, 'beef', o.side === 'plaintiff' ? `You sued ${o.npcName} (${CASE_LABEL[o.kind].title.toLowerCase()}).` : `${o.npcName} sued you (${CASE_LABEL[o.kind].title.toLowerCase()}).`, { npcIds: [o.npcId], weight: 4, tone: 'bad' });
+  return c;
+}
+
+/** Someone takes the player to court. */
+function npcSues(state: GameState, npc: NPC, kind: CaseKind, claim: number, evidence: number, facts: string[], refId?: string): LegalCase {
+  const c = openCase(state, { kind, side: 'defendant', npcId: npc.id, npcName: npc.name, claim, evidence, facts, refId });
+  state.mailbox.unshift({ id: uuidv4(), from: 'court_registry', fromName: c.court, subject: `⚖️ You've been served: ${npc.name} v. ${state.player!.artistName}`, body: `${npc.name} has filed a claim against you: ${CASE_LABEL[kind].title.toLowerCase()}, $${claim.toLocaleString()}.\n\n${facts.map((f) => `• ${f}`).join('\n')}\n\nYou have 10 days to answer: pay, offer a settlement, or fight it. Ignoring it means the court decides without you. Open the Courthouse.`, timestamp: new Date().toISOString(), read: false, type: 'legal' });
+  pushNotification(state, { kind: 'business', title: `⚖️ ${npc.name} is suing you`, body: `$${claim.toLocaleString()} — ${CASE_LABEL[kind].title}. Answer within 10 days.`, artSeed: `case|${c.id}`, action: { type: 'court', id: c.id } });
+  if (!isRealId(npc.id) && !npc.id.startsWith('bank:') && !npc.id.startsWith('rights:')) scheduleDM(state, npc.id, pickLine(['My lawyers will be in touch.', 'See you in court.', 'You should\'ve just paid me back.'], c.id), nowMinuteOf(state) + 30);
+  return c;
+}
+
+/** The team lawyer, if there is one. */
+function teamLawyer(state: GameState): Lawyer | undefined {
+  const c = (state.crew ?? []).find((x) => x.role === 'lawyer');
+  if (!c) return undefined;
+  const shark = specialSkillOf(c.npcId, c.role, c.skill)?.id === 'shark';
+  return { name: c.npcName, skill: Math.min(100, c.skill + (shark ? 10 : 0)), source: 'team', perHearing: 0, crewId: c.id };
+}
+
+function scheduleHearing(state: GameState, c: LegalCase, kind: 'mention' | 'trial', days: number): void {
+  const at = nextCourtDate(nowMinuteOf(state), days, c.hearings.length + c.claim);
+  c.hearings.push({ id: uuidv4(), atMinute: at, kind });
+  c.status = 'hearing';
+  const when = new Date(Math.floor(at / 1440) * 86400000).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  c.log.push({ serial: dateToSerial(state.gameDate), text: `${kind === 'trial' ? 'Trial' : 'First hearing'} set for ${when}, ${Math.floor((at % 1440) / 60)}:${String(at % 60).padStart(2, '0')} at the ${c.court}.` });
+  pushNotification(state, { kind: 'business', title: `⚖️ Court date: ${when}`, body: `${c.plaintiff.name} v. ${c.defendant.name} — ${kind === 'trial' ? 'the trial' : 'first hearing'} at the ${c.court}.`, artSeed: `case|${c.id}|${at}`, action: { type: 'court', id: c.id } });
+}
+
+/** Money changes hands at the end of a case. */
+function closeCase(state: GameState, c: LegalCase, status: LegalCase['status'], text: string, playerPays: number, playerGets: number): void {
+  const p = state.player!;
+  const serial = dateToSerial(state.gameDate);
+  c.status = status;
+  if (playerPays) { p.career.money -= playerPays; ledgerAdd('legal', -playerPays); }
+  if (playerGets) { p.career.money += playerGets; p.career.totalEarnings += playerGets; ledgerAdd('legal', playerGets); }
+  c.outcome = { text, damages: playerGets - playerPays, costs: c.costs, serial };
+  c.log.push({ serial, text });
+  for (const o of c.offers) if (o.status === 'open') o.status = 'lapsed';
+  const them = c.side === 'plaintiff' ? c.defendant : c.plaintiff;
+  const won = status === 'won' || (status === 'settled' && playerGets > 0) || (status === 'dismissed' && c.side === 'defendant');
+  if (c.public || newsworthy(blendedFame(p), state.npcs.find((n) => n.id === them.id)?.fame ?? 0, c.claim)) {
+    const head = status === 'settled' ? `${c.plaintiff.name} and ${c.defendant.name} settle out of court`
+      : status === 'won' || status === 'lost' ? `Court rules for ${(status === 'won') === (c.side === 'plaintiff') ? c.plaintiff.name : c.defendant.name} in ${c.plaintiff.name} v. ${c.defendant.name}` : `${c.plaintiff.name} v. ${c.defendant.name} thrown out`;
+    state.headlines.unshift({ id: uuidv4(), text: head, fullStory: text, date: formatGameDate(state.gameDate), relatedEntities: [p.id, them.id], priority: 6, category: 'scandal' });
+    // The timeline has opinions.
+    const fan = pickLine(['@court_watch_gh', '@naija_tea', '@afrobuzz_daily', '@thegossipmill'], c.id);
+    state.socialPosts.unshift({ id: uuidv4(), platform: 'chirp', authorId: `fan:${fan}`, authorName: fan, content: `${head}. ${won ? `${p.artistName} came out on top` : `L for ${p.artistName}`} 👀⚖️`, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 55, daySerial: serial, postedMinute: nowMinuteOf(state) } as SocialPost);
+    livenPost(state, state.socialPosts[0]);
+  }
+  if (status === 'won' || status === 'lost') p.career.reputation = Math.max(0, Math.min(100, p.career.reputation + (status === 'won' ? 1 : -3)));
+  remember(state, 'beef', text, { npcIds: [them.id], weight: 4, tone: won ? 'good' : 'bad' });
+  pushNotification(state, { kind: 'business', title: `⚖️ ${status === 'settled' ? 'Settled' : status === 'won' ? 'You won' : status === 'lost' ? 'You lost' : 'Case closed'}: ${c.plaintiff.name} v. ${c.defendant.name}`, body: text, artSeed: `case|${c.id}|end`, action: { type: 'court', id: c.id } });
+  // Deals the case was about are closed too.
+  const fr = state.featureRequests.find((r) => r.caseId === c.id);
+  if (fr && fr.status === 'paid_waiting') fr.status = 'declined';
+  const ir = state.inboundRequests.find((r) => r.caseId === c.id);
+  if (ir && ir.status === 'agreed') ir.status = 'withdrawn';
+  // A debt judgment or settlement closes the loan.
+  const loan = (state.loans ?? []).find((l) => l.caseId === c.id);
+  if (loan) { loan.status = 'paid'; loan.balance = 0; }
+}
+
+/** Run a hearing. `mode`: the player there with their lawyer, testifying, or not there at all. */
+function runHearing(state: GameState, c: LegalCase, h: LegalCase['hearings'][number], mode: 'lawyer' | 'testify' | 'absent'): string {
+  const p = state.player!;
+  const serial = dateToSerial(state.gameDate);
+  h.done = true;
+  const fee = c.ourLawyer?.perHearing ?? 0;
+  if (fee && mode !== 'absent') { p.career.money -= fee; c.costs += fee; ledgerAdd('legal', -fee); }
+  const npc = state.npcs.find((n) => n.id === (c.side === 'plaintiff' ? c.defendant.id : c.plaintiff.id));
+  const persona = npc ? personaOf(npc) : null;
+  const nobody = mode === 'absent' && !c.ourLawyer;
+  if (h.kind === 'mention') {
+    if (nobody) {
+      // Not turning up to your own case, or to answer one, has a price.
+      if (c.side === 'plaintiff') { closeCase(state, c, 'dismissed', `You didn't turn up to your own case against ${c.defendant.name}. The judge struck it out.`, 0, 0); return h.note = 'Struck out — you weren\'t there.'; }
+      const j = judgment(c.claim, Math.max(c.evidence, 70), Math.random());
+      const costs = Math.round(c.claim * 0.08);
+      closeCase(state, c, 'lost', `Nobody answered for you, so the court ruled for ${c.plaintiff.name} by default: $${(j.damages + costs).toLocaleString()} including costs.`, j.damages + costs, 0);
+      return h.note = 'Default judgment against you.';
+    }
+    scheduleHearing(state, c, 'trial', 18 + (c.claim > 50_000 ? 10 : 0));
+    h.note = `The judge heard both sides and set the matter down for trial. ${mode === 'absent' ? `${c.ourLawyer!.name} handled it.` : ''}`;
+    // The judge pushes for settlement; the other side often listens.
+    if (persona && Math.random() < 0.55) {
+      const amt = npcSettlement(c, persona, Math.random());
+      c.offers.push({ id: uuidv4(), from: 'them', amount: amt, serial, status: 'open' });
+      c.log.push({ serial, text: c.side === 'plaintiff' ? `${c.defendant.name} offered $${amt.toLocaleString()} to settle.` : `${c.plaintiff.name} would settle for $${amt.toLocaleString()}.` });
+    }
+    c.log.push({ serial, text: h.note });
+    return h.note;
+  }
+  // The trial.
+  const testimony = mode === 'testify' ? testimonyEffect(p.stats.charisma, p.stats.discipline, Math.random()) : null;
+  const ours = c.ourLawyer?.skill ?? (mode === 'testify' ? 15 : 0);
+  const odds = plaintiffOdds({
+    evidence: c.evidence,
+    plaintiffLawyer: c.side === 'plaintiff' ? ours : c.theirLawyer.skill,
+    defendantLawyer: c.side === 'plaintiff' ? c.theirLawyer.skill : ours,
+    testimony: testimony?.effect ?? 0,
+    playerAbsent: nobody,
+  }, c.side);
+  const plaintiffWins = Math.random() < odds;
+  const playerWins = plaintiffWins === (c.side === 'plaintiff');
+  const j = judgment(c.claim, c.evidence, Math.random());
+  const theirCosts = Math.round(c.claim * 0.12 + c.theirLawyer.skill * 40);
+  const intro = testimony ? `${testimony.text} ` : nobody ? 'You weren\'t there and had nobody to speak for you. ' : '';
+  if (playerWins) {
+    const gets = c.side === 'plaintiff' ? j.damages + Math.round(c.costs * j.costsShare) : Math.round(c.costs * j.costsShare);
+    closeCase(state, c, 'won', `${intro}The judge ruled in your favour.${c.side === 'plaintiff' ? ` ${c.defendant.name} must pay $${j.damages.toLocaleString()} plus part of your costs.` : ` The claim was dismissed and ${c.plaintiff.name} pays part of your costs.`}`, 0, gets);
+  } else {
+    const pays = c.side === 'defendant' ? j.damages + Math.round(theirCosts * j.costsShare) : Math.round(theirCosts * j.costsShare);
+    closeCase(state, c, 'lost', `${intro}The judge ruled against you.${c.side === 'defendant' ? ` You owe ${c.plaintiff.name} $${j.damages.toLocaleString()} plus part of their costs.` : ` Your claim failed and you pay part of ${c.defendant.name}'s costs.`}`, pays, 0);
+  }
+  return h.note = c.outcome!.text;
+}
+
+/** Daily: the other side's moves, deadlines, offers lapsing. */
+function courtTick(state: GameState, serial: number): void {
+  const p = state.player;
+  if (!p) return;
+  for (const c of state.cases ?? []) {
+    if (!['served', 'hearing'].includes(c.status)) continue;
+    for (const o of c.offers) if (o.status === 'open' && serial - o.serial > 10) o.status = 'lapsed';
+    const npcId = c.side === 'plaintiff' ? c.defendant.id : c.plaintiff.id;
+    const npc = state.npcs.find((n) => n.id === npcId);
+    const persona = npc ? personaOf(npc) : null;
+    // You sued: they answer.
+    if (c.side === 'plaintiff' && c.status === 'served' && c.nextMoveSerial !== undefined && serial >= c.nextMoveSerial && persona) {
+      c.nextMoveSerial = undefined;
+      const ans = npcAnswer(persona, c, (npc!.fame + 10) * 3000, Math.random());
+      if (ans === 'pay') {
+        closeCase(state, c, 'settled', `${c.defendant.name} paid the full $${c.claim.toLocaleString()} rather than go to court.`, 0, c.claim);
+      } else if (ans === 'settle') {
+        const amt = npcSettlement(c, persona, Math.random());
+        c.offers.push({ id: uuidv4(), from: 'them', amount: amt, serial, status: 'open' });
+        c.log.push({ serial, text: `${c.defendant.name}'s lawyers offered $${amt.toLocaleString()} to settle.` });
+        pushNotification(state, { kind: 'business', title: `⚖️ ${c.defendant.name} wants to settle`, body: `They offer $${amt.toLocaleString()}. Take it, counter, or see them in court.`, artSeed: `case|${c.id}|o`, action: { type: 'court', id: c.id } });
+        scheduleHearing(state, c, 'mention', 14);
+      } else {
+        c.log.push({ serial, text: ans === 'ignore' ? `${c.defendant.name} didn't answer. The court will hear it anyway.` : `${c.defendant.name} is fighting it, with ${c.theirLawyer.name}.` });
+        scheduleHearing(state, c, 'mention', 14);
+      }
+    }
+    // You were sued and never answered: it goes before the judge anyway.
+    if (c.side === 'defendant' && c.status === 'served' && c.answerBy !== undefined && serial > c.answerBy) {
+      c.answerBy = undefined;
+      c.log.push({ serial, text: 'You didn\'t answer the claim in time. It\'s going before the judge.' });
+      scheduleHearing(state, c, 'mention', 7);
+    }
+  }
+}
+
+/** Daily: verses owed both ways, money owed both ways. */
+function featureDealsTick(state: GameState, serial: number, log: string[]): void {
+  const p = state.player;
+  if (!p) return;
+  // ── Verses you owe (their record) ──
+  for (const r of state.inboundRequests) {
+    const npc = state.npcs.find((n) => n.id === r.npcId);
+    const persona = npc ? personaOf(npc) : null;
+    // An ask nobody answers doesn't sit there forever. Two weeks on read and
+    // they find somebody else for the record.
+    if (r.status === 'open') {
+      const sent = r.sentDate ? parseGameDate(r.sentDate) : null;
+      if (sent && serial - dateToSerial(sent) > 14) {
+        r.status = 'withdrawn';
+        r.lapsed = true;
+        if (npc) {
+          npc.relationshipScore = Math.max(-100, npc.relationshipScore - 3);
+          npc.memoryLog = [...(npc.memoryLog ?? []).slice(-9), `[Feature] ${p.artistName} never answered about "${r.npcSongTitle}".`];
+          if (!isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, read: false, content: pickLine(['Guess that\'s a no. All good 🤝', 'Found someone else for it. Next time.', 'No reply? Say less.'], r.id) });
+        }
+        log.push(`⌛ ${r.npcName} gave the verse on "${r.npcSongTitle}" to someone else.`);
+      }
+      continue;
+    }
+    if (r.status === 'agreed') {
+      if (r.dueSerial === undefined) {
+        // A deal from before terms existed: everything was paid up front.
+        r.payTerms = r.payTerms ?? ((r.agreedFee ?? 0) > 0 ? 'upfront' : 'free');
+        r.paidSoFar = r.paidSoFar ?? (r.agreedFee ?? 0);
+        const agreed = r.agreedDate ? parseGameDate(r.agreedDate) : null;
+        r.dueSerial = (agreed ? dateToSerial(agreed) : serial) + VERSE_DEADLINE_DAYS;
+      }
+      const writing = (state.workItems ?? []).some((w) => w.kind === 'verse' && (w.payload as VerseWork).requestId === r.id);
+      if (writing || r.caseId) continue;
+      const left = r.dueSerial - serial;
+      const paid = r.paidSoFar ?? 0;
+      if (left <= 4 && !r.chased && npc && !isRealId(npc.id) && persona) {
+        r.chased = true;
+        pushDM(state, npc.id, { fromPlayer: false, content: chaseLine(persona, paid, Math.max(0, left), hashString(r.id) >>> 0) });
+        log.push(`⏳ ${r.npcName} is asking about the verse for "${r.npcSongTitle}".`);
+      }
+      if (left < -GRACE_DAYS && !r.refundDemanded) {
+        r.refundDemanded = serial;
+        if (npc) {
+          npc.relationshipScore = Math.max(-100, npc.relationshipScore - (paid > 0 ? 12 : 6));
+          npc.memoryLog = [...(npc.memoryLog ?? []).slice(-9), `[Feature] ${p.artistName} never sent the verse${paid > 0 ? ' I paid for' : ''}.`];
+        }
+        if (paid > 0) {
+          if (npc && !isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: `Forget the verse. Send back my $${paid.toLocaleString()}.` });
+          pushNotification(state, { kind: 'feature', title: `${r.npcName} wants their money back`, body: `$${paid.toLocaleString()} for a verse you never sent. Refund it from Studio → Features.`, artSeed: `npc|${r.npcId}`, action: { type: 'features', id: r.id } });
+        } else {
+          r.status = 'withdrawn';
+          r.lapsed = true;
+          log.push(`🚪 ${r.npcName} gave up waiting on the verse for "${r.npcSongTitle}".`);
+          remember(state, 'people', `You never sent ${r.npcName} the verse for "${r.npcSongTitle}".`, { npcIds: [r.npcId], weight: 2, tone: 'bad' });
+        }
+      }
+      // Asked for a refund, never got it: some people let it go, some sue.
+      if (r.refundDemanded && paid > 0 && serial - r.refundDemanded >= 10 && r.status === 'agreed') {
+        r.status = 'withdrawn';
+        r.lapsed = true;
+        if (npc && persona && suesForUndelivered(persona, paid, Math.random())) {
+          const c = npcSues(state, npc, 'refund', Math.round(paid * 1.5), 82, [`${npc.name} paid you $${paid.toLocaleString()} for a verse on "${r.npcSongTitle}" (${TERMS_LABEL[r.payTerms ?? 'upfront'].toLowerCase()}).`, `The verse was due ${formatGameDate(serialToDate(r.dueSerial))} and never came.`, `They asked for the money back; you didn't return it.`], r.id);
+          r.caseId = c.id;
+          log.push(`⚖️ ${r.npcName} is suing you over the verse.`);
+        } else {
+          remember(state, 'people', `You kept ${r.npcName}'s $${paid.toLocaleString()} and never sent the verse.`, { npcIds: [r.npcId], weight: 3, tone: 'bad' });
+          if (npc && persona && persona.messy > 0.55 && !isRealId(npc.id)) npcPost(state, npc, pickLine(['Paid for a verse months ago. Still waiting. Some people are only business when it suits them.', 'Lesson: never pay up front. Never.'], r.id));
+        }
+      }
+    }
+    // Delivered, balance owed to you.
+    if (r.status === 'delivered' && (r.balanceDue ?? 0) > 0 && r.balanceDueSerial !== undefined && !r.caseId) {
+      if (r.balancePlan !== 'never' && serial >= r.balanceDueSerial) {
+        const amt = r.balanceDue!;
+        r.balanceDue = 0;
+        r.paidSoFar = (r.paidSoFar ?? 0) + amt;
+        p.career.money += amt;
+        p.career.totalEarnings += amt;
+        receipt(state, r.npcId, amt, `💰 ${r.npcName} paid the balance: $${amt.toLocaleString()} for your verse on "${r.npcSongTitle}".${r.balancePlan === 'late' ? ' Late, but paid.' : ''}`, { memory: `${r.npcName} paid you $${amt.toLocaleString()} for the verse on "${r.npcSongTitle}".` });
+      }
+    }
+  }
+
+  // ── Verses you paid for (your record) ──
+  for (const r of state.featureRequests) {
+    if (r.status !== 'paid_waiting' || r.verseDueSerial === undefined || r.caseId) continue;
+    const npc = state.npcs.find((n) => n.id === r.npcId);
+    const d = r.delivery ?? { outcome: 'on_time' as const, lateBy: 0 };
+    if (serial < r.verseDueSerial) continue;
+    if (d.outcome === 'late' && !d.excused) {
+      d.excused = true;
+      r.delivery = d;
+      r.verseDueSerial += d.lateBy;
+      if (npc && !isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: lateExcuse(hashString(r.id) >>> 0) });
+      continue;
+    }
+    if (d.outcome === 'ghost') continue; // Nothing comes. Chase, ask for a refund, or sue.
+    r.status = 'verse_ready';
+    if (npc && !isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: pickLine(['Verse done 🔥 sent it over', 'Your verse is in. Tell me what you think', 'Done. Go crazy with it 🎙️'], r.id) });
+    else if (npc) pushDM(state, npc.id, { fromPlayer: false, system: true, content: `🎙️ ${r.npcName}'s verse for "${r.songTitle}" arrived.` });
+    pushNotification(state, { kind: 'feature', title: `${r.npcName}'s verse is in`, body: `Cut it into "${r.songTitle}" from Studio → Features.`, artSeed: `npc|${r.npcId}`, action: { type: 'features', id: r.id } });
+    remember(state, 'music', `${r.npcName} delivered their verse for "${r.songTitle}"${d.outcome === 'late' ? ', late' : ''}.`, { npcIds: [r.npcId], weight: 2, tone: 'good' });
+  }
+}
+
+// ─── AWARD SEASONS ─────────────────────────────────────────────────────────
+
+export interface AwardSeason {
+  key: string;
+  bodyId: string;
+  year: number;
+  cal: Calendar;
+  phase: 'upcoming' | 'nominations' | 'done';
+  categories: CategoryState[];
+  campaign: { academy: number; rally: number; spent: number; lastRally?: number };
+  /** invited (nominee or famous), performer, or bought a ticket. */
+  invite?: 'invited' | 'performer' | 'ticket';
+  rsvp?: boolean;
+  /** What happened on the night, for the page. */
+  night?: string[];
+  told?: { tonight?: boolean };
+}
+
+function bodiesFor(state: GameState): AwardBody[] {
+  return awardBodies(state.player?.country ?? 'Ghana');
+}
+
+/** Everything the academy looks at, from the world as it is today. */
+export function awardWorld(state: GameState, npcs: NPC[], npcSongs: Song[]): AwardWorld {
+  const p = state.player!;
+  const serial = dateToSerial(state.gameDate);
+  const relOf = (s: Song) => state.platformStats?.[s.id]?.release ?? serialOfGameDate(s.releaseDate, serial);
+  const entrants = new Map<string, Entrant>();
+  const debut = new Map<string, number>();
+  for (const s of npcSongs) if (s.ownerId) debut.set(s.ownerId, Math.min(debut.get(s.ownerId) ?? Infinity, relOf(s)));
+  for (const n of npcs) if (n.role === 'artist') entrants.set(n.id, { id: n.id, name: n.name, country: n.country, genre: n.genre, gender: n.gender, fame: n.fame, isPlayer: false, real: isRealId(n.id), debutSerial: debut.get(n.id) });
+  const mine = (state.songs ?? []).filter((s) => isSongReleased(s));
+  entrants.set(p.id, { id: p.id, name: p.artistName, country: p.country, genre: p.genre, gender: p.gender, fame: blendedFame(p), isPlayer: true, real: false, debutSerial: mine.length ? Math.min(...mine.map(relOf)) : undefined });
+  const vids = new Map((state.videos ?? []).map((v) => [v.songId, v.quality]));
+  const toEntry = (s: Song, owner: string): SongEntry => ({ id: s.id, title: s.title, ownerId: owner, genre: s.genre, quality: s.quality, streams: s.totalStreams, release: relOf(s), features: s.featuredArtists ?? [], hasVideo: !!s.hasVideo || vids.has(s.id), videoQuality: vids.get(s.id) });
+  const songs: SongEntry[] = [...npcSongs.filter((s) => s.ownerId && entrants.has(s.ownerId)).map((s) => toEntry(s, s.ownerId!)), ...mine.map((s) => toEntry(s, p.id))];
+  const albums = [...(state.npcAlbums ?? []), ...(state.albums ?? [])].filter((a) => a.ownerId && entrants.has(a.ownerId === 'player' ? p.id : a.ownerId)).map((a) => {
+    const owner = a.ownerId === 'player' || !a.ownerId ? p.id : a.ownerId;
+    const qs = a.songs.map((id) => [...npcSongs, ...(state.songs ?? [])].find((x) => x.id === id)?.quality ?? 50);
+    return { id: a.id, title: a.title, ownerId: owner, release: a.releaseSerial ?? serialOfGameDate(a.releaseDate, serial), streams: a.totalStreams, quality: qs.length ? qs.reduce((x, y) => x + y, 0) / qs.length : 50 };
+  });
+  // The academy remembers scandals and lost cases; a campaign helps.
+  const lost = (state.cases ?? []).filter((c) => c.status === 'lost' && serial - (c.outcome?.serial ?? 0) < 365).length;
+  const academy = Math.max(0.6, Math.min(1.25, 0.85 + p.career.reputation / 250 - lost * 0.06));
+  return { entrants, songs, albums, playerId: p.id, playerAcademy: academy };
+}
+
+function awardPost(state: GameState, body: AwardBody, content: string, trending = 60): void {
+  state.socialPosts.unshift({ id: uuidv4(), platform: 'chirp', authorId: `org:${body.id}`, authorName: body.name, content, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: trending, daySerial: dateToSerial(state.gameDate), postedMinute: nowMinuteOf(state) } as SocialPost);
+  livenPost(state, state.socialPosts[0], { minComments: 6 });
+}
+
+/** Run the night: every envelope opened, the world told. */
+function runCeremony(state: GameState, season: AwardSeason, attended: boolean): void {
+  const p = state.player!;
+  const body = bodiesFor(state).find((b) => b.id === season.bodyId);
+  if (!body || season.phase === 'done') return;
+  const followed = (state.awardFollows ?? []).includes(body.id);
+  const academy = Math.max(0.6, Math.min(1.5, 0.85 + p.career.reputation / 250 + season.campaign.academy));
+  const wins: string[] = [];
+  const night: string[] = [];
+  for (const c of season.categories) {
+    const w = decide(c, academy, Math.random);
+    c.winnerId = w.id;
+    night.push(`${c.name}: ${w.name}${w.work ? ` — "${w.work}"` : ''}`);
+    state.awards.push({ id: uuidv4(), name: `${body.name} — ${c.name}`, tier: body.scope === 'country' ? 'country' : body.scope === 'continental' ? 'regional' : 'global', country: body.country, category: c.name, year: season.year, winner: w.id, nominees: c.nominees.map((n) => n.id) } as GameState['awards'][number]);
+    if (w.isPlayer) {
+      wins.push(c.name);
+      const r = winRewards(body, c.major);
+      p.career.localFame = Math.min(100, p.career.localFame + r.fame);
+      p.career.nationalFame = Math.min(100, p.career.nationalFame + r.fame * (body.scope === 'country' ? 0.8 : 0.6));
+      if (body.scope !== 'country') p.career.internationalFame = Math.min(100, p.career.internationalFame + r.fame * (body.scope === 'global' ? 0.8 : 0.5));
+      p.career.fanbase += Math.round(p.career.fanbase * r.fansPct / 100);
+      p.career.reputation = Math.min(100, p.career.reputation + r.reputation);
+      addMomentum(state, r.momentum);
+    } else {
+      const n = state.npcs.find((x) => x.id === w.id);
+      if (n) n.fame = Math.min(100, n.fame + (c.major ? 1.5 : 0.6) * body.prestige / 60);
+    }
+  }
+  season.phase = 'done';
+  season.night = night;
+  const major = season.categories.filter((c) => c.major);
+  const nominatedMe = season.categories.filter((c) => c.nominees.some((n) => n.isPlayer));
+  // The headlines and the timeline.
+  if (wins.length) {
+    state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} wins ${wins.length > 1 ? `${wins.length} awards` : wins[0]} at the ${body.name}`, fullStory: `Wins: ${wins.join(', ')}.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 8, category: 'award' });
+    remember(state, 'career', `You won ${wins.join(', ')} at the ${body.name} ${season.year}.`, { weight: 5, tone: 'good' });
+    pushNotification(state, { kind: 'milestone', title: `🏆 You won ${wins.length > 1 ? `${wins.length} awards` : wins[0]}!`, body: `${body.name} ${season.year}`, artSeed: `award|${season.key}|win`, action: { type: 'awards', id: season.key } });
+  } else if (nominatedMe.length) {
+    remember(state, 'career', `You were nominated ${nominatedMe.length} time${nominatedMe.length > 1 ? 's' : ''} at the ${body.name} ${season.year} and went home empty-handed.`, { weight: 3 });
+  }
+  for (const c of major) {
+    const w = c.nominees.find((n) => n.id === c.winnerId)!;
+    state.headlines.unshift({ id: uuidv4(), text: `${w.name} wins ${c.name} at the ${body.name}`, fullStory: `${c.name}: ${c.nominees.map((n) => n.name).join(', ')}.`, date: formatGameDate(state.gameDate), relatedEntities: [w.id], priority: 6, category: 'award' });
+    awardPost(state, body, `🏆 ${c.name.toUpperCase()}: ${w.name}${w.work ? ` — "${w.work}"` : ''}! #${body.short.replace(/[^A-Za-z0-9]/g, '')}${season.year}`, 70);
+    if (followed || w.isPlayer) pushNotification(state, { kind: 'business', title: `${body.emoji} ${c.name}: ${w.name}`, body: `${body.name} ${season.year}`, artSeed: `award|${season.key}|${c.id}`, action: { type: 'awards', id: season.key } });
+  }
+  if (followed && !wins.length) pushNotification(state, { kind: 'business', title: `${body.emoji} ${body.name}: full winners list`, body: `${season.categories.length} categories. Tap for the night.`, artSeed: `award|${season.key}|all`, action: { type: 'awards', id: season.key } });
+  // Fictional winners thank people; real ones are reported, not quoted.
+  for (const c of major.slice(0, 2)) {
+    const w = c.nominees.find((n) => n.id === c.winnerId)!;
+    if (w.isPlayer || w.real) continue;
+    const n = state.npcs.find((x) => x.id === w.id);
+    if (n) npcPost(state, n as NPC, pickLine(['Thank you God, thank you fans. This one is for the city 🏆', 'We really did it. Love to everyone who voted 🙏🏾🏆', 'Still can\'t believe it. Back to work tomorrow 🏆'], season.key + c.id));
+  }
+  if (attended) season.night.unshift('You were in the room.');
+}
+
+/** Daily: the calendars, the nominations, the voting. */
+function awardsTick(state: GameState, serial: number, npcs: NPC[], npcSongs: Song[]): void {
+  const p = state.player;
+  if (!p) return;
+  const seasons = state.awardSeasons ?? (state.awardSeasons = {});
+  if (!state.awardFollows) state.awardFollows = [bodiesFor(state).find((b) => b.country === p.country)?.id ?? 'ghana'];
+  const fame = blendedFame(p);
+  // Nights that passed while the days were being skipped still happened.
+  for (const season of Object.values(seasons)) if (season.phase === 'nominations' && serial > season.cal.ceremony) runCeremony(state, season, false);
+  for (const body of bodiesFor(state)) {
+    const cal = nextCalendar(body, serial);
+    const key = `${body.id}:${cal.year}`;
+    const s = seasons[key] ?? (seasons[key] = { key, bodyId: body.id, year: cal.year, cal, phase: 'upcoming', categories: [], campaign: { academy: 0, rally: 0, spent: 0 } });
+    const followed = (state.awardFollows ?? []).includes(body.id);
+    if (s.phase === 'upcoming' && serial >= cal.nominations) {
+      s.categories = nominate(body, cal, awardWorld(state, npcs, npcSongs), Math.random);
+      s.phase = 'nominations';
+      const mine = s.categories.filter((c) => c.nominees.some((n) => n.isPlayer));
+      if (mine.length) {
+        s.invite = fame >= 45 && mine.some((c) => c.major) ? 'performer' : 'invited';
+        s.rsvp = true;
+        state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} earns ${mine.length} nomination${mine.length > 1 ? 's' : ''} at the ${body.name}`, fullStory: mine.map((c) => c.name).join(', '), date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 7, category: 'award' });
+        pushNotification(state, { kind: 'milestone', title: `${body.emoji} You're nominated: ${mine.length} at the ${body.name}`, body: `${mine.map((c) => c.name).join(', ')}. The night is ${new Date(cal.ceremony * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })}.${s.invite === 'performer' ? ' They want you to perform.' : ''}`, artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
+        remember(state, 'career', `You were nominated for ${mine.map((c) => c.name).join(', ')} at the ${body.name} ${cal.year}.`, { weight: 4, tone: 'good' });
+      } else if (fame >= 55) {
+        s.invite = 'invited';
+      }
+      if (followed && !mine.length) pushNotification(state, { kind: 'business', title: `${body.emoji} ${body.name} nominations are out`, body: s.categories.filter((c) => c.major).map((c) => `${c.name}: ${c.nominees.slice(0, 3).map((n) => n.name).join(', ')}…`).join(' · ').slice(0, 220), artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
+      const top = s.categories.find((c) => c.major);
+      if (top) awardPost(state, body, `📣 Nominations for the ${body.name} ${cal.year} are OUT. ${top.name}: ${top.nominees.map((n) => n.name).join(', ')}. ${s.categories.some((c) => c.fanVote) ? 'Voting is open now 🗳️' : ''}`, 65);
+    }
+    if (s.phase === 'nominations' && serial <= cal.votingCloses) {
+      const fansOf = (id: string) => (id === p.id ? p.career.fanbase : (npcs.find((n) => n.id === id)?.fame ?? 10) * 400);
+      for (const c of s.categories) if (c.fanVote) voteDay(c, fansOf, s.campaign.rally, Math.random);
+    }
+    if (s.phase === 'nominations' && serial === cal.ceremony && !s.told?.tonight && (followed || s.rsvp)) {
+      s.told = { ...(s.told ?? {}), tonight: true };
+      pushNotification(state, { kind: 'business', title: `${body.emoji} ${body.name} is tonight`, body: `${body.venue}, ${body.city} · 7:00 PM${s.rsvp ? ' — you\'re going.' : ''}`, artSeed: `award|${key}|tonight`, action: { type: 'awards', id: key } });
+    }
+  }
+  // Keep two years of history per body.
+  const keys = Object.keys(seasons).sort();
+  for (const k of keys) { const v = seasons[k]; if (v.phase === 'done' && serial - v.cal.ceremony > 760) delete seasons[k]; }
+}
+
+// ─── CAREER MODES ──────────────────────────────────────────────────────────
+
+/** Leave retirement (or business focus) without the ceremony of a comeback. */
+function unretire(state: GameState, to: CareerMode, why: string): void {
+  state.legacy.mode = to;
+  state.legacy.retired = false;
+  state.legacy.modeSince = dateToSerial(state.gameDate);
+  remember(state, 'career', why, { weight: 3 });
+}
+
+function legacyScoreOf(state: GameState): number {
+  const p = state.player!;
+  return Math.round(p.career.totalStreams / 100000 + state.awards.filter((a) => a.winner === p.id).length * 250 + state.certifications.length * 100 + p.career.totalEarnings / 10000 + p.career.internationalFame * 20);
+}
+
+function legacyTitles(state: GameState): string[] {
+  const p = state.player!;
+  const wins = state.awards.filter((a) => a.winner === p.id).length;
+  const t: string[] = [];
+  if (p.career.internationalFame >= 60) t.push('Global icon');
+  else if (p.career.nationalFame >= 60) t.push('National treasure');
+  if (wins >= 10) t.push('Decorated'); else if (wins >= 3) t.push('Award winner');
+  if (state.certifications.length >= 10) t.push('Hit machine');
+  if (p.career.totalEarnings >= 5_000_000) t.push('Mogul');
+  if ((state.ventures ?? []).filter((v) => !v.closed).length >= 2) t.push('Businessman');
+  return t;
+}
+
+/** Daily: the comeback clock, post-career income, the nostalgia bump. */
+function careerModeTick(state: GameState, serial: number, days: number, log: string[]): void {
+  const p = state.player;
+  if (!p) return;
+  const L = state.legacy;
+  const cb = L.comeback;
+  if (cb && !cb.used && serial > cb.until) {
+    cb.used = true;
+    p.career.reputation = Math.max(0, p.career.reputation - 4);
+    p.career.momentum = Math.max(0, p.career.momentum - 10);
+    state.headlines.unshift({ id: uuidv4(), text: `Where is ${p.artistName}'s comeback?`, fullStory: 'The announcement came. The music didn\'t.', date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 4, category: 'general' });
+    remember(state, 'career', 'You announced a comeback and never dropped anything.', { weight: 3, tone: 'bad' });
+    log.push('📉 The comeback you announced never came. Fans noticed.');
+  }
+  if (L.mode !== 'retired') return;
+  const weeks = Math.floor(((serial - (L.modeSince ?? serial)) % 7 + days) / 7);
+  if (L.postCareerRole === 'producer' && weeks > 0) {
+    const pay = producerIncome(p.stats.productionKnowledge, blendedFame(p)) * weeks;
+    p.career.money += pay;
+    p.career.totalEarnings += pay;
+    ledgerAdd('producing', pay);
+  }
+  if (L.postCareerRole === 'mentor' && weeks > 0) p.career.reputation = Math.min(100, p.career.reputation + 0.15 * weeks);
+}
+
 /**
  * Time spent in a chair (tattoo, barber): the clock moves on even if the
  * player had it paused, exactly as the running clock would move it.
@@ -6730,7 +7526,9 @@ function remember(state: GameState, kind: MemoryKind, text: string, opts: { npcI
 }
 
 const HEADLINE_KIND: Record<string, MemoryKind> = { award: 'career', chart: 'music', beef: 'beef', feature: 'music', show: 'career', scandal: 'life', business: 'money', general: 'career' };
-const NOTE_KIND: Partial<Record<string, { kind: MemoryKind; weight: number }>> = { chart_number_one: { kind: 'music', weight: 5 }, chart_debut: { kind: 'music', weight: 3 }, certification: { kind: 'music', weight: 4 }, milestone: { kind: 'career', weight: 4 } };
+// Awards, court and deals write their own journal lines where they happen;
+// these are the things that otherwise only reach the player as a notification.
+const NOTE_KIND: Partial<Record<string, { kind: MemoryKind; weight: number }>> = { chart_number_one: { kind: 'music', weight: 5 }, chart_debut: { kind: 'music', weight: 3 }, certification: { kind: 'music', weight: 4 } };
 
 /** Headlines about the player and the big notifications go in the journal. */
 function captureMemories(state: GameState): void {
@@ -6743,6 +7541,8 @@ function captureMemories(state: GameState): void {
   if (state.headlines?.[0]) cur.headline = state.headlines[0].id;
   for (const h of heads.reverse()) {
     if (!h.relatedEntities?.includes(p.id) || (h.priority ?? 0) < 3) continue;
+    // Already written down by the system that made the news.
+    if (h.category === 'award' || / v\. |sues |to court|comeback|retire|steps back|slows down/i.test(h.text)) continue;
     remember(state, HEADLINE_KIND[h.category] ?? 'career', h.text, { npcIds: h.relatedEntities.filter((id: string) => id !== p.id && npcIds.has(id)), weight: h.priority >= 6 ? 4 : 3, tone: h.category === 'scandal' ? 'bad' : undefined });
   }
   const notes: GameNotification[] = [];
@@ -6809,6 +7609,184 @@ function playerDrip(state: GameState): number {
   const look = state.player?.look;
   if (!look) return 20;
   return dripScore(look.outfit, dateToSerial(state.gameDate), state.drip, look.tattoos).score;
+}
+
+// ─── THE BANK ──────────────────────────────────────────────────────────────
+
+/** What you've been earning a month lately (lifetime earnings, three months apart). */
+export function monthlyIncomeOf(state: Pick<GameState, 'earningsMarks' | 'player'>): number {
+  const marks = state.earningsMarks ?? [];
+  const now = state.player?.career.totalEarnings ?? 0;
+  if (!marks.length) return 0;
+  const back = marks[Math.max(0, marks.length - 3)];
+  const months = Math.max(1, marks.length - Math.max(0, marks.length - 3));
+  return Math.max(0, Math.round((now - back.total) / months));
+}
+
+export function creditOf(state: GameState): number {
+  const c = state.credit ?? { missedEver: 0, defaults: 0, paidOff: 0 };
+  return creditScore({
+    monthlyIncome: monthlyIncomeOf(state),
+    reputation: state.player?.career.reputation ?? 50,
+    missedEver: c.missedEver,
+    defaults: c.defaults,
+    paidOff: c.paidOff,
+    monthsActive: (state.earningsMarks ?? []).length,
+    netWorth: netWorthOf(state).total,
+  });
+}
+
+/** A pseudo-account for an institution that can sue (a bank). */
+function institution(state: GameState, id: string, name: string): NPC {
+  let n = state.npcs.find((x) => x.id === id);
+  if (!n) {
+    n = { id, name, fame: 50, personality: ['calculating', 'patient'], role: 'lawyer', tier: 'national', country: state.player?.country ?? 'Ghana', relationshipScore: 0, relationshipStage: 'stranger', memoryLog: [], isAvailable: true, gender: 'other', age: 40 } as unknown as NPC;
+    state.npcs.push(n);
+  }
+  return n;
+}
+
+/** Month-end: note what you've earned, then collect what you owe the banks. */
+function bankTick(state: GameState, serial: number, log: string[]): void {
+  const p = state.player;
+  if (!p) return;
+  const marks = state.earningsMarks ?? (state.earningsMarks = []);
+  if (!marks.length || serial - marks[marks.length - 1].serial >= 30) {
+    marks.push({ serial, total: p.career.totalEarnings });
+    if (marks.length > 12) marks.splice(0, marks.length - 12);
+  }
+  const credit = state.credit ?? (state.credit = { missedEver: 0, defaults: 0, paidOff: 0 });
+  for (const l of state.loans ?? []) {
+    let guard = 0;
+    while (l.status === 'active' && serial >= l.nextDue && guard++ < 12) {
+      l.balance = Math.round(l.balance * (1 + l.apr / 12));
+      const due = Math.min(l.monthly, l.balance);
+      if (p.career.money >= due) {
+        p.career.money -= due;
+        ledgerAdd('loans', -due);
+        l.balance -= due;
+        l.paidMonths += 1;
+        l.missed = 0;
+        if (l.balance <= 1) {
+          l.status = 'paid';
+          l.balance = 0;
+          credit.paidOff += 1;
+          remember(state, 'money', `Paid off the ${l.kind === 'mortgage' ? 'mortgage' : 'loan'} with ${l.lender}. Debt-free on that one.`, { weight: 3, tone: 'good' });
+          log.push(`🏦 Loan with ${l.lender} paid off.`);
+        }
+      } else {
+        l.missed += 1;
+        credit.missedEver += 1;
+        l.balance += Math.round(l.monthly * 0.05);
+        pushNotification(state, { kind: 'business', title: `🏦 Missed a payment to ${l.lender}`, body: `${money0(due)} was due and the account was short. Late fee added. ${l.missed >= 2 ? 'One more and they call it in.' : 'Your credit score just dropped.'}`, artSeed: `loan|${l.id}|${serial}`, action: { type: 'home', id: 'bank' } });
+        log.push(`🏦 Missed the ${money0(due)} payment to ${l.lender}.`);
+        if (l.missed >= 3) {
+          l.status = 'default';
+          credit.defaults += 1;
+          const bank = institution(state, `bank:${l.lender}`, l.lender);
+          let owed = l.balance;
+          // A mortgage is secured: they take the house first.
+          const home = l.homeId ? (state.homes ?? []).find((h) => h.id === l.homeId) : undefined;
+          if (home) {
+            const sale = Math.round(ownedValue(home, state.market?.propertyIndex ?? 100) * 0.75);
+            owed = Math.max(0, owed - sale);
+            state.homes = (state.homes ?? []).filter((h) => h.id !== home.id);
+            if (state.home?.ownedId === home.id) state.home = newHome(home.city, home.country, serial);
+            remember(state, 'money', `${l.lender} repossessed the ${homeDef(home.tier).name.toLowerCase()} in ${home.city}.`, { weight: 5, tone: 'bad' });
+            pushNotification(state, { kind: 'business', title: '🏚️ Repossessed', body: `${l.lender} took the ${homeDef(home.tier).name.toLowerCase()} and sold it at auction for ${money0(sale)}.${owed > 0 ? ` You still owe ${money0(owed)}.` : ''}`, artSeed: `repo|${home.id}`, action: { type: 'home', id: 'bank' } });
+            l.balance = owed;
+          }
+          if (owed > 0) {
+            const c = npcSues(state, bank, 'debt', owed, 92, [`Borrowed ${money0(l.principal)} from ${l.lender} on ${formatGameDate(serialToDate(l.startSerial))}.`, `${l.paidMonths} payments made, then three missed in a row.`, `${money0(owed)} outstanding.`], l.id);
+            l.caseId = c.id;
+          } else {
+            l.status = 'paid';
+          }
+        }
+      }
+      l.nextDue += 30;
+    }
+  }
+}
+
+// ─── HOME ──────────────────────────────────────────────────────────────────
+
+function homeOf(state: GameState): HomeState {
+  const p = state.player!;
+  return state.home ?? (state.home = newHome(p.city, p.country, dateToSerial(state.gameDate)));
+}
+
+/** What staying alive and housed costs a month, and what comes back in. */
+export function monthlyBurnOf(state: Pick<GameState, 'home' | 'homes' | 'ownedAssets' | 'player' | 'market'>): { rent: number; living: number; upkeep: number; tenants: number; total: number } {
+  const p = state.player;
+  const h = state.home ?? (p ? newHome(p.city, p.country, 0) : undefined);
+  if (!h) return { rent: 0, living: 0, upkeep: 0, tenants: 0, total: 0 };
+  const rent = h.ownedId || h.tier === 'family' ? 0 : rentFor(h.tier, h.country);
+  const living = livingFor(h.tier, h.country);
+  const idx = state.market?.propertyIndex ?? 100;
+  const upkeep = (state.ownedAssets ?? []).reduce((a, x) => a + upkeepFor(x.category, x.cost), 0)
+    + (state.homes ?? []).reduce((a, o) => a + Math.round(ownedValue(o, idx) * 0.0008), 0);
+  const tenants = (state.homes ?? []).filter((o) => o.rentedOut && o.id !== h.ownedId).reduce((a, o) => a + rentIncome(o), 0);
+  return { rent, living, upkeep, tenants, total: rent + living + upkeep - tenants };
+}
+
+/** Rent renewals, the landlord's patience, and the monthly bills. */
+function homeTick(state: GameState, serial: number, log: string[]): void {
+  const p = state.player;
+  if (!p) return;
+  const h = homeOf(state);
+  const def = homeDef(h.tier);
+  // Rent comes round: a year at a time in Ghana and Nigeria, monthly elsewhere.
+  if (!h.ownedId && h.tier !== 'family' && !h.due && serial >= h.paidUntil) {
+    const months = renewalMonths(h.country);
+    const amount = rentFor(h.tier, h.country) * months;
+    if (p.career.money >= amount) {
+      p.career.money -= amount;
+      ledgerAdd('housing', -amount);
+      h.paidUntil += months * 30;
+      log.push(`🔑 Rent paid on the ${def.name.toLowerCase()}: ${money0(amount)}${months > 1 ? ` for ${months} months` : ''}.`);
+      if (months > 1) remember(state, 'money', `Paid ${money0(amount)} — a year's rent up front on the ${def.name.toLowerCase()}.`, { weight: 2 });
+    } else {
+      h.due = { amount, by: serial + 30 };
+      pushNotification(state, { kind: 'business', title: '🔑 Rent is due', body: `The landlord wants ${money0(amount)}${months > 1 ? ' (a year up front)' : ''}. You have 30 days.`, artSeed: `home|${serial}`, action: { type: 'home', id: 'rent' } });
+      log.push(`🔑 Rent is due on the ${def.name.toLowerCase()} — ${money0(amount)}. 30 days to pay.`);
+    }
+  }
+  // Out of time: you're out.
+  if (h.due && serial > h.due.by) {
+    const was = def.name.toLowerCase();
+    state.home = { ...newHome(h.city, h.country, serial) };
+    pushNotification(state, { kind: 'business', title: '📦 Evicted', body: `You couldn't pay the rent on the ${was}. Your things are at the family house.`, artSeed: `home|evict|${serial}`, action: { type: 'home', id: 'evicted' } });
+    remember(state, 'life', `Evicted from the ${was}. Back at the family house.`, { weight: 4, tone: 'bad' });
+    log.push(`📦 Evicted from the ${was}. Back at the family house.`);
+    if (blendedFame(p) >= 35) {
+      p.career.reputation = Math.max(0, p.career.reputation - 2);
+      const post: SocialPost = { id: uuidv4(), platform: 'chirp', authorId: 'scene_watch', authorName: 'Scene Watch', content: `👀 Hearing ${p.artistName} got put out of their place over rent. Fame doesn't pay the landlord.`, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 70, tags: [{ id: 'player', name: p.artistName }] };
+      livenPost(state, post, { heat: 1.5 });
+      state.socialPosts.unshift(post);
+    }
+    return;
+  }
+  // The month's bills: food, power, data, getting around, and what you own.
+  let guard = 0;
+  while (serial >= h.nextBill && guard++ < 24) {
+    const b = monthlyBurnOf(state);
+    const out = b.living + b.upkeep;
+    p.career.money += b.tenants - out;
+    ledgerAdd('living', -b.living);
+    if (b.upkeep) ledgerAdd('upkeep', -b.upkeep);
+    if (b.tenants) ledgerAdd('rent', b.tenants);
+    if (p.career.money < 0) {
+      const short = -p.career.money;
+      p.career.money = 0;
+      log.push(`🍲 Short ${money0(short)} on the month's bills — family covered the food.`);
+      if (!state.storyFired?.['broke_month'] || serial - state.storyFired['broke_month'] > 120) {
+        (state.storyFired ?? (state.storyFired = {}))['broke_month'] = serial;
+        remember(state, 'money', `Couldn't cover the month's bills. Family stepped in.`, { weight: 3, tone: 'bad' });
+      }
+    }
+    h.nextBill += 30;
+  }
 }
 
 // ─── CLOTHING BRAND ────────────────────────────────────────────────────────
@@ -6883,6 +7861,7 @@ function interviewTick(state: GameState, serial: number, days: number, npcs?: NP
   const press = (crewOn(state, 'publicist', 'press') ? 0.07 : 0) + (crewWithSkill(state.crew, 'hype_machine') ? 0.04 : 0);
   const chance = 1 - Math.pow(1 - Math.min(0.55, 0.05 + fame / 350 + p.career.momentum / 700 + (recent ? 0.1 : 0) + (hotBeef ? 0.08 : 0) + press), Math.min(days, 7));
   if (Math.random() > chance) return;
+  if (!reaches(state.legacy?.mode, 'press', Math.random())) return;
   const ctx = { ...interviewContext(state, npcs), hasRecentRelease: recent, hotBeef };
   const pickd = pickInvite(outletsNow(state), ctx, state.outletRel ?? {}, Math.random);
   if (!pickd || invites.some((x) => x.status === 'open' && x.outletId === pickd.outlet.id)) return;
@@ -7328,6 +8307,10 @@ export const useGameStore = create<GameState & GameActions>()(
           type: 'general',
         });
 
+        // Everybody starts at home.
+        state.home = newHome(data.city, data.country, dateToSerial(state.gameDate));
+        state.homes = [];
+
         // Initial Chirp post
         state.socialPosts.push({
           id: uuidv4(),
@@ -7342,6 +8325,17 @@ export const useGameStore = create<GameState & GameActions>()(
           isPlayerPost: true,
           trendingScore: 10,
         });
+        // Friends, family and the few who heard you once show up for it.
+        {
+          const first = state.socialPosts[state.socialPosts.length - 1];
+          const at = gameMinute(state) - 90;
+          first.postedMinute = at;
+          first.daySerial = Math.floor(at / MINUTES_PER_DAY);
+          first.comments = socialComments(first, 3 + Math.floor(Math.random() * 3), commentContext(state, false, first.id), new Date().toISOString());
+          const when = commentMinutes(at, first.comments.length, hashString(first.id) >>> 0);
+          first.comments.forEach((c, i) => { c.minute = when[i]; });
+          first.target = { likes: first.likes, shares: first.shares, comments: first.comments.length, views: first.likes * 14 };
+        }
       }),
 
     // ─── THE ROOM ───────────────────────────────────────────────────────
@@ -7416,6 +8410,8 @@ export const useGameStore = create<GameState & GameActions>()(
 
         const title = payload.title.trim();
         if (!title) return;
+        // Back in the booth after retiring: that's semi-retirement.
+        if (state.legacy.retired) unretire(state, 'semi', 'You went back in the studio. Semi-retired now.');
 
         const npcs = raw(state.npcs) as NPC[];
         // A beat from the library is already paid for and names its maker.
@@ -7685,7 +8681,8 @@ export const useGameStore = create<GameState & GameActions>()(
 
       set((state) => {
         if (!state.player) return;
-        if (state.legacy.retired) return;
+        // Retired and putting out music: that's semi-retirement now, not a dead button.
+        if (state.legacy.retired) unretire(state, 'semi', 'You came out of retirement to put out a record.');
 
         const song = state.songs.find(s => s.id === songId);
         // Only an unmixed master can be mixed. Re-mixing a finished record is
@@ -7836,10 +8833,21 @@ export const useGameStore = create<GameState & GameActions>()(
     releaseMaster: (songId, marketingBudget, platformIds) =>
       set((state) => {
         if (!state.player) return;
-        if (state.legacy.retired) return;
+        // Retired and putting out music: that's semi-retirement now, not a dead button.
+        if (state.legacy.retired) unretire(state, 'semi', 'You came out of retirement to put out a record.');
 
         const song = state.songs.find(s => s.id === songId);
         if (!song || song.masterStatus === 'released') return;
+        // The comeback single: everybody was waiting for this one.
+        const cb = state.legacy.comeback;
+        if (cb && !cb.used && dateToSerial(state.gameDate) <= cb.until) {
+          cb.used = true;
+          addMomentum(state, Math.round(cb.hype * 0.6));
+          state.player.career.fanbase += Math.round(state.player.career.fanbase * cb.hype / 400);
+          state.player.career.nationalFame = Math.min(100, state.player.career.nationalFame + cb.hype / 12);
+          state.headlines.unshift({ id: uuidv4(), text: `${state.player.artistName} is back with "${song.title}"`, fullStory: 'The comeback is real. Fans who waited are running it up.', date: formatGameDate(state.gameDate), relatedEntities: [state.player.id], priority: 6, category: 'general' });
+          remember(state, 'career', `Your comeback single "${song.title}" dropped.`, { weight: 4, tone: 'good' });
+        }
 
         // A record has to go somewhere. An empty delivery list is a mistake,
         // not a choice — refuse it rather than releasing to nobody.
@@ -7948,7 +8956,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
         state.headlines.unshift({
           id: uuidv4(),
-          text: generateHeadline('chart', state.player.artistName, `"${song.title}" is out now`),
+          text: generateHeadline('release', state.player.artistName, song.title),
           fullStory:
             `${state.player.artistName} just dropped "${song.title}", a new ${song.genre.replace('_', '-')} record` +
             `${song.producerName ? ` produced by ${song.producerName}` : ''}. The internet is reacting.`,
@@ -8048,7 +9056,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
         state.headlines.unshift({
           id: uuidv4(),
-          text: generateHeadline('chart', state.player.artistName, `"${title}" is out now`),
+          text: generateHeadline('release', state.player.artistName, title),
           fullStory:
             `${state.player.artistName} has released ${title}, a ${data.type === 'album' ? 'full-length album' : 'EP'} ` +
             `of ${tracks.length} tracks. It is on the charts from this week.`,
@@ -9027,20 +10035,28 @@ export const useGameStore = create<GameState & GameActions>()(
 
         state.player.career.money -= req.fee;
         req.paid = true;
-        req.status = 'verse_ready';
+        // Paying is not the verse arriving: they still have to record it, and
+        // who they are decides whether that happens on time, late or never.
+        req.status = 'paid_waiting';
 
         const npc = state.npcs.find(n => n.id === req.npcId);
+        const serial = dateToSerial(state.gameDate);
         if (npc) {
           const song = state.songs.find(s => s.id === req.songId);
           req.verseQuality = verseQualityFor(npc as FeatureCandidate, song?.quality ?? 50);
+          const plan = planDelivery(personaOf(npc), Math.random(), Math.random());
+          req.delivery = { outcome: plan.outcome, lateBy: plan.lateBy };
+          req.verseDueSerial = serial + plan.days;
           npc.memoryLog = [
             ...npc.memoryLog.slice(-9),
             `[Business] Paid $${req.fee.toLocaleString()} for a verse on "${req.songTitle}".`,
           ];
+          receipt(state, npc.id, -req.fee, `💸 You paid ${req.npcName} $${req.fee.toLocaleString()} for a verse on "${req.songTitle}". Due in ${plan.days} days.`, { notify: false, memory: `You paid ${req.npcName} $${req.fee.toLocaleString()} for a verse on "${req.songTitle}".` });
+          if (!isRealId(npc.id)) scheduleDM(state, npc.id, pickLine(['Received 🙏 give me a few days', 'Got it. I\'ll get in the booth this week', 'Payment received. On it 🎙️'], req.id), nowMinuteOf(state) + 25);
         }
 
         state.lastEventLog.unshift(
-          `💸 Paid $${req.fee.toLocaleString()} to ${req.npcName}. The verse is in — cut it into the record.`,
+          `💸 Paid $${req.fee.toLocaleString()} to ${req.npcName}. The verse is due in a few days — track it in Studio → Features.`,
         );
         state.lastEventLog = state.lastEventLog.slice(0, 10);
         ok = true;
@@ -9267,14 +10283,8 @@ export const useGameStore = create<GameState & GameActions>()(
         req.reason = decision.reason;
 
         if (decision.accepted) {
-          // They pay now and the player delivers after. The fee is banked here
-          // rather than when the verse lands, because that is the deal the
-          // player was offered: "he pays me and I send him the verse".
-          req.status = 'agreed';
-          req.agreedFee = decision.fee;
-          req.agreedDate = formatGameDate(state.gameDate);
-          state.player.career.money += decision.fee;
-          state.player.career.totalEarnings += decision.fee;
+          // The terms decide what moves now: up front, half, or on delivery.
+          sealInboundDeal(state, req, decision.fee);
 
           const npcRef = state.npcs.find((n) => n.id === req.npcId);
           if (npcRef) {
@@ -9286,7 +10296,7 @@ export const useGameStore = create<GameState & GameActions>()(
           }
 
           state.lastEventLog.unshift(
-            `💰 ${req.npcName} agreed to $${decision.fee.toLocaleString()} for a verse on "${req.npcSongTitle}". Write it and send it.`,
+            `🤝 ${req.npcName} agreed to $${decision.fee.toLocaleString()} for a verse on "${req.npcSongTitle}" (${TERMS_LABEL[req.payTerms ?? 'half'].toLowerCase()}). It's in Studio → Features.`,
           );
           state.lastEventLog = state.lastEventLog.slice(0, 10);
         } else if (decision.walked) {
@@ -9327,11 +10337,7 @@ export const useGameStore = create<GameState & GameActions>()(
           return;
         }
 
-        req.status = 'agreed';
-        req.agreedFee = req.offer;
-        req.agreedDate = formatGameDate(state.gameDate);
-        state.player.career.money += req.offer;
-        state.player.career.totalEarnings += req.offer;
+        sealInboundDeal(state, req, req.offer);
 
         const npc = state.npcs.find((n) => n.id === req.npcId);
         if (npc) {
@@ -9343,13 +10349,13 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         state.lastEventLog.unshift(
-          `💰 Took $${req.offer.toLocaleString()} from ${req.npcName} for a verse on "${req.npcSongTitle}".`,
+          `🤝 Took ${req.npcName}'s $${req.offer.toLocaleString()} for a verse on "${req.npcSongTitle}" (${TERMS_LABEL[req.payTerms ?? 'half'].toLowerCase()}).`,
         );
         state.lastEventLog = state.lastEventLog.slice(0, 10);
 
         result = {
           ok: true,
-          message: `Agreed at $${req.offer.toLocaleString()} — the money is in the account. ${req.npcName} is waiting on the verse.`,
+          message: `Agreed at $${req.offer.toLocaleString()}: ${TERMS_LABEL[req.payTerms ?? 'half'].toLowerCase()}${(req.paidSoFar ?? 0) > 0 ? ` ($${(req.paidSoFar ?? 0).toLocaleString()} is in your account)` : ''}. "${req.npcSongTitle}" is in Studio → Features — due in ${VERSE_DEADLINE_DAYS} days.`,
         };
       });
 
@@ -9388,7 +10394,7 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    sendInboundVerse: (requestId) => {
+    sendInboundVerse: (requestId, effort = 'standard') => {
       let result: FeatureActionResult = { ok: false, message: 'There is nothing agreed to send.' };
 
       set((state) => {
@@ -9407,9 +10413,15 @@ export const useGameStore = create<GameState & GameActions>()(
           };
           return;
         }
+        if ((state.workItems ?? []).some((w) => w.kind === 'verse' && (w.payload as VerseWork).requestId === req.id)) {
+          result = { ok: false, message: 'You are already writing this one.' };
+          return;
+        }
+        const E = VERSE_EFFORT[effort] ?? VERSE_EFFORT.standard;
         // A verse is not a message. It is a session, and it costs one.
-        if (!spendEnergy(state, ENERGY_COSTS.writeVerse)) {
-          const need = effectiveEnergy(state, ENERGY_COSTS.writeVerse);
+        const cost = Math.round(ENERGY_COSTS.writeVerse * E.energy);
+        if (!spendEnergy(state, cost)) {
+          const need = effectiveEnergy(state, cost);
           result = {
             ok: false,
             message: `Writing this one takes ${need} energy and you are at ${Math.floor(state.player.energy)}. ${energyShortfallMessage(need, state.player.energy)}`,
@@ -9417,21 +10429,22 @@ export const useGameStore = create<GameState & GameActions>()(
           return;
         }
 
-        const days = 2 + Math.round(state.player.stats.songwriting / 40);
+        const days = effort === 'quick' ? 1 : 2 + Math.round(state.player.stats.songwriting / 40) + E.days;
         const startSerial = dateToSerial(state.gameDate);
-        const verseQuality = inboundVerseQuality({
+        req.effort = effort;
+        const verseQuality = Math.max(10, Math.min(100, E.quality + inboundVerseQuality({
           lyricism: state.player.stats.lyricism,
           flow: state.player.stats.flow,
           delivery: state.player.stats.delivery,
           vocalAbility: state.player.stats.vocalAbility,
           songwriting: state.player.stats.songwriting,
-        });
+        })));
 
         state.workItems.push({
           id: uuidv4(),
           kind: 'verse',
           label: `Verse for ${req.npcName}`,
-          detail: `"${req.npcSongTitle}" · $${(req.agreedFee ?? 0).toLocaleString()} paid · ${days} day${days > 1 ? 's' : ''} writing`,
+          detail: `"${req.npcSongTitle}" · ${(req.paidSoFar ?? 0) > 0 ? `$${(req.paidSoFar ?? 0).toLocaleString()} paid` : (req.agreedFee ?? 0) > 0 ? `$${(req.agreedFee ?? 0).toLocaleString()} on delivery` : 'no fee'} · ${days} day${days > 1 ? 's' : ''} writing`,
           daysTotal: days,
           daysDone: 0,
           startedSerial: startSerial,
@@ -9446,8 +10459,8 @@ export const useGameStore = create<GameState & GameActions>()(
           } satisfies VerseWork,
         });
 
-        // The money is already banked; the days are what stops the player
-        // sending the same verse twice while it is still being written.
+        // Whatever the terms paid up front is already banked; the rest comes on
+        // delivery. The days are what stops the same verse being sent twice.
         state.player.stats.songwriting = Math.min(100, state.player.stats.songwriting + 0.3);
 
         state.lastEventLog.unshift(
@@ -9461,6 +10474,399 @@ export const useGameStore = create<GameState & GameActions>()(
         };
       });
 
+      return result;
+    },
+
+    acceptFreeAsk: (requestId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That ask is not open.' };
+      set((state) => {
+        const req = state.inboundRequests.find((r) => r.id === requestId);
+        if (!state.player || !req || req.status !== 'open') return;
+        if (req.offer > 0) { result.message = `They're offering $${req.offer.toLocaleString()} — take the money instead.`; return; }
+        sealInboundDeal(state, req, 0);
+        const npc = state.npcs.find((n) => n.id === req.npcId);
+        if (npc) npc.relationshipScore = Math.min(100, npc.relationshipScore + 6);
+        result = { ok: true, message: `Done — "${req.npcSongTitle}" is in Studio → Features. Due in ${VERSE_DEADLINE_DAYS} days.` };
+      });
+      return result;
+    },
+
+    refundInbound: (requestId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to refund.' };
+      set((state) => {
+        const p = state.player;
+        const req = state.inboundRequests.find((r) => r.id === requestId);
+        if (!p || !req || req.status !== 'agreed') return;
+        const paid = req.paidSoFar ?? 0;
+        if (paid > p.career.money) { result.message = `You need $${paid.toLocaleString()} to pay them back.`; return; }
+        if (paid > 0) { p.career.money -= paid; p.career.totalEarnings = Math.max(0, p.career.totalEarnings - paid); }
+        req.status = 'withdrawn';
+        req.lapsed = true;
+        const npc = state.npcs.find((n) => n.id === req.npcId);
+        if (npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - (req.refundDemanded ? 2 : 4));
+        if (paid > 0) receipt(state, req.npcId, -paid, `↩️ You refunded ${req.npcName} $${paid.toLocaleString()} and called off the verse on "${req.npcSongTitle}".`, { notify: false, memory: `You refunded ${req.npcName} and called off the verse on "${req.npcSongTitle}".` });
+        else pushDM(state, req.npcId, { fromPlayer: true, content: 'I can\'t make the verse work, sorry. Let\'s do something another time 🙏🏾' });
+        result = { ok: true, message: paid > 0 ? `Refunded $${paid.toLocaleString()}. Deal off, no court.` : 'Deal called off.' };
+      });
+      return result;
+    },
+
+    chaseBalance: (requestId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing is owed.' };
+      set((state) => {
+        const req = state.inboundRequests.find((r) => r.id === requestId);
+        if (!state.player || !req || req.status !== 'delivered' || !(req.balanceDue ?? 0)) return;
+        const serial = dateToSerial(state.gameDate);
+        if (req.balanceChased && serial - req.balanceChased < 5) { result.message = 'You just asked. Give it a few days.'; return; }
+        req.balanceChased = serial;
+        pushDM(state, req.npcId, { fromPlayer: true, content: `Bro, the balance on "${req.npcSongTitle}" — $${(req.balanceDue ?? 0).toLocaleString()}. When are you sending it?` });
+        const npc = state.npcs.find((n) => n.id === req.npcId);
+        if (req.balancePlan === 'late' && req.balanceDueSerial !== undefined) req.balanceDueSerial = Math.min(req.balanceDueSerial, serial + 2);
+        if (npc && !isRealId(npc.id)) scheduleDM(state, npc.id, req.balancePlan === 'never' ? pickLine(['Things are tight right now, soon', 'I\'ll sort you out, relax', 'Did the record even do numbers? Let\'s talk'], req.id + serial) : 'Sending it this week, my bad 🙏', nowMinuteOf(state) + 40);
+        result = { ok: true, message: 'Asked. If it still doesn\'t come, the Courthouse is an option.' };
+      });
+      return result;
+    },
+
+    chaseVerse: (requestId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to chase.' };
+      set((state) => {
+        const req = state.featureRequests.find((r) => r.id === requestId);
+        if (!state.player || !req || req.status !== 'paid_waiting') return;
+        const npc = state.npcs.find((n) => n.id === req.npcId);
+        req.chased = (req.chased ?? 0) + 1;
+        pushDM(state, req.npcId, { fromPlayer: true, content: req.chased > 1 ? `I paid for that verse. I need it.` : `How far with the verse for "${req.songTitle}"?` });
+        if (npc && !isRealId(npc.id)) {
+          const d = req.delivery;
+          const reply = d?.outcome === 'ghost' ? (req.chased > 1 ? '' : pickLine(['Soon soon', 'On it 🙏', 'Busy week, I got you'], req.id)) : lateExcuse((hashString(req.id) >>> 0) + req.chased);
+          if (reply) scheduleDM(state, npc.id, reply, nowMinuteOf(state) + 30 + Math.floor(Math.random() * 120));
+          // A nudge makes a late (not a missing) verse come sooner.
+          if (d?.outcome === 'late' && req.verseDueSerial) req.verseDueSerial = Math.max(dateToSerial(state.gameDate) + 1, req.verseDueSerial - 3);
+        }
+        result = { ok: true, message: 'Sent.' };
+      });
+      return result;
+    },
+
+    askVerseRefund: (requestId) => {
+      let result: FeatureActionResult = { ok: false, message: 'No refund to ask for.' };
+      set((state) => {
+        const p = state.player;
+        const req = state.featureRequests.find((r) => r.id === requestId);
+        if (!p || !req || req.status !== 'paid_waiting') return;
+        const serial = dateToSerial(state.gameDate);
+        if ((req.verseDueSerial ?? serial) > serial) { result.message = 'It isn\'t even due yet.'; return; }
+        if (req.refundAsked) { result.message = 'You already asked. Next step: the Courthouse.'; return; }
+        req.refundAsked = serial;
+        const npc = state.npcs.find((n) => n.id === req.npcId);
+        pushDM(state, req.npcId, { fromPlayer: true, content: `The verse never came. I want my $${req.fee.toLocaleString()} back.` });
+        const ans = npc ? refundResponse(personaOf(npc), Math.random()) : 'ignore';
+        if (ans === 'ignore') { result = { ok: true, message: `${req.npcName} left it on read. You can take it to court.` }; return; }
+        const back = ans === 'full' ? req.fee : Math.round(req.fee / 2);
+        req.refunded = back;
+        // A full refund ends the deal; half back leaves the rest worth fighting for.
+        if (ans === 'full') req.status = 'declined';
+        p.career.money += back;
+        receipt(state, req.npcId, back, `↩️ ${req.npcName} refunded $${back.toLocaleString()}${ans === 'partial' ? ` of the $${req.fee.toLocaleString()}` : ''} for the verse that never came.`, { memory: `${req.npcName} refunded $${back.toLocaleString()} for a verse they never sent.` });
+        if (npc && !isRealId(npc.id)) scheduleDM(state, npc.id, ans === 'full' ? 'My bad fr. Sent it back 🙏' : 'Sent half. I did put work in.', nowMinuteOf(state) + 20);
+        result = { ok: true, message: ans === 'full' ? `Refunded in full: $${back.toLocaleString()}.` : `They sent back half ($${back.toLocaleString()}). Sue for the rest if you want.` };
+      });
+      return result;
+    },
+
+    openStudioAt: (mode) => set((state) => { state.pendingStudioMode = mode; state.screen = 'studio'; }),
+    consumeStudioMode: () => {
+      const m = get().pendingStudioMode ?? null;
+      if (m) set((state) => { state.pendingStudioMode = null; });
+      return m;
+    },
+
+    // ─── AWARD SEASONS ──────────────────────────────────────────────────
+    followAward: (bodyId, on) => set((state) => {
+      const f = new Set(state.awardFollows ?? []);
+      if (on) f.add(bodyId); else f.delete(bodyId);
+      state.awardFollows = [...f];
+    }),
+
+    campaignAward: (key, tier) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to campaign for.' };
+      set((state) => {
+        const p = state.player;
+        const s = state.awardSeasons?.[key];
+        if (!p || !s || s.phase !== 'nominations') return;
+        if (!s.categories.some((c) => c.nominees.some((n) => n.isPlayer))) { result.message = 'You have to be nominated to campaign.'; return; }
+        const T = { radio: { cost: 1500, lift: 0.05, what: 'Radio and blog push' }, press: { cost: 6000, lift: 0.1, what: 'Press run and listening sessions' }, full: { cost: 20000, lift: 0.18, what: 'Billboards, PR firm, industry dinners' } }[tier];
+        if (p.career.money < T.cost) { result.message = `That's $${T.cost.toLocaleString()}.`; return; }
+        if (s.campaign.academy >= 0.35) { result.message = 'The voters have heard enough. More would look desperate.'; return; }
+        p.career.money -= T.cost;
+        s.campaign.spent += T.cost;
+        s.campaign.academy = Math.min(0.35, s.campaign.academy + T.lift);
+        result = { ok: true, message: `${T.what}: done. The academy is paying attention.` };
+      });
+      return result;
+    },
+
+    rallyVotes: (key) => {
+      const st = get();
+      const s = st.awardSeasons?.[key];
+      const serial = dateToSerial(st.gameDate);
+      if (!s || s.phase !== 'nominations' || serial > s.cal.votingCloses) return { ok: false, message: 'Voting is closed.' };
+      const cat = s.categories.find((c) => c.fanVote && c.nominees.some((n) => n.isPlayer));
+      if (!cat) return { ok: false, message: 'You\'re not in a public-vote category.' };
+      if (s.campaign.lastRally === serial) return { ok: false, message: 'You already asked today.' };
+      const body = bodiesFor(st).find((b) => b.id === s.bodyId);
+      const r = st.publishPost({ apps: ['chirp'], kind: 'announce', content: `Voting is open for the ${body?.name ?? 'awards'} 🗳️ ${cat.name} — I need you. Tap in 🙏🏾` });
+      if (!r.ok) return r;
+      set((state) => { const x = state.awardSeasons?.[key]; if (x) { x.campaign.lastRally = serial; x.campaign.rally = Math.min(1.5, x.campaign.rally + 0.15); } });
+      return { ok: true, message: 'Posted. Your fans are voting.' };
+    },
+
+    rsvpAward: (key, going) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not available.' };
+      set((state) => {
+        const p = state.player;
+        const s = state.awardSeasons?.[key];
+        if (!p || !s || s.phase === 'done') return;
+        if (!going) { s.rsvp = false; result = { ok: true, message: 'You\'ll watch from home.' }; return; }
+        if (!s.invite) {
+          const body = bodiesFor(state).find((b) => b.id === s.bodyId);
+          const price = body?.ticket ?? 200;
+          if (p.career.money < price) { result.message = `A ticket is $${price.toLocaleString()}.`; return; }
+          p.career.money -= price;
+          s.invite = 'ticket';
+        }
+        s.rsvp = true;
+        result = { ok: true, message: s.invite === 'ticket' ? 'Ticket bought. See you on the night.' : 'You\'re on the list.' };
+      });
+      return result;
+    },
+
+    ceremonyAct: (action) => {
+      let result: FeatureActionResult = { ok: false, message: '' };
+      set((state) => {
+        const p = state.player;
+        const a = state.activeCeremony;
+        const s = a ? state.awardSeasons?.[a.key] : undefined;
+        if (!p || !a || !s) { state.activeCeremony = null; return; }
+        if (action === 'close') { state.activeCeremony = null; state.clockPaused = false; result = { ok: true, message: '' }; return; }
+        if (action === 'carpet' || action === 'slip_in') {
+          if (action === 'carpet') {
+            const look = p.look;
+            const v = carpetVerdict(look ? dripScore(look.outfit, dateToSerial(state.gameDate), state.drip, look.tattoos).score : 20, Math.random());
+            addMomentum(state, v.momentum);
+            a.notes.push(v.text);
+            if (v.tag !== 'fine' && blendedFame(p) >= 25) state.headlines.unshift({ id: uuidv4(), text: v.tag === 'best' ? `${p.artistName} tops the best-dressed list` : `${p.artistName}'s red carpet look has the internet talking`, fullStory: v.text, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 4, category: 'general' });
+          } else a.notes.push('You skipped the cameras and went straight in.');
+          a.step = s.invite === 'performer' ? 'show' : 'results';
+        } else if (action === 'perform' || action === 'watch') {
+          if (action === 'perform') {
+            const score = p.stats.stagePresence * 0.5 + p.stats.performance * 0.5 + (Math.random() - 0.5) * 30;
+            const hit = score >= 60;
+            addMomentum(state, hit ? 12 : 2);
+            p.career.fanbase += Math.round(p.career.fanbase * (hit ? 0.04 : 0.01));
+            a.notes.push(hit ? 'Your performance was the moment of the night. The clip is everywhere.' : 'A solid set. The room enjoyed it.');
+            if (hit) remember(state, 'career', `Your performance at the ${bodiesFor(state).find((b) => b.id === s.bodyId)?.name} was the moment of the night.`, { weight: 4, tone: 'good' });
+          } else a.notes.push('You watched from your seat.');
+          a.step = 'results';
+        } else if (action === 'reveal') {
+          a.revealed = Math.min(s.categories.length, a.revealed + 1);
+          if (a.revealed >= s.categories.length) a.step = s.categories.some((c) => c.nominees.find((n) => n.id === c.winnerId)?.isPlayer) ? 'speech' : 'done';
+        } else if (action.startsWith('speech_')) {
+          if (action === 'speech_grateful') { p.career.reputation = Math.min(100, p.career.reputation + 2); a.notes.push('You thanked God, your team and the fans. The room stood up.'); }
+          if (action === 'speech_hype') { addMomentum(state, 6); p.career.reputation = Math.max(0, p.career.reputation - 1); a.notes.push('"To everyone who doubted me —" The clip is already a meme. Half love it.'); }
+          if (action === 'speech_short') { p.career.reputation = Math.min(100, p.career.reputation + 1); a.notes.push('Short, sharp, gone. Respect.'); }
+          a.step = 'done';
+        }
+        result = { ok: true, message: a.notes[a.notes.length - 1] ?? '' };
+      });
+      return result;
+    },
+
+    // ─── THE COURTHOUSE ─────────────────────────────────────────────────
+    fileCase: ({ kind, refId, lawyer }) => {
+      let result: FeatureActionResult = { ok: false, message: 'There is no case to bring.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const serial = dateToSerial(state.gameDate);
+        let npcId = '', npcName = '', claim = 0, evidence = 50, facts: string[] = [];
+        const fr = state.featureRequests.find((r) => r.id === refId);
+        const ir = state.inboundRequests.find((r) => r.id === refId);
+        if (kind === 'breach_feature' && fr) {
+          if (fr.status !== 'paid_waiting' || (fr.verseDueSerial ?? serial) + 7 > serial) { result.message = 'Give them a week past the due date first.'; return; }
+          const owed = fr.fee - (fr.refunded ?? 0);
+          npcId = fr.npcId; npcName = fr.npcName; claim = Math.round(owed * 1.5);
+          evidence = 78 + (fr.chased ? 5 : 0) + (fr.refundAsked ? 7 : 0);
+          facts = [`You paid ${fr.npcName} $${fr.fee.toLocaleString()} for a verse on "${fr.songTitle}".`, `It was due ${formatGameDate(serialToDate(fr.verseDueSerial ?? serial))}; it never came.`, ...(fr.chased ? [`You chased it ${fr.chased} time${fr.chased > 1 ? 's' : ''}.`] : []), ...(fr.refundAsked ? ['You asked for a refund and got nothing.'] : [])];
+        } else if (kind === 'unpaid_fee' && ir) {
+          if (ir.status !== 'delivered' || !(ir.balanceDue ?? 0)) { result.message = 'Nothing is owed on that one.'; return; }
+          if ((ir.deliveredSerial ?? serial) + 14 > serial) { result.message = 'Give them two weeks after delivery before suing.'; return; }
+          npcId = ir.npcId; npcName = ir.npcName; claim = Math.round((ir.balanceDue ?? 0) * 1.3);
+          evidence = 80 + (ir.balanceChased ? 6 : 0);
+          facts = [`You delivered your verse on "${ir.npcSongTitle}" on ${formatGameDate(serialToDate(ir.deliveredSerial ?? serial))}.`, `The deal: $${(ir.agreedFee ?? 0).toLocaleString()} (${TERMS_LABEL[ir.payTerms ?? 'half'].toLowerCase()}). $${(ir.balanceDue ?? 0).toLocaleString()} was never paid.`, ...(ir.balanceChased ? ['You asked for it and were put off.'] : [])];
+        } else {
+          return;
+        }
+        if ((state.cases ?? []).some((c) => c.refId === refId && ['served', 'hearing'].includes(c.status))) { result.message = 'There is already a case about this.'; return; }
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (!npc) return;
+        // Counsel: your own lawyer, someone hired for the case, or yourself.
+        let counsel: Lawyer;
+        const team = teamLawyer(state);
+        if (lawyer === 'team') {
+          if (!team) { result.message = 'You don\'t have a lawyer on your team. Hire one for the case.'; return; }
+          counsel = team;
+        } else if (lawyer === 'self') {
+          counsel = { name: p.artistName, skill: 12, source: 'self', perHearing: 0 };
+        } else {
+          const opt = lawyerOptions(claim, 0).find((o) => o.source === lawyer);
+          if (!opt) return;
+          if (p.career.money < opt.retainer + 120) { result.message = `${opt.name} wants a $${opt.retainer.toLocaleString()} retainer, plus the $120 filing fee.`; return; }
+          p.career.money -= opt.retainer;
+          counsel = { name: opt.name, skill: opt.skill, source: opt.source, perHearing: opt.perHearing };
+        }
+        if (p.career.money < 120) { result.message = 'The filing fee is $120.'; return; }
+        p.career.money -= 120;
+        const c = openCase(state, { kind, side: 'plaintiff', npcId, npcName, claim, evidence, facts, refId, lawyer: counsel });
+        c.costs = 120 + (counsel.source === 'team' || counsel.source === 'self' ? 0 : lawyerOptions(claim, 0).find((o) => o.source === lawyer)?.retainer ?? 0);
+        if (fr) fr.caseId = c.id;
+        if (ir) ir.caseId = c.id;
+        result = { ok: true, message: `Filed at the ${c.court}. ${npcName} will be served; their answer comes within a week.` };
+      });
+      return result;
+    },
+
+    hireLawyer: (caseId, source) => {
+      let result: FeatureActionResult = { ok: false, message: 'No such case.' };
+      set((state) => {
+        const p = state.player;
+        const c = (state.cases ?? []).find((x) => x.id === caseId);
+        if (!p || !c || !['served', 'hearing'].includes(c.status)) return;
+        if (source === 'team') {
+          const t = teamLawyer(state);
+          if (!t) { result.message = 'No lawyer on your team.'; return; }
+          c.ourLawyer = t;
+          result = { ok: true, message: `${t.name} is on it.` };
+          return;
+        }
+        const opt = lawyerOptions(c.claim, 0).find((o) => o.source === source);
+        if (!opt) return;
+        if (p.career.money < opt.retainer) { result.message = `${opt.name} wants $${opt.retainer.toLocaleString()} up front.`; return; }
+        p.career.money -= opt.retainer;
+        c.costs += opt.retainer;
+        c.ourLawyer = { name: opt.name, skill: opt.skill, source: opt.source, perHearing: opt.perHearing };
+        c.log.push({ serial: dateToSerial(state.gameDate), text: `You hired ${opt.name} ($${opt.retainer.toLocaleString()} retainer).` });
+        result = { ok: true, message: `${opt.name} is representing you.` };
+      });
+      return result;
+    },
+
+    answerCase: (caseId, answer) => {
+      let result: FeatureActionResult = { ok: false, message: 'No such case.' };
+      set((state) => {
+        const p = state.player;
+        const c = (state.cases ?? []).find((x) => x.id === caseId);
+        if (!p || !c || c.side !== 'defendant' || c.status !== 'served') return;
+        const serial = dateToSerial(state.gameDate);
+        c.answerBy = undefined;
+        if (answer === 'pay') {
+          if (p.career.money < c.claim) { result.message = `You need $${c.claim.toLocaleString()}.`; return; }
+          closeCase(state, c, 'settled', `You paid ${c.plaintiff.name} the full $${c.claim.toLocaleString()}. No court.`, c.claim, 0);
+          result = { ok: true, message: 'Paid. It\'s over.' };
+          return;
+        }
+        if (answer === 'settle') {
+          const npc = state.npcs.find((n) => n.id === c.plaintiff.id);
+          const ask = npc ? npcSettlement(c, personaOf(npc), Math.random()) : Math.round(c.claim * 0.7);
+          c.offers.push({ id: uuidv4(), from: 'them', amount: ask, serial, status: 'open' });
+          c.log.push({ serial, text: `You asked to settle. ${c.plaintiff.name} wants $${ask.toLocaleString()}.` });
+          scheduleHearing(state, c, 'mention', 14);
+          result = { ok: true, message: `${c.plaintiff.name} would settle for $${ask.toLocaleString()}. Take it, counter, or see them in court.` };
+          return;
+        }
+        c.log.push({ serial, text: `You're fighting it${c.ourLawyer ? ` with ${c.ourLawyer.name}` : ''}.` });
+        scheduleHearing(state, c, 'mention', 14);
+        result = { ok: true, message: c.ourLawyer ? 'You\'re fighting it. First hearing is set.' : 'You\'re fighting it. Get a lawyer before the hearing — or represent yourself.' };
+      });
+      return result;
+    },
+
+    offerSettlement: (caseId, amount) => {
+      let result: FeatureActionResult = { ok: false, message: 'No such case.' };
+      set((state) => {
+        const p = state.player;
+        const c = (state.cases ?? []).find((x) => x.id === caseId);
+        if (!p || !c || !['served', 'hearing'].includes(c.status)) return;
+        amount = Math.round(amount);
+        if (!(amount > 0)) { result.message = 'Name a number.'; return; }
+        const serial = dateToSerial(state.gameDate);
+        if (c.offers.some((o) => o.from === 'player' && o.serial === serial)) { result.message = 'One offer a day.'; return; }
+        const npc = state.npcs.find((n) => n.id === (c.side === 'plaintiff' ? c.defendant.id : c.plaintiff.id));
+        const yes = npc ? npcAcceptsOffer(c, amount, personaOf(npc), Math.random()) : false;
+        c.offers.push({ id: uuidv4(), from: 'player', amount, serial, status: yes ? 'accepted' : 'rejected' });
+        if (c.side === 'defendant' && yes && p.career.money < amount) { result.message = `They'd take it, but you don't have $${amount.toLocaleString()}.`; c.offers[c.offers.length - 1].status = 'rejected'; return; }
+        if (yes) {
+          closeCase(state, c, 'settled', c.side === 'plaintiff' ? `${c.defendant.name} agreed to pay $${amount.toLocaleString()}. Settled.` : `${c.plaintiff.name} accepted $${amount.toLocaleString()}. Settled.`, c.side === 'defendant' ? amount : 0, c.side === 'plaintiff' ? amount : 0);
+          result = { ok: true, message: 'They took it. Settled.' };
+        } else {
+          c.log.push({ serial, text: `They turned down $${amount.toLocaleString()}.` });
+          result = { ok: false, message: 'They said no. Try another number — or let the judge decide.' };
+        }
+      });
+      return result;
+    },
+
+    acceptSettlement: (caseId, offerId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That offer is gone.' };
+      set((state) => {
+        const p = state.player;
+        const c = (state.cases ?? []).find((x) => x.id === caseId);
+        const o = c?.offers.find((x) => x.id === offerId && x.status === 'open' && x.from === 'them');
+        if (!p || !c || !o) return;
+        if (c.side === 'defendant' && p.career.money < o.amount) { result.message = `You need $${o.amount.toLocaleString()}.`; return; }
+        o.status = 'accepted';
+        closeCase(state, c, 'settled', c.side === 'plaintiff' ? `You accepted $${o.amount.toLocaleString()} from ${c.defendant.name}. Settled.` : `You paid ${c.plaintiff.name} $${o.amount.toLocaleString()}. Settled.`, c.side === 'defendant' ? o.amount : 0, c.side === 'plaintiff' ? o.amount : 0);
+        result = { ok: true, message: 'Settled.' };
+      });
+      return result;
+    },
+
+    rejectSettlement: (caseId, offerId) => {
+      let result: FeatureActionResult = { ok: false, message: 'That offer is gone.' };
+      set((state) => {
+        const c = (state.cases ?? []).find((x) => x.id === caseId);
+        const o = c?.offers.find((x) => x.id === offerId && x.status === 'open');
+        if (!c || !o) return;
+        o.status = 'rejected';
+        c.log.push({ serial: dateToSerial(state.gameDate), text: `You turned down $${o.amount.toLocaleString()}.` });
+        result = { ok: true, message: 'Turned down. See you in court.' };
+      });
+      return result;
+    },
+
+    withdrawCase: (caseId) => {
+      let result: FeatureActionResult = { ok: false, message: 'No such case.' };
+      set((state) => {
+        const c = (state.cases ?? []).find((x) => x.id === caseId);
+        if (!state.player || !c || c.side !== 'plaintiff' || !['served', 'hearing'].includes(c.status)) return;
+        closeCase(state, c, 'withdrawn', `You dropped the case against ${c.defendant.name}.`, 0, 0);
+        result = { ok: true, message: 'Case dropped.' };
+      });
+      return result;
+    },
+
+    attendHearing: (mode) => {
+      let result: FeatureActionResult = { ok: false, message: 'No hearing right now.' };
+      set((state) => {
+        const [cid, hid] = (state.activeHearing ?? '').split('|');
+        const c = (state.cases ?? []).find((x) => x.id === cid);
+        const h = c?.hearings.find((x) => x.id === hid);
+        state.activeHearing = null;
+        state.clockPaused = false;
+        if (!state.player || !c || !h || h.done) return;
+        const note = runHearing(state, c, h, mode === 'leave' ? (c.ourLawyer ? 'lawyer' : 'absent') : mode === 'testify' ? 'testify' : (c.ourLawyer ? 'lawyer' : 'testify'));
+        result = { ok: true, message: note };
+      });
       return result;
     },
 
@@ -10093,7 +11499,7 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         state.socialPosts.unshift(post);
-        addMomentum(state, 1);
+        socialMomentum(state, 1);
       }),
 
     likePost: (postId) =>
@@ -10135,6 +11541,18 @@ export const useGameStore = create<GameState & GameActions>()(
         state.postsToday = { serial, count: today + 1 };
         const beefs = activeBeefIds(state);
         const insulting = detectIntent(content) === 'insult';
+        // Calling a litigious person names in public can end up in court.
+        if (insulting) {
+          for (const n of tagged) {
+            const pp = personaOf(n);
+            const already = (state.cases ?? []).some((c) => c.kind === 'defamation' && c.plaintiff.id === n.id && ['served', 'hearing'].includes(c.status));
+            if (!already && !isRealId(n.id) && n.fame >= 30 && pp.litigious > 0.62 && Math.random() < 0.18 + (pp.litigious - 0.62)) {
+              const claim = Math.round((15000 + n.fame * 1800) / 500) * 500;
+              npcSues(state, n as NPC, 'defamation', claim, 38 + Math.round(Math.random() * 25), [`On ${APP_META[apps[0]].name}, you posted about ${n.name}: "${content.slice(0, 120)}"`, `${n.name} says it was false and damaged their reputation and deals.`]);
+              break;
+            }
+          }
+        }
         const controversy = insulting || tagged.some((n) => beefs.has(n.id));
         const stats = socialStatsOf(state);
         const tagList = tagged.map((n) => ({ id: n.id, name: n.name }));
@@ -10168,9 +11586,16 @@ export const useGameStore = create<GameState & GameActions>()(
             postedMinute: gameMinute(state),
             growth: { likes: 0, shares: 0, comments: Math.min(15, Math.round(r.comments * 0.3)), views: 0, follows: Math.round(r.follows * 0.6), days: 3 },
           };
-          post.comments = socialComments(post, Math.min(8, Math.max(2, Math.ceil(Math.log10(Math.max(10, r.comments)) * 2.5))), commentContext(state, controversy, `${serial}|${post.id}`), now);
-          const firstFan = post.comments.find((c) => c.authorId.startsWith('fan:'));
-          if (firstFan && !lead) pushActivity(state, { kind: 'comment', text: `${firstFan.authorName} commented: "${firstFan.content}"`, actorName: firstFan.authorName, postId: post.id, minute: post.postedMinute! + 2 + Math.floor(Math.random() * 40) });
+          // The comment section fills in through the hours after posting, and
+          // you hear about it as it happens.
+          const nComments = Math.max(3, Math.min(14, r.comments));
+          post.comments = socialComments(post, nComments, commentContext(state, controversy, `${serial}|${post.id}`), now);
+          const at = commentMinutes(post.postedMinute!, post.comments.length, hashString(post.id) >>> 0);
+          post.comments.forEach((c, i) => { c.minute = at[i]; });
+          post.target!.comments = Math.max(post.target!.comments, post.comments.length);
+          if (!lead) {
+            for (const c of post.comments.slice(0, 3)) pushActivity(state, { kind: 'comment', text: `${c.authorName} commented: "${c.content}"`, actorName: c.authorName, actorId: c.authorId, postId: post.id, minute: c.minute! });
+          }
           stats[app].followers += Math.round(r.follows * 0.4);
           stats[app].lastPostSerial = serial;
           state.socialPosts.unshift(post);
@@ -10234,7 +11659,7 @@ export const useGameStore = create<GameState & GameActions>()(
           }
         }
 
-        addMomentum(state, controversy ? 2 : 1);
+        socialMomentum(state, controversy ? 2 : 1);
         result = { ok: true, viral: viralAny, message: `Posted to ${apps.map((a) => APP_META[a].name).join(', ')}.${notes.length ? ' ' + notes.join(' ') : ''}` };
       });
       return result;
@@ -10682,10 +12107,10 @@ export const useGameStore = create<GameState & GameActions>()(
         const notes: string[] = [`${reach.toLocaleString()} people will see it.`];
         stats.snapgram.followers += Math.round(reach * 0.01);
         switch (kind) {
-          case 'studio': addMomentum(state, 1); notes.push('Fans love a peek at the process.'); break;
+          case 'studio': socialMomentum(state, 1); notes.push('Fans love a peek at the process.'); break;
           case 'teaser':
             if (song) {
-              addMomentum(state, 2);
+              socialMomentum(state, 2);
               song.weeklyStreams += Math.round(reach * 0.05);
               notes.push(`A few thousand went and played "${song.title}".`);
             }
@@ -10695,7 +12120,7 @@ export const useGameStore = create<GameState & GameActions>()(
             if (friend) { bumpRel(state, friend.id, 3, serial, 'You tagged them in your story.'); notes.push(`You tagged ${friend.name} — they reposted it.`); }
             break;
           }
-          case 'bts': addMomentum(state, 1); break;
+          case 'bts': socialMomentum(state, 1); break;
           case 'qa': p.career.reputation = Math.min(100, p.career.reputation + 0.8); notes.push('Hundreds of questions. Answering a few built real loyalty.'); break;
           case 'flex':
             if (Math.random() < 0.55) { p.career.localFame = Math.min(100, p.career.localFame + 0.3); notes.push('The flex landed.'); }
@@ -11543,37 +12968,58 @@ export const useGameStore = create<GameState & GameActions>()(
       });
       return result;
     },
-    retireCareer: () => {
-      let result: FeatureActionResult = { ok: false, message: 'You cannot retire yet.' };
+    retireCareer: () => get().setCareerMode('retired'),
+    attemptComeback: () => get().announceComeback(),
+
+    setCareerMode: (mode) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing changed.' };
       set((state) => {
-        if (!state.player || state.legacy.retired) { result.message = 'This career is already retired.'; return; }
-        const ageDays = dateToSerial(state.gameDate) - dateToSerial(INITIAL_GAME_DATE);
-        if (ageDays < 365 * 5) { result.message = 'Retirement unlocks after five in-game years.'; return; }
-        state.legacy.retired = true;
-        state.legacy.retiredAt = formatGameDate(state.gameDate);
-        state.legacy.legacyScore = Math.round(state.player.career.totalStreams / 100000 + state.awards.filter(a => a.winner === state.player!.id).length * 250 + state.certifications.length * 100 + state.player.career.totalEarnings / 10000 + state.player.career.internationalFame * 20);
-        state.industryNotices.unshift({ id: uuidv4(), type: 'retirement', title: 'Career retired', body: `${state.player.artistName} has officially stepped away from active recording and touring.`, date: formatGameDate(state.gameDate), read: false });
-        result = { ok: true, message: 'Career retired. Your catalogue, investments and businesses continue earning.' };
+        const p = state.player;
+        if (!p) return;
+        const L = state.legacy;
+        const from = L.mode ?? (L.retired ? 'retired' : 'active');
+        if (from === mode) { result.message = `You're already ${MODES[mode].label.toLowerCase()}.`; return; }
+        const serial = dateToSerial(state.gameDate);
+        L.mode = mode;
+        L.modeSince = serial;
+        L.retired = mode === 'retired';
+        if (mode === 'retired') {
+          L.retiredAt = formatGameDate(state.gameDate);
+          L.legacyScore = Math.max(L.legacyScore, legacyScoreOf(state));
+          L.titles = legacyTitles(state);
+          state.industryNotices.unshift({ id: uuidv4(), type: 'retirement', title: 'You retired', body: `${p.artistName} has stepped away from recording and touring.`, date: formatGameDate(state.gameDate), read: false });
+        }
+        if (mode === 'active') L.comeback = undefined;
+        const fame = blendedFame(p);
+        if (fame >= 20 && mode !== 'active') {
+          const text = mode === 'retired' ? `${p.artistName} announces retirement` : mode === 'business' ? `${p.artistName} steps back from music to focus on business` : `${p.artistName} slows down: "I'll drop when I feel like it"`;
+          state.headlines.unshift({ id: uuidv4(), text, fullStory: mode === 'retired' ? `After ${Math.max(1, Math.round((serial - dateToSerial(INITIAL_GAME_DATE)) / 365))} year(s), one of the scene's names calls it a day.` : 'Fans react to the news.', date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: mode === 'retired' ? 7 : 4, category: 'general' });
+        }
+        remember(state, 'career', mode === 'retired' ? 'You retired from music.' : mode === 'business' ? 'You stepped back from music to focus on business.' : mode === 'semi' ? 'You went semi-retired: music when you feel like it.' : 'You went back to being a full-time artist.', { weight: mode === 'retired' ? 5 : 3 });
+        result = { ok: true, message: `${MODES[mode].emoji} ${MODES[mode].label}. ${MODES[mode].blurb}` };
       });
       return result;
     },
-    attemptComeback: () => {
-      let result: FeatureActionResult = { ok: false, message: 'No comeback available.' };
+
+    announceComeback: () => {
+      let result: FeatureActionResult = { ok: false, message: 'You never left.' };
       set((state) => {
-        if (!state.player || !state.legacy.retired) { result.message = 'Retire first.'; return; }
-        if (state.player.career.money < 5000) { result.message = 'A comeback needs at least $5,000 for music, media and a show.'; return; }
-        state.legacy.comebackAttempts += 1;
-        const chance = Math.min(0.85, 0.25 + state.player.career.internationalFame / 150 + state.player.career.momentum / 200);
-        state.player.career.money -= 5000;
-        if (Math.random() < chance) {
-          state.legacy.retired = false;
-          state.player.career.momentum = Math.min(100, state.player.career.momentum + 15);
-          state.player.career.internationalFame = Math.min(100, state.player.career.internationalFame + 8);
-          result = { ok: true, message: 'The comeback worked. You are active again.' };
-        } else {
-          state.legacy.legacyScore = Math.max(0, state.legacy.legacyScore - 50);
-          result.message = 'The comeback missed. Your legacy took a small hit, but the catalogue remains.';
-        }
+        const p = state.player;
+        if (!p) return;
+        const L = state.legacy;
+        const from = L.mode ?? (L.retired ? 'retired' : 'active');
+        if (from === 'active') return;
+        const serial = dateToSerial(state.gameDate);
+        const hype = comebackHype(Math.max(L.legacyScore, legacyScoreOf(state)), serial - (L.modeSince ?? serial), blendedFame(p));
+        L.comebackAttempts += 1;
+        L.mode = 'active';
+        L.retired = false;
+        L.modeSince = serial;
+        L.comeback = { announced: serial, until: serial + COMEBACK_DAYS, hype };
+        addMomentum(state, Math.round(hype / 3));
+        state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} announces a comeback`, fullStory: 'New music is promised. The clock is running.', date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 6, category: 'general' });
+        remember(state, 'career', 'You announced your comeback.', { weight: 4 });
+        result = { ok: true, message: `You're back. Drop something within ${COMEBACK_DAYS} days — the first release rides the hype (+${hype}). Leave them waiting and it backfires.` };
       });
       return result;
     },
@@ -11619,7 +13065,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
       set((state) => {
         if (!state.player) return;
-        if (state.legacy.retired) { out = { ok: false, message: 'This career is retired. Attempt a comeback before booking new shows.' }; return; }
+        if (state.legacy.retired) { out = { ok: false, message: 'You\'re retired. Go semi-retired (Industry & Life) or announce a comeback to play shows.' }; return; }
         const venue = findVenue(venueId);
         if (!venue) return;
 
@@ -11672,7 +13118,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
       set((state) => {
         if (!state.player) return;
-        if (state.legacy.retired) { result = { ok: false, message: 'This career is retired. Attempt a comeback before booking new shows.' }; return; }
+        if (state.legacy.retired) { result = { ok: false, message: 'You\'re retired. Go semi-retired (Industry & Life) or announce a comeback to play shows.' }; return; }
         const venue = findVenue(venueId);
         if (!venue) return;
 
@@ -12192,8 +13638,9 @@ export const useGameStore = create<GameState & GameActions>()(
           const persona = npc ? personaOf(npc) : null;
           if (isSilentOption(optionId)) {
             pushDM(state, m.npcId, { fromPlayer: true, system: true, content: 'Seen' });
+            // Their nudge comes before what happened next, not after it.
             const fu = persona && !real ? followUpFor(m.kind, persona, seed) : null;
-            if (fu) scheduleDM(state, m.npcId, fu.text, nowMinuteOf(state) + fu.afterMinutes);
+            if (fu) pushDM(state, m.npcId, { fromPlayer: false, content: fu.text });
           } else {
             pushDM(state, m.npcId, { fromPlayer: true, content: playerLine(m.kind, optionId, option.label, seed) });
             if (!real && persona) {
@@ -12677,7 +14124,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
       set((state) => {
         if (!state.player) return;
-        if (state.legacy.retired) { result = { ok: false, message: 'This career is retired. Attempt a comeback before booking new shows.' }; return; }
+        if (state.legacy.retired) { result = { ok: false, message: 'You\'re retired. Go semi-retired (Industry & Life) or announce a comeback to play shows.' }; return; }
         const venue = findVenue(venueId);
         if (!venue) return;
 
@@ -14848,6 +16295,229 @@ export const useGameStore = create<GameState & GameActions>()(
       }),
 
     // ─── LUXURY ─────────────────────────────────────────────────────────
+    sellLuxury: (assetId) => {
+      let result: FeatureActionResult = { ok: false, message: 'You don\'t own that.' };
+      set((state) => {
+        const p = state.player;
+        const i = (state.ownedAssets ?? []).findIndex((a) => a.id === assetId);
+        if (!p || i < 0) return;
+        const a = state.ownedAssets[i];
+        const age = a.purchaseDate ? dateToSerial(state.gameDate) - serialOfGameDate(a.purchaseDate, dateToSerial(state.gameDate)) : 0;
+        const value = a.category === 'home'
+          ? Math.round(a.cost * (state.market?.propertyIndex ?? 100) / 100 * 0.97)
+          : resaleFor(a.category, a.cost, age, (hashString(a.id + age) % 1000) / 1000);
+        p.career.money += value;
+        state.ownedAssets.splice(i, 1);
+        if (a.disciplineBonus) p.stats.discipline = Math.max(0, p.stats.discipline - a.disciplineBonus);
+        remember(state, 'money', `Sold the ${a.name} for ${money0(value)} (paid ${money0(a.cost)}).`, { weight: 2 });
+        result = { ok: true, message: `Sold the ${a.name} for ${money0(value)}.` };
+      });
+      return result;
+    },
+
+    moveHome: (tier, how, ownedId) => {
+      let result: FeatureActionResult = { ok: false, message: 'You can\'t move right now.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const h = homeOf(state);
+        const today = dateToSerial(state.gameDate);
+        const idx = state.market?.propertyIndex ?? 100;
+        const def = homeDef(tier);
+        if (h.due) { result.message = `Settle the ${money0(h.due.amount)} you owe the landlord first.`; return; }
+        if (how === 'own') {
+          const o = (state.homes ?? []).find((x) => x.id === ownedId);
+          if (!o) { result.message = 'You don\'t own that place.'; return; }
+          if (h.ownedId === o.id) { result.message = 'You already live there.'; return; }
+          const fee = movingFee(o.tier, o.country);
+          if (p.career.money < fee) { result.message = `Movers want ${money0(fee)}.`; return; }
+          if (!spendEnergy(state, 15)) { result.message = energyShortfallMessage(15, p.energy); return; }
+          p.career.money -= fee;
+          const tenants = o.rentedOut;
+          o.rentedOut = false;
+          if (h.deposit) p.career.money += h.deposit;
+          state.home = { tier: o.tier, city: o.city, country: o.country, ownedId: o.id, since: today, paidUntil: today + 100_000, nextBill: h.nextBill };
+          remember(state, 'life', `Moved into my own ${homeDef(o.tier).name.toLowerCase()} in ${o.city}.`, { weight: 3, tone: 'good' });
+          result = { ok: true, message: `Moved into your ${homeDef(o.tier).name.toLowerCase()}.${tenants ? ' The tenants have moved out.' : ''}` };
+          return;
+        }
+        if (how === 'rent') {
+          if (tier === h.tier && !h.ownedId) { result.message = 'You already live in one.'; return; }
+          const cost = tier === 'family' ? 0 : moveInCost(tier, p.country);
+          if (p.career.money < cost) { result.message = `Moving in costs ${money0(cost)} — ${renewalMonths(p.country) >= 12 ? 'a year of rent up front, the way landlords here want it' : 'first month and a deposit'}, plus movers.`; return; }
+          if (!spendEnergy(state, 15)) { result.message = energyShortfallMessage(15, p.energy); return; }
+          p.career.money -= cost;
+          if (h.deposit && !h.ownedId) p.career.money += h.deposit;
+          const prepaid = tier === 'family' ? 0 : renewalMonths(p.country);
+          const rent = rentFor(tier, p.country);
+          const deposit = tier === 'family' ? 0 : Math.max(0, cost - movingFee(tier, p.country) - rent * prepaid);
+          state.home = { tier, city: p.city, country: p.country, since: today, paidUntil: tier === 'family' ? today + 100_000 : today + prepaid * 30, nextBill: h.nextBill, deposit };
+          remember(state, 'life', tier === 'family' ? 'Moved back into the family house.' : `Moved into a ${def.name.toLowerCase()} in ${p.city}. ${money0(cost)} to get the keys.`, { weight: 3, tone: tier === 'family' ? 'neutral' : 'good' });
+          result = { ok: true, message: tier === 'family' ? 'Back at the family house. Your mum is happy.' : `Moved in. ${money0(cost)} paid${prepaid >= 12 ? ' — rent is covered for the year' : ''}.` };
+        } else if (how === 'mortgage') {
+          const price = priceFor(tier, p.country, idx);
+          if (!price) { result.message = 'That isn\'t for sale.'; return; }
+          const score = creditOf(state);
+          const offer = mortgageOffer(score, monthlyIncomeOf(state), price, p.country);
+          if (!offer) { result.message = score < 600 ? `The bank turned you down — your credit score is ${score}.` : `The bank won't lend that much on what you earn (${money0(monthlyIncomeOf(state))}/month). The payment would be over 40% of it.`; return; }
+          const cost = offer.down + movingFee(tier, p.country);
+          if (p.career.money < cost) { result.message = `You need ${money0(offer.down)} down (20%) plus movers.`; return; }
+          if (!spendEnergy(state, 15)) { result.message = energyShortfallMessage(15, p.energy); return; }
+          p.career.money -= cost;
+          if (h.deposit && !h.ownedId) p.career.money += h.deposit;
+          const id = uuidv4();
+          (state.homes ?? (state.homes = [])).push({ id, tier, city: p.city, country: p.country, paid: price, indexAtBuy: idx, boughtSerial: today });
+          state.home = { tier, city: p.city, country: p.country, ownedId: id, since: today, paidUntil: today + 100_000, nextBill: h.nextBill };
+          const lender = LENDERS[hashString(p.id) % LENDERS.length];
+          (state.loans ?? (state.loans = [])).push({ id: uuidv4(), kind: 'mortgage', lender, principal: offer.loan, balance: offer.loan, apr: offer.apr, months: offer.months, monthly: offer.monthly, startSerial: today, nextDue: today + 30, paidMonths: 0, missed: 0, status: 'active', homeId: id });
+          remember(state, 'money', `Bought a ${def.name.toLowerCase()} in ${p.city} with a mortgage from ${lender}: ${money0(offer.monthly)} a month for ${offer.months / 12} years.`, { weight: 5, tone: 'good' });
+          result = { ok: true, message: `Keys in hand. ${money0(offer.monthly)}/month to ${lender} for ${offer.months / 12} years at ${(offer.apr * 100).toFixed(1)}%.` };
+        } else {
+          const price = priceFor(tier, p.country, idx);
+          if (!price) { result.message = 'That isn\'t for sale.'; return; }
+          const cost = price + movingFee(tier, p.country);
+          if (p.career.money < cost) { result.message = `It's ${money0(price)}, plus ${money0(cost - price)} to move. You have ${money0(p.career.money)}.`; return; }
+          if (!spendEnergy(state, 15)) { result.message = energyShortfallMessage(15, p.energy); return; }
+          p.career.money -= cost;
+          if (h.deposit && !h.ownedId) p.career.money += h.deposit;
+          const id = uuidv4();
+          (state.homes ?? (state.homes = [])).push({ id, tier, city: p.city, country: p.country, paid: price, indexAtBuy: idx, boughtSerial: today });
+          state.home = { tier, city: p.city, country: p.country, ownedId: id, since: today, paidUntil: today + 100_000, nextBill: h.nextBill };
+          remember(state, 'money', `Bought a ${def.name.toLowerCase()} in ${p.city} for ${money0(price)}. Mine.`, { weight: 5, tone: 'good' });
+          pushNotification(state, { kind: 'business', title: `${def.emoji} You bought a ${def.name.toLowerCase()}`, body: `${p.city}. ${money0(price)}. The keys are yours.`, artSeed: `home|${id}`, action: { type: 'home', id } });
+          result = { ok: true, message: `Bought for ${money0(price)}. Welcome home.` };
+        }
+        // People notice a big move.
+        if (def.image >= 3 && blendedFame(p) >= 20) {
+          const handle = `@${fanHandle(`${today}|move`)}`;
+          const post: SocialPost = { id: uuidv4(), platform: 'chirp', authorId: `fan:${handle}`, authorName: handle, content: pickLine([`${p.artistName} moved into a ${def.name.toLowerCase()}?? 😳 the music paying`, `Not ${p.artistName} upgrading the crib 🏡 we love to see it`, `${p.artistName} new house is crazy. Started from the family house 🙏`], `${today}`), likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 40, tags: [{ id: 'player', name: p.artistName }] };
+          livenPost(state, post, { at: gameMinute(state) + 120 });
+          state.socialPosts.unshift(post);
+        }
+      });
+      return result;
+    },
+
+    takeLoan: (amount) => {
+      let result: FeatureActionResult = { ok: false, message: 'The bank said no.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const active = (state.loans ?? []).filter((l) => l.status === 'active');
+        if (active.some((l) => l.kind === 'personal')) { result.message = 'You already have a personal loan. Pay it down first.'; return; }
+        if ((state.loans ?? []).some((l) => l.status === 'default')) { result.message = 'No bank will touch you while a default is on your record.'; return; }
+        const score = creditOf(state);
+        const offer = personalOffer(score, monthlyIncomeOf(state), p.country);
+        if (!offer) { result.message = `Declined. Credit score ${score}, and the bank wants to see steady income first.`; return; }
+        const amt = Math.min(offer.max, Math.max(500, Math.round(amount / 100) * 100));
+        const lender = LENDERS[(hashString(p.id) + 1) % LENDERS.length];
+        const today = dateToSerial(state.gameDate);
+        const monthly = paymentFor(amt, offer.apr, offer.months);
+        (state.loans ?? (state.loans = [])).push({ id: uuidv4(), kind: 'personal', lender, principal: amt, balance: amt, apr: offer.apr, months: offer.months, monthly, startSerial: today, nextDue: today + 30, paidMonths: 0, missed: 0, status: 'active' });
+        p.career.money += amt;
+        remember(state, 'money', `Borrowed ${money0(amt)} from ${lender} at ${(offer.apr * 100).toFixed(1)}%.`, { weight: 2 });
+        result = { ok: true, message: `${money0(amt)} is in your account. ${money0(monthly)} a month for ${offer.months} months, ${(offer.apr * 100).toFixed(1)}% a year.` };
+      });
+      return result;
+    },
+
+    repayLoan: (loanId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to repay.' };
+      set((state) => {
+        const p = state.player;
+        const l = (state.loans ?? []).find((x) => x.id === loanId && x.status === 'active');
+        if (!p || !l) return;
+        if (p.career.money < l.balance) { result.message = `The balance is ${money0(l.balance)}. You have ${money0(p.career.money)}.`; return; }
+        p.career.money -= l.balance;
+        l.balance = 0;
+        l.status = 'paid';
+        (state.credit ?? (state.credit = { missedEver: 0, defaults: 0, paidOff: 0 })).paidOff += 1;
+        remember(state, 'money', `Paid off the ${l.kind === 'mortgage' ? 'mortgage' : 'loan'} with ${l.lender} early.`, { weight: 3, tone: 'good' });
+        result = { ok: true, message: `Paid off. ${l.lender} sends its regards.` };
+      });
+      return result;
+    },
+
+    payRent: () => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing is owed.' };
+      set((state) => {
+        const p = state.player;
+        const h = state.home;
+        if (!p || !h?.due) return;
+        if (p.career.money < h.due.amount) { result.message = `You need ${money0(h.due.amount)}. You have ${money0(p.career.money)}.`; return; }
+        p.career.money -= h.due.amount;
+        const months = Math.max(1, Math.round(h.due.amount / Math.max(1, rentFor(h.tier, h.country))));
+        h.paidUntil += months * 30;
+        h.due = undefined;
+        result = { ok: true, message: `Paid. The landlord is smiling again.` };
+      });
+      return result;
+    },
+
+    sellHome: (id) => {
+      let result: FeatureActionResult = { ok: false, message: 'You don\'t own that.' };
+      set((state) => {
+        const p = state.player;
+        const list = state.homes ?? [];
+        const i = list.findIndex((x) => x.id === id);
+        if (!p || i < 0) return;
+        if (state.home?.ownedId === id) { result.message = 'You live there. Move somewhere else first.'; return; }
+        const o = list[i];
+        const value = Math.round(ownedValue(o, state.market?.propertyIndex ?? 100) * 0.97);
+        // The mortgage comes out of the sale first.
+        const loan = (state.loans ?? []).find((l) => l.homeId === o.id && l.status === 'active');
+        if (loan && loan.balance > value + p.career.money) { result.message = `The mortgage balance is ${money0(loan.balance)} and the sale would raise ${money0(value)}. You can't cover the difference.`; return; }
+        if (loan) { p.career.money -= loan.balance; loan.balance = 0; loan.status = 'paid'; (state.credit ?? (state.credit = { missedEver: 0, defaults: 0, paidOff: 0 })).paidOff += 1; }
+        p.career.money += value;
+        list.splice(i, 1);
+        remember(state, 'money', `Sold the ${homeDef(o.tier).name.toLowerCase()} in ${o.city} for ${money0(value)} (paid ${money0(o.paid)}).`, { weight: 3 });
+        result = { ok: true, message: `Sold for ${money0(value)} after the agent's 3%.` };
+      });
+      return result;
+    },
+
+    setHomeRentedOut: (id, on) => {
+      let result: FeatureActionResult = { ok: false, message: 'You don\'t own that.' };
+      set((state) => {
+        const o = (state.homes ?? []).find((x) => x.id === id);
+        if (!o) return;
+        if (on && state.home?.ownedId === id) { result.message = 'You live there.'; return; }
+        o.rentedOut = on;
+        result = { ok: true, message: on ? `Let to tenants: ${money0(rentIncome(o))} a month after the agent.` : 'The tenants will be out by the end of the month.' };
+      });
+      return result;
+    },
+
+    houseTour: () => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to show.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const h = homeOf(state);
+        const def = homeDef(h.tier);
+        if (def.image < 2) { result.message = 'Nobody wants a tour of your old bedroom. Yet.'; return; }
+        if (h.toured) { result.message = 'You already showed this place.'; return; }
+        if (!spendEnergy(state, 10, { admin: true })) { result.message = energyShortfallMessage(10, p.energy); return; }
+        h.toured = true;
+        const minute = gameMinute(state);
+        const stats = socialStatsOf(state);
+        const post: SocialPost = { id: uuidv4(), platform: 'clip', authorId: 'player', authorName: p.artistName, content: `House tour 🏡 ${def.emoji} welcome to the new place`, likes: 0, shares: 0, comments: [], timestamp: new Date().toISOString(), isPlayerPost: true, trendingScore: 30 + def.image * 10, daySerial: dateToSerial(state.gameDate), kind: 'bts' };
+        const r = postReach({ boost: socialBoost(state), app: 'clip', kind: 'bts', followers: stats.clip.followers, fame: blendedFame(p), momentum: p.career.momentum, postsToday: 0, taggedFame: [], controversy: false, craft: p.stats.charisma + def.image * 6, roll: Math.random() });
+        post.target = { likes: r.likes, shares: r.shares, comments: Math.max(4, r.comments), views: r.views };
+        post.postedMinute = minute;
+        post.views = r.views;
+        post.comments = socialComments(post, Math.max(4, Math.min(14, r.comments)), commentContext(state, false, `${minute}|tour`), new Date().toISOString());
+        const when = commentMinutes(minute, post.comments.length, hashString(post.id) >>> 0);
+        post.comments.forEach((c, i) => { c.minute = when[i]; });
+        state.socialPosts.unshift(post);
+        stats.clip.followers += Math.round(r.follows * (0.6 + def.image * 0.2));
+        stats.clip.lastPostSerial = dateToSerial(state.gameDate);
+        if (def.image >= 4) addMomentum(state, 2, 'the house tour');
+        result = { ok: true, message: `Posted. ${r.views.toLocaleString()} views on the way.` };
+      });
+      return result;
+    },
+
     buyLuxuryItem: (itemId) =>
       set((state) => {
         if (!state.player) return;
@@ -15347,7 +17017,8 @@ export const useGameStore = create<GameState & GameActions>()(
         //
         // Rounded, because a fractional ceiling is a number the player will
         // eventually read off a bar and it should be a whole point of energy.
-        const ceiling = Math.round(MAX_ENERGY + crew.maxEnergyBonus);
+        // Where you sleep is how well you sleep.
+        const ceiling = Math.round(MAX_ENERGY + crew.maxEnergyBonus + homeDef(state.home?.tier).energy);
         if (state.player.maxEnergy !== ceiling) {
           state.player.maxEnergy = ceiling;
           state.player.energy = Math.min(state.player.energy, ceiling);
@@ -15727,7 +17398,10 @@ export const useGameStore = create<GameState & GameActions>()(
           const done = state.showOffers.filter((o) => o.status !== 'open').slice(-10);
           state.showOffers = [...open, ...done];
 
-          const fresh = rollShowOffers(state, rawNPCs, targetSerial, days, hasManagerNow, crew.promoterCut > 0, rawSongs);
+          const modeDef = MODES[state.legacy?.mode ?? 'active'];
+          const fresh = rollShowOffers(state, rawNPCs, targetSerial, days, hasManagerNow, crew.promoterCut > 0, rawSongs).filter(() => reaches(state.legacy?.mode, 'shows', Math.random()));
+          // Semi-retired: the dates you do play are rare, and priced like it.
+          if (modeDef.showFee !== 1) for (const o of fresh) { o.terms.fee = Math.round(o.terms.fee * modeDef.showFee); o.fair = Math.round(o.fair * modeDef.showFee); o.ceiling = Math.round(o.ceiling * modeDef.showFee); }
           const mgrNow = managerOf(state, rawNPCs);
           for (const o of fresh) {
             state.showOffers.push(o);
@@ -15841,7 +17515,7 @@ export const useGameStore = create<GameState & GameActions>()(
             // has to actually happen, or the best moment in the whole feature
             // system is just a nicer paragraph. So they post — in their own
             // voice, to their own audience — and the industry notices.
-            state.socialPosts.unshift({
+            if (!isRealId(npc.id)) state.socialPosts.unshift({
               id: uuidv4(),
               platform: 'chirp',
               authorId: npc.id,
@@ -16055,7 +17729,10 @@ export const useGameStore = create<GameState & GameActions>()(
         const paidPayout = totalPayout * crew.payoutMult;
         state.player.career.money += paidPayout;
         ledgerAdd('streams', paidPayout);
-        state.player.career.totalStreams += totalWeeklyStreams;
+        // Lifetime streams are the sum of the records' lifetimes — one source
+        // of truth. Adding the rolling 7-day figure on every daily tick counted
+        // each stream seven times.
+        state.player.career.totalStreams = (state.songs as Song[]).reduce((a, x) => a + (x.totalStreams ?? 0), 0);
         state.player.career.totalEarnings += paidPayout;
 
         // ─── MOMENTUM ─────────────────────────────────────────────────
@@ -16110,6 +17787,13 @@ export const useGameStore = create<GameState & GameActions>()(
           }
           // Within 10% of your own recent form you are neither rising nor
           // falling, so momentum holds.
+
+          // Out of sight, out of mind: three weeks with no record and no post
+          // and the room starts forgetting you, songs or not.
+          const today = dateToSerial(state.gameDate);
+          const lastPost = Math.max(-1, ...Object.values(state.socialStats ?? {}).map((x) => x?.lastPostSerial ?? -1));
+          const lastDrop = Math.max(-1, ...liveSongs(rawSongs).map((x) => serialOfGameDate(x.releaseDate, -1)));
+          if (today - Math.max(lastPost, lastDrop) > 21) addMomentum(state, -0.5 * weeks * crew.fameDecayMult);
         }
 
         // Weekly statement
@@ -16295,10 +17979,15 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         // ─── FAME DECAY ───────────────────────────────────────────────
-        // Momentum's bleed now lives beside its gains, in the weekly block near
-        // the payout above. Two decay sites is two opinions about how fast
-        // attention drains, and the publicist's multiplier has to apply to
-        // whichever one is real.
+        // Momentum's form-based bleed lives beside its gains, in the weekly
+        // block near the payout above. On top of that, attention simply fades:
+        // every day the room forgets a little (about a month's half-life), so
+        // 100 means a lot is happening right now — not that a lot once did.
+        // A publicist slows the fade.
+        {
+          const keep = Math.pow(1 - 0.02 * crew.fameDecayMult, days);
+          state.player.career.momentum = Math.round(state.player.career.momentum * keep * 10) / 10;
+        }
 
         // ─── FANBASE GROWTH ───────────────────────────────────────────
         // A manager is not a wage and not a percentage — they are a network.
@@ -16310,13 +17999,16 @@ export const useGameStore = create<GameState & GameActions>()(
         // The arithmetic lives in `sim/fanbase.ts` so the fanbase screen and
         // this tick cannot quote different numbers. It used to be inline here,
         // which meant the panel was re-deriving it and free to drift.
+        // The formula is per WEEK; the clock ticks a day at a time, and the
+        // stream figure is a rolling seven-day number.
         const fanGrowth = fanGrowthFor({
           weeklyStreams: totalWeeklyStreams,
           momentum: state.player.career.momentum,
           managerNet: mgrNet,
           fanMult: crew.fanMult,
-        });
-        state.player.career.fanbase = Math.round(state.player.career.fanbase + fanGrowth);
+        }) * (days / 7);
+        // Fractions carry by chance, so a slow week still adds up over a month.
+        state.player.career.fanbase = Math.round(state.player.career.fanbase) + Math.floor(fanGrowth) + (Math.random() < fanGrowth % 1 ? 1 : 0);
 
         // ─── AND THEY ACTUALLY WORK FOR YOU ───────────────────────────
         // A manager is not a wage, so a manager who takes a cut and changes
@@ -16386,14 +18078,17 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         // ─── LOCAL FAME GROWTH ────────────────────────────────────────
-        if (totalWeeklyStreams > 10000) {
-          state.player.career.localFame = Math.min(100, state.player.career.localFame + 0.2);
-        }
-        if (totalWeeklyStreams > 100000) {
-          state.player.career.nationalFame = Math.min(100, state.player.career.nationalFame + 0.2);
-        }
-        if (totalWeeklyStreams > 1000000) {
-          state.player.career.internationalFame = Math.min(100, state.player.career.internationalFame + 0.1);
+        // Per week, scaled to the days that passed, and graded: ten thousand
+        // streams a week makes you known on your block; a million makes you
+        // known in the country. The clock ticks daily, so a flat +0.2 per tick
+        // was +1.4 a week and every artist with a pulse hit 100 within months.
+        {
+          const wk = days / 7;
+          const tier = (floor: number) => (totalWeeklyStreams > floor ? Math.log10(totalWeeklyStreams / floor) : 0);
+          const c = state.player.career;
+          c.localFame = Math.min(100, c.localFame + wk * Math.min(1.2, 0.3 + tier(10_000) * 0.4) * (totalWeeklyStreams > 10_000 ? 1 : 0));
+          c.nationalFame = Math.min(100, c.nationalFame + wk * Math.min(0.9, 0.2 + tier(100_000) * 0.35) * (totalWeeklyStreams > 100_000 ? 1 : 0));
+          c.internationalFame = Math.min(100, c.internationalFame + wk * Math.min(0.5, 0.1 + tier(1_000_000) * 0.2) * (totalWeeklyStreams > 1_000_000 ? 1 : 0));
         }
 
         // ─── CHARTS ───────────────────────────────────────────────────
@@ -16455,61 +18150,10 @@ export const useGameStore = create<GameState & GameActions>()(
         // which is a full roster scan nested inside a per-event loop.
         const npcById = new Map(rawNPCs.map(n => [n.id, n]));
 
-        // ─── AWARD SEASON ─────────────────────────────────────────────
-        // Ceremonies run at the end of the in-game year. Winners come from real
-        // performance, and NPCs win their own awards regardless of the player.
-        const dueShows = showsDueThisTurn(state.gameDate.month);
-        if (dueShows.length > 0 && state.gameDate.day >= 25) {
-          for (const show of dueShows) {
-            const result = runAwardShow(
-              show,
-              state.charts as Record<string, ChartEntry[]>,
-              [...liveSongs(state.songs), ...state.npcSongs] as Song[],
-              state.player,
-              state.gameDate.year,
-            );
-            if (result.awards.length === 0) continue;
-            state.awards.push(...result.awards as typeof state.awards);
-            log.push(...result.headlines);
-
-            // Feed the ceremony into the news and the social world.
-            for (const line of result.headlines) {
-              state.headlines.unshift({
-                id: uuidv4(),
-                text: line,
-                fullStory: `${show.name} held its annual ceremony. Full winners list inside.`,
-                date: formatGameDate(state.gameDate),
-                relatedEntities: [],
-                priority: 9,
-                category: 'award',
-              });
-            }
-
-            const winnerAward = result.awards[0];
-            const winnerIsPlayer = state.player && winnerAward.winner === state.player.id;
-            state.socialPosts.unshift({
-              id: uuidv4(),
-              platform: 'chirp',
-              authorId: winnerIsPlayer ? 'player' : winnerAward.winner,
-              authorName: winnerIsPlayer
-                ? state.player!.artistName
-                : (npcById.get(winnerAward.winner)?.name ?? 'Artist'),
-              content: winnerIsPlayer
-                ? `WE WON. 🏆 Thank you to everyone who believed. This is for the city.`
-                : pick([
-                    `Appreciate the recognition. More work to do. 🏆`,
-                    `Blessed. This one goes to the fans. 🙏🏆`,
-                    `Award season. We move. 🏆`,
-                  ]),
-              likes: Math.floor(200 + Math.random() * 3000),
-              shares: Math.floor(50 + Math.random() * 400),
-              comments: [],
-              timestamp: new Date().toISOString(),
-              isPlayerPost: !!winnerIsPlayer,
-              trendingScore: 90,
-            });
-          }
-        }
+        // ─── AWARD SEASONS ────────────────────────────────────────────
+        // Calendars, nominations, fan voting and ceremonies run daily (see
+        // awardsTick); the old year-end batch is gone.
+        awardsTick(state, targetSerial, rawNPCs, rawNPCSongs);
 
         // ─── STORY DIRECTOR ───────────────────────────────────────────
         // Shallow spread of the draft, NOT `raw(state)`.
@@ -16529,13 +18173,21 @@ export const useGameStore = create<GameState & GameActions>()(
           npcSongs: rawNPCSongs,
           songs: rawSongs,
         } as GameState;
-        const { events: storyEvents, newOpenThreads } = runStoryDirector(storyState);
+        const { events: storyEvents, newOpenThreads, escalated } = runStoryDirector(storyState);
 
         for (const thread of newOpenThreads) {
-          state.openThreads.push(thread as typeof state.openThreads[0]);
+          state.openThreads.push({ ...thread, openedSerial: targetSerial } as typeof state.openThreads[0]);
         }
+        for (const t of state.openThreads) {
+          if (escalated.includes(t.id)) { t.escalationCount += 1; t.lastUpdated = formatGameDate(state.gameDate); }
+          // Nothing lasts forever: six weeks untouched and the story is over.
+          if (t.openedSerial === undefined) t.openedSerial = targetSerial;
+          if (!t.resolved && targetSerial - t.openedSerial > 42) t.resolved = true;
+        }
+        if (state.openThreads.length > 60) state.openThreads = state.openThreads.filter((t) => !t.resolved).slice(-40);
 
         for (const ev of storyEvents) {
+          if (ev.key) (state.storyFired ?? (state.storyFired = {}))[ev.key] = targetSerial;
           log.push(`📰 ${ev.headline}: ${ev.description}`);
 
           // Apply effects
@@ -16551,7 +18203,8 @@ export const useGameStore = create<GameState & GameActions>()(
           // Add NPC social post for the event
           if (ev.involvedNPCIds.length > 0) {
             const npc = ev.involvedNPCIds.map(id => npcById.get(id)).find(Boolean);
-            if (npc) {
+            // The game doesn't write posts in real people's names.
+            if (npc && !isRealId(npc.id)) {
               const npcPost: SocialPost = {
                 id: uuidv4(),
                 platform: 'chirp',
@@ -16606,6 +18259,7 @@ export const useGameStore = create<GameState & GameActions>()(
           state.npcSongs as Song[],
           state.gameDate,
           state.turnCount,
+          (state.npcUpcoming ?? []).map((u) => u.song.ownerId ?? ''),
         );
         // Artists signed to the player's label release through the label, on
         // the label's money — never on the world's own schedule.
@@ -16616,6 +18270,9 @@ export const useGameStore = create<GameState & GameActions>()(
           }
           releaseEvents.splice(0, releaseEvents.length, ...fresh.map((s) => `🎵 ${s.ownerName} dropped "${s.title}".`));
         }
+        // Established artists roll a release out: announce it, then drop it a
+        // few days later. Newcomers just drop.
+        rolloutReleases(state, fresh, releaseEvents, rawNPCs, targetSerial);
         if (fresh.length > 0) {
           state.npcSongs.push(...fresh);
           worldLog.push(...releaseEvents);
@@ -16781,10 +18438,22 @@ export const useGameStore = create<GameState & GameActions>()(
         for (const c of state.sampleClearances) {
           if (c.status === 'pending' && todaySerial > c.deadlineSerial) {
             c.status = 'expired';
+            // The song is out and the sample isn't cleared: the rights holder comes for it.
+            const outSong = state.songs.find((x) => x.id === c.songId);
+            if (outSong && isSongReleased(outSong) && Math.random() < 0.6) {
+              const holder = { id: `rights:${c.rightsHolder}`, name: c.rightsHolder, fame: 40, personality: ['calculating'], role: 'lawyer', tier: 'established' } as unknown as NPC;
+              if (!state.npcs.some((n) => n.id === holder.id)) state.npcs.push({ ...holder, relationshipScore: 0, memoryLog: [] } as unknown as NPC);
+              npcSues(state, state.npcs.find((n) => n.id === holder.id)!, 'copyright', Math.max(5000, c.quotedCost * 3), 88, [`"${c.songTitle}" uses "${c.sampleName}" without a licence.`, `Clearance was requested on ${c.requestedDate} and never completed.`, 'The song is out and earning.'], c.id);
+            }
             state.openThreads.unshift({ id: uuidv4(), type: 'legal', description: `Clearance deadline expired for "${c.songTitle}".`, involvedNPCIds: [], startDate: formatGameDate(state.gameDate), lastUpdated: formatGameDate(state.gameDate), resolved: false, priority: 8, escalationCount: 1 });
             log.push(`⚖️ Sample clearance expired for "${c.songTitle}".`);
           }
         }
+
+        // Rent, bills and what you own cost money every month — and the bank
+        // wants its payment whatever kind of month it was.
+        homeTick(state, todaySerial, log);
+        bankTick(state, todaySerial, log);
 
         // Monthly family obligation. It is an actual ledger expense, not flavour.
         if (state.family.children > 0 && state.family.nextReviewSerial !== undefined && todaySerial >= state.family.nextReviewSerial) {
@@ -16816,7 +18485,8 @@ export const useGameStore = create<GameState & GameActions>()(
           const big = rawNPCs.filter(n => n.role === 'artist' && n.tier === 'international' && n.fame > state.player!.career.nationalFame).sort((a,b) => b.fame-a.fame)[0];
           if (big) {
             state.industryNotices.unshift({ id: uuidv4(), type: 'noticed', title: `${big.name} noticed your rise`, body: `${big.name}'s team has been watching your recent numbers. Nothing is promised — but your name is in the room.`, date: formatGameDate(state.gameDate), relatedNpcId: big.id, read: false });
-            state.mailbox.unshift({ id: uuidv4(), from: big.id, fromName: big.name, subject: 'Been seeing the work', body: `My team has been watching what you've been doing lately. Keep going.`, timestamp: new Date().toISOString(), read: false, type: 'general' });
+            // No words in a real person's mouth: the notice above is the news.
+            if (!isRealId(big.id)) state.mailbox.unshift({ id: uuidv4(), from: big.id, fromName: big.name, subject: 'Been seeing the work', body: `My team has been watching what you've been doing lately. Keep going.`, timestamp: new Date().toISOString(), read: false, type: 'general' });
             log.push(`👀 ${big.name} noticed your rise.`);
           }
         }
@@ -16929,6 +18599,7 @@ export const useGameStore = create<GameState & GameActions>()(
             ...state.investments.map((i) => ({ label: i.name, value: i.currentValue })),
             // Buildings and land you developed are property too.
             ...(state.devProjects ?? []).filter((d) => d.stage !== 'sold').map((d) => ({ label: d.build ?? 'land', value: projectValue(d, state.market?.propertyIndex ?? 100, dateToSerial(state.gameDate)) })),
+            ...(state.homes ?? []).map((h) => ({ label: homeDef(h.tier).name, value: ownedValue(h, state.market?.propertyIndex ?? 100) })),
           ];
           const propTax = propertyTax(holdings);
           if (propTax > 0) {
@@ -17035,7 +18706,7 @@ export const useGameStore = create<GameState & GameActions>()(
             roll: Math.random(),
           });
 
-          if (ask.npc) {
+          if (ask.npc && reaches(state.legacy?.mode, 'asks', Math.random())) {
             const host = (state.npcSongs as Song[]).find(
               (s) => s.ownerId === ask.npc!.id && s.releaseDate,
             );
@@ -17043,7 +18714,7 @@ export const useGameStore = create<GameState & GameActions>()(
             // A record to be asked onto. Without one there is no ask, however
             // much they rate the player.
             if (host && npc && !isBlocked(state, npc.id)) {
-              openInboundAsk(state, npc, host, ask.reason);
+              openInboundAsk(state, npc, host, isRealId(npc.id) ? `${npc.name} wants a verse from you on "${host.title}". The team will handle the paperwork.` : ask.reason);
               // Deliberately NOT pushed into `log`.
               //
               // The turn feed is ten lines and it belongs to the turn's own
@@ -17056,62 +18727,11 @@ export const useGameStore = create<GameState & GameActions>()(
           }
         }
 
-        // ─── AN AGREED VERSE NOBODY SENT ──────────────────────────────
-        // The player is paid at AGREEMENT and delivers afterwards, which is the
-        // deal they were offered. The upside of delivering is the credit — the
-        // fame, the momentum, the relationship — so a player who wants only the
-        // money can take it and never write a bar. That is a real choice, but
-        // it is not a free one: an artist who has paid for a verse and is still
-        // waiting on it eventually notices, and eventually stops waiting.
-        //
-        // One nudge, then it lapses. The player keeps the fee either way — it
-        // was paid — but the credit and the goodwill are gone.
-        if (state.inboundRequests.length > 0) {
-          for (const r of state.inboundRequests) {
-            if (r.status !== 'agreed' || !r.agreedDate) continue;
-            // The verse is already being written; the clock on this is the
-            // waiting, not the work.
-            const writing = (state.workItems ?? []).some(
-              (w) => w.kind === 'verse' && (w.payload as VerseWork).requestId === r.id,
-            );
-            if (writing) continue;
-
-            const agreed = parseGameDate(r.agreedDate);
-            const waiting = agreed ? daysBetween(agreed, state.gameDate) : 0;
-            if (waiting >= 45) {
-              r.status = 'withdrawn';
-              // Marks this as the PLAYER's failure to deliver, not the artist
-              // walking off a high quote. Same status, opposite story.
-              r.lapsed = true;
-              const npc = state.npcs.find((n) => n.id === r.npcId);
-              if (npc) {
-                npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore - 12));
-                npc.memoryLog = [
-                  ...npc.memoryLog.slice(-9),
-                  `[Feature] Paid ${state.player!.artistName} for a verse and never got it.`,
-                ];
-              }
-              log.push(`🚪 ${r.npcName} gave up waiting on the verse for "${r.npcSongTitle}".`);
-            } else if (waiting >= 21 && !r.chased) {
-              r.chased = true;
-              const npc = state.npcs.find((n) => n.id === r.npcId);
-              if (npc) {
-                const thread = state.dmThreads[npc.id] ?? { npcId: npc.id, messages: [], unread: 0 };
-                thread.messages.push({
-                  id: uuidv4(),
-                  npcId: npc.id,
-                  fromPlayer: false,
-                  content: `Any sign of that verse? I have paid for it and I am holding a slot on the record.`,
-                  timestamp: new Date().toISOString(),
-                  read: false,
-                });
-                thread.unread += 1;
-                state.dmThreads[npc.id] = thread;
-              }
-              log.push(`⏳ ${r.npcName} is chasing the verse for "${r.npcSongTitle}".`);
-            }
-          }
-        }
+        // ─── FEATURE DEALS AND THE COURTHOUSE ─────────────────────────
+        // Verses owed both ways, balances owed both ways, and the cases that
+        // come out of the ones that went wrong.
+        featureDealsTick(state, dateToSerial(state.gameDate), log);
+        courtTick(state, dateToSerial(state.gameDate));
 
         // ─── WORK IN PROGRESS ─────────────────────────────────────────
         // Every job the player has committed to eats the days that just passed,
@@ -17255,6 +18875,18 @@ export const useGameStore = create<GameState & GameActions>()(
           drip: state.drip,
           memories: state.memories,
           memoryCursor: state.memoryCursor,
+          cases: (state.cases ?? []).slice(0, 60),
+          storyFired: state.storyFired,
+          home: state.home,
+          homes: state.homes,
+          loans: state.loans,
+          credit: state.credit,
+          earningsMarks: state.earningsMarks,
+          npcUpcoming: state.npcUpcoming,
+          awardSeasons: state.awardSeasons,
+          awardFollows: state.awardFollows,
+          activeCeremony: null,
+          activeHearing: null,
           appointments: (state.appointments ?? []).slice(-40),
           activeAppointment: null,
           investments: state.investments,
@@ -17325,7 +18957,9 @@ export const useGameStore = create<GameState & GameActions>()(
         const nowAbs = dateToSerial(before.gameDate) * MINUTES_PER_DAY + next;
         const due = (before.pendingDMs ?? []).some((d) => d.atMinute <= nowAbs)
           || (before.appointments ?? []).some((a) => (a.status === 'confirmed' || a.status === 'proposed') && a.atMinute <= nowAbs)
-          || clockEventsDue(before, nowAbs);
+          || clockEventsDue(before, nowAbs)
+          || (before.cases ?? []).some((c) => c.status === 'hearing' && c.hearings.some((h) => !h.done && h.atMinute <= nowAbs))
+          || Object.values(before.awardSeasons ?? {}).some((x) => x.phase === 'nominations' && x.cal.ceremonyMinute <= nowAbs);
         set((state) => {
           state.clockMinute = next;
           if (due) minuteTick(state, 'clock');
@@ -17622,6 +19256,18 @@ export const useGameStore = create<GameState & GameActions>()(
         drip: state.drip,
         memories: state.memories,
         memoryCursor: state.memoryCursor,
+        cases: (state.cases ?? []).slice(0, 60),
+        storyFired: state.storyFired,
+        home: state.home,
+        homes: state.homes,
+        loans: state.loans,
+        credit: state.credit,
+        earningsMarks: state.earningsMarks,
+        npcUpcoming: state.npcUpcoming,
+        awardSeasons: state.awardSeasons,
+        awardFollows: state.awardFollows,
+        activeCeremony: null,
+        activeHearing: null,
         appointments: (state.appointments ?? []).slice(-40),
         activeAppointment: null,
         investments: state.investments,

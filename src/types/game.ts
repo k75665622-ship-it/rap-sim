@@ -9,6 +9,8 @@ import type { DevProject } from '../sim/realestate';
 import type { BlackjackHand, Fixture, SportsBet } from '../sim/casino';
 import type { FootballState } from '../sim/football';
 import type { DripState } from '../sim/drip';
+import type { HomeState, OwnedHome } from '../sim/home';
+import type { Loan } from '../sim/bank';
 import type { Memory } from '../sim/memories';
 import type { Look } from '../sim/look';
 
@@ -549,7 +551,15 @@ export interface GameNotification {
     | { type: 'chart'; id: 'songs' | 'albums' }
     | { type: 'platform'; id: string }
     /** Somebody asking the player for a verse — lands on the Mailbox. */
-    | { type: 'inbound'; id: string };
+    | { type: 'inbound'; id: string }
+    /** A legal case — lands on the Courthouse. */
+    | { type: 'court'; id: string }
+    /** Award news — lands on the Awards page. */
+    | { type: 'awards'; id: string }
+    /** A feature deal — lands on Studio → Features. */
+    | { type: 'features'; id: string }
+    /** Rent, bills, the landlord — lands on Home & Lifestyle. */
+    | { type: 'home'; id: string };
 }
 
 // ─── NPC ─────────────────────────────────────────────────────────────────
@@ -701,6 +711,7 @@ export interface Appointment {
 export type FeatureRequestStatus =
   | 'sent'         // delivered to their DMs, no reply yet
   | 'terms'        // they will do it, for a fee — waiting on the player
+  | 'paid_waiting' // paid; they are recording it and owe you a verse by a date
   | 'verse_ready'  // agreed (paid or free), the verse is in hand
   | 'declined'     // a no, with a reason
   | 'ignored'      // never answered
@@ -765,6 +776,24 @@ export interface InboundRequest {
   agreedDate?: string;
   /** True once they have chased the verse. They only ask once. */
   chased?: boolean;
+  /** How the money moves: up front, half and half, on delivery, or free. */
+  payTerms?: import('../sim/deals').PayTerms;
+  /** What has actually reached your account so far. */
+  paidSoFar?: number;
+  /** Day serial the verse is due. */
+  dueSerial?: number;
+  /** After delivery: what's still owed, when (hidden plan), and whether you've chased it. */
+  balanceDue?: number;
+  balancePlan?: import('../sim/deals').PayOutcome;
+  balanceDueSerial?: number;
+  balanceChased?: number;
+  deliveredSerial?: number;
+  /** They want their money back (day serial). */
+  refundDemanded?: number;
+  /** A court case over this deal. */
+  caseId?: string;
+  /** How much care went into the verse. */
+  effort?: 'quick' | 'standard' | 'polished';
   /**
    * True when a `withdrawn` ask ended because the PLAYER never sent the verse,
    * rather than because the artist walked off a high quote. Both end the same
@@ -815,6 +844,17 @@ export interface FeatureRequest {
   negotiationRound?: number;
   /** The last number the player put on the table. */
   lastOffer?: number;
+  /** Day serial the verse is due (after paying). */
+  verseDueSerial?: number;
+  /** How they'll actually deliver — decided when you pay, never shown. */
+  delivery?: { outcome: 'on_time' | 'late' | 'ghost'; lateBy: number; excused?: boolean };
+  /** Times you've chased the verse. */
+  chased?: number;
+  /** You asked for your money back (day serial), and what came of it. */
+  refundAsked?: number;
+  refunded?: number;
+  /** A court case over this deal. */
+  caseId?: string;
 }
 
 /**
@@ -950,6 +990,8 @@ export interface SocialComment {
   /** Replies under this comment (one level, like the real apps). */
   replies?: SocialComment[];
   liked?: boolean;
+  /** Game minute it was posted; comments arrive through the hours after a post. */
+  minute?: number;
 }
 
 export interface SocialPost {
@@ -2019,6 +2061,8 @@ export interface OpenThread {
   resolved: boolean;
   priority: number; // 1-10
   escalationCount: number;
+  /** Game day it opened — threads nobody touches for weeks close themselves. */
+  openedSerial?: number;
 }
 
 // ─── INTERVIEWS ───────────────────────────────────────────────────────────
@@ -2085,6 +2129,8 @@ export type GameScreen =
   | 'account'
   | 'style'
   | 'journal'
+  | 'court'
+  | 'awards'
   | 'create_artist'
   | 'dashboard'
   | 'studio'
@@ -2263,7 +2309,14 @@ export interface FamilyState {
 }
 
 export interface LegacyState {
+  /** True only in the 'retired' mode (kept for older saves and checks). */
   retired: boolean;
+  /** Full-time, semi-retired, business focus or retired. */
+  mode?: import('../sim/careerMode').CareerMode;
+  /** Day serial the current mode began. */
+  modeSince?: number;
+  /** An announced comeback: release something before `until`. */
+  comeback?: { announced: number; until: number; hype: number; used?: boolean };
   retiredAt?: string;
   legacyScore: number;
   titles: string[];
@@ -2424,10 +2477,38 @@ export interface GameState {
   activeAppointment?: string | null;
   /** Clothes, jewellery, the shop's drops and the wardrobe. */
   drip?: DripState;
+  /** Where you live and what it costs. */
+  home?: HomeState;
+  /** Homes you own (lived in, empty, or let out). */
+  homes?: OwnedHome[];
+  /** What you've borrowed. */
+  loans?: Loan[];
+  /** Your record with the banks. */
+  credit?: { missedEver: number; defaults: number; paidOff: number };
+  /** Lifetime earnings at each month-end, for what you earn a month. */
+  earningsMarks?: { serial: number; total: number }[];
   /** The career's journal. The AI reads it so people remember. */
   memories?: Memory[];
   /** Last headline and notification already written into the journal. */
   memoryCursor?: { headline?: string; notification?: string };
+  /** Momentum earned from posting this week (capped; see socialMomentum). */
+  socialMomentum?: { week: number; gained: number };
+  /** Records the big names have announced and not yet released. */
+  npcUpcoming?: { song: Song; releaseSerial: number }[];
+  /** When each story-director story last ran (key → day serial). */
+  storyFired?: Record<string, number>;
+  /** Award seasons by "body:year". */
+  awardSeasons?: Record<string, import('../store/gameStore').AwardSeason>;
+  /** Award bodies whose news reaches you as notifications. */
+  awardFollows?: string[];
+  /** The award night happening now (the modal is open). */
+  activeCeremony?: { key: string; step: 'carpet' | 'show' | 'results' | 'speech' | 'done'; revealed: number; notes: string[] } | null;
+  /** Lawsuits, either side. */
+  cases?: import('../sim/court').LegalCase[];
+  /** A hearing happening now (the court modal is open): "caseId|hearingId". */
+  activeHearing?: string | null;
+  /** Open the Studio on a particular section next time (e.g. Features). */
+  pendingStudioMode?: string | null;
   ownedAssets: LuxuryItem[];
   awards: Award[];
   certifications: Certification[];

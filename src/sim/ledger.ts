@@ -108,7 +108,27 @@ const LEDGER_LABELS: Record<string, { label: string; kind: LedgerKind; note?: st
   rent: {
     label: 'Rent',
     kind: 'income',
-    note: 'Tenants in the buildings you developed.',
+    note: 'Tenants in the buildings you developed and the homes you let out.',
+  },
+  housing: {
+    label: 'Rent & moving',
+    kind: 'expense',
+    note: 'What the landlord took, and the cost of moving.',
+  },
+  living: {
+    label: 'Living costs',
+    kind: 'expense',
+    note: 'Food, power, water, data and getting around.',
+  },
+  loans: {
+    label: 'Loan repayments',
+    kind: 'expense',
+    note: 'Monthly payments to the bank, interest included.',
+  },
+  upkeep: {
+    label: 'Upkeep',
+    kind: 'expense',
+    note: 'Fuel, insurance, crew and storage on what you own.',
   },
   casino: {
     label: 'Sports book',

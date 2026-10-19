@@ -96,7 +96,7 @@ export function liveCounts(post: SocialPost, nowMinute: number): LiveTarget {
   return {
     likes: Math.round(post.target.likes * f) + own.likes,
     shares: Math.round(post.target.shares * f) + own.shares,
-    comments: Math.max(post.comments.length, Math.round(post.target.comments * f)),
+    comments: Math.max(visibleComments(post.comments, nowMinute).length, Math.round(post.target.comments * f)),
     views: Math.round(post.target.views * f),
   };
 }
@@ -206,4 +206,19 @@ export function liveSession(opts: { app: SocialApp; followers: number; momentum:
   if (trolls) lines.push('A troll raid flooded the chat for ten minutes. You kept your cool — mostly.');
   else if (roll > 0.8) lines.push('Somebody clipped your best moment. It\'s going around.');
   return { app, peak, gifts, follows, joinedBy: guest ? { id: guest.id, name: guest.name } : undefined, trolls, lines, minute: opts.minute };
+}
+
+/** Comments that have actually arrived by now (older comments carry no minute). */
+export function visibleComments<T extends { minute?: number }>(comments: T[], nowMinute: number): T[] {
+  return comments.filter((c) => c.minute === undefined || c.minute <= nowMinute);
+}
+
+/** When each of n comments lands after a post: most in the first hours. */
+export function commentMinutes(postedMinute: number, n: number, seed: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const r = ((seed * 9301 + i * 49297) % 233280) / 233280;
+    out.push(postedMinute + 1 + Math.round(Math.pow((i + r) / n, 2.2) * 600));
+  }
+  return out.sort((a, b) => a - b);
 }

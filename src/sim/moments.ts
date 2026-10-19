@@ -47,6 +47,8 @@ export interface MomentWorld {
   activeBeefIds: Set<string>;
   /** Life events need a little more of the player's life. */
   hasLawyer?: boolean;
+  /** Has the player ever played a show? */
+  hasPlayedShow?: boolean;
   ownsCar?: boolean;
   releasedTitles: string[];
 }
@@ -147,6 +149,8 @@ const partyInvite: Template = {
 const dissBait: Template = {
   id: 'diss_bait', channel: 'dm', weight: 2,
   build: (w, seed) => {
+    // Nobody picks a fight with someone who has no music and no name yet.
+    if (w.releasedTitles.length === 0 && w.playerFame < 12) return null;
     const npc = w.rivals[0] ?? w.strangers.find((n) => Math.abs(n.fame - w.playerFame) < 15);
     if (!npc) return null;
     return {
@@ -267,6 +271,8 @@ const collabIdea: Template = {
 const blogTip: Template = {
   id: 'blog_tip', channel: 'dm', weight: 1.5,
   build: (w, seed) => {
+    // Blogs only shake down people worth a headline.
+    if (w.playerFame < 15 || w.releasedTitles.length === 0) return null;
     const npc = w.bloggers[0];
     if (!npc) return null;
     const price = r50(clamp(800 + w.playerFame * 60, 800, 12000));
@@ -301,6 +307,8 @@ const blogTip: Template = {
 const fanDM: Template = {
   id: 'fan_dm', channel: 'dm', weight: 1.5,
   build: (w, seed) => {
+    // A fan of what? Something has to be out.
+    if (w.releasedTitles.length === 0) return null;
     const npc = w.fans[0];
     if (!npc) return null;
     return {
@@ -308,17 +316,19 @@ const fanDM: Template = {
       title: `A message from ${npc.name}`,
       body: pick([
         'I just want you to know your music got me through the worst year of my life. Thank you. That\'s it.',
-        'I drove 6 hours to your last show. Best night of my life. Please come back to my city 🙏',
-        'My little brother learned to rap from your songs. He\'s 12. He thinks you\'re a superhero.',
+        w.hasPlayedShow ? 'I drove 6 hours to your last show. Best night of my life. Please come back to my city 🙏' : `"${w.releasedTitles[0]}" has been on repeat in my house all week. Please come do a show in my city 🙏`,
+        w.releasedTitles.length >= 3 ? 'My little brother learned to rap from your songs. He\'s 12. He thinks you\'re a superhero.' : `Found "${w.releasedTitles[0]}" by accident and now I've played it like 50 times. Keep going 🙌`,
       ], seed),
       options: [opt('reply', 'Reply personally'), opt('repost', 'Share it publicly'), opt('ignore', 'Leave it')],
       expiresSerial: w.serial + 5,
     };
   },
-  resolve: (_m, o, _w, roll) => {
-    if (o === 'reply') return { text: 'They screenshotted your reply and it went everywhere. "This is why we stan."', effects: [{ k: 'momentum', v: 2 }, { k: 'fans', v: 1500 }] };
+  resolve: (_m, o, w, roll) => {
+    // How far a kind reply travels depends on how many people are watching.
+    const small = w.playerFame < 20;
+    if (o === 'reply') return { text: small ? 'They screenshotted your reply and showed everyone they know.' : 'They screenshotted your reply and it went everywhere. "This is why we stan."', effects: [{ k: 'momentum', v: small ? 1 : 2 }, { k: 'fans', v: Math.round(20 + w.playerFame * 35) }] };
     if (o === 'repost') return roll < 0.8
-      ? { text: 'The post did numbers. Fans love seeing you care.', effects: [{ k: 'momentum', v: 3 }, { k: 'fans', v: 2500 }] }
+      ? { text: small ? 'A few hundred people saw it. Some of them stuck around.' : 'The post did numbers. Fans love seeing you care.', effects: [{ k: 'momentum', v: small ? 1 : 3 }, { k: 'fans', v: Math.round(40 + w.playerFame * 55) }] }
       : { text: 'A few people called it a clout move. Most didn\'t care.', effects: [{ k: 'momentum', v: 1 }] };
     return { text: 'You never saw it. Or you did.', effects: [] };
   },
@@ -327,6 +337,8 @@ const fanDM: Template = {
 const cashGig: Template = {
   id: 'cash_gig', channel: 'dm', weight: 1.5,
   build: (w, seed) => {
+    // A club books people with a record out, or a name.
+    if (w.releasedTitles.length === 0 && w.playerFame < 15) return null;
     const npc = w.promoters[0];
     if (!npc) return null;
     const fee = r50(clamp(150 + w.playerFame * w.playerFame * 3, 150, 40000));
@@ -335,7 +347,7 @@ const cashGig: Template = {
       title: `${npc.name}: cash gig this weekend`,
       body: pick([
         `Got a slot at my club Friday. $${fee.toLocaleString()} cash, 20 minutes, no contract. In or out?`,
-        `Last-minute: my headliner dropped out. $${fee.toLocaleString()} cash if you can do Saturday.`,
+        `Last-minute: my ${w.playerFame >= 45 ? 'headliner' : 'opener'} dropped out. $${fee.toLocaleString()} cash if you can do Saturday.`,
       ], seed),
       options: [opt('yes', `Take the $${fee.toLocaleString()}`, 'A night of energy', 0, 15), opt('more', 'Ask for more'), opt('no', 'Pass')],
       expiresSerial: w.serial + 2,
@@ -389,6 +401,8 @@ const beatOffer: Template = {
 const bringOut: Template = {
   id: 'bring_out', channel: 'dm', weight: 1.5,
   build: (w, seed) => {
+    // "Your song" — there has to be one.
+    if (w.releasedTitles.length === 0) return null;
     const npc = w.friends.find((n) => n.fame >= w.playerFame - 5) ?? w.stars.find((n) => n.relationshipScore >= 15);
     if (!npc) return null;
     return {
@@ -513,11 +527,11 @@ const leakThreat: Template = {
       data: { songId: song.id, title: song.title },
     };
   },
-  resolve: (m, o, _w, roll) => {
+  resolve: (m, o, w, roll) => {
     if (o === 'hunt') return roll < 0.5
       ? { text: 'It was a friend of a friend at the last session. They\'re banned. The snippet came down.', effects: [{ k: 'money', v: -2000 }, { k: 'stat', stat: 'discipline', v: 1 }] }
       : { text: 'Two grand later, nobody knows who did it. The snippet is still up.', effects: [{ k: 'money', v: -2000 }, { k: 'momentum', v: 1 }] };
-    if (o === 'tease') return { text: `You posted "you weren't supposed to hear that 👀". Now everybody wants "${m.data?.title}".`, effects: [{ k: 'momentum', v: 4 }, { k: 'fans', v: 2000 }] };
+    if (o === 'tease') return { text: `You posted "you weren't supposed to hear that 👀". Now everybody wants "${m.data?.title}".`, effects: [{ k: 'momentum', v: w.playerFame >= 20 ? 4 : 2 }, { k: 'fans', v: Math.round(60 + w.playerFame * 45) }] };
     return { text: 'The snippet floated around for a week, then people forgot.', effects: [{ k: 'momentum', v: 1 }] };
   },
 };
@@ -747,7 +761,7 @@ const phoneStolen: Template = {
     const leak = !!m.data?.demo && roll < 0.3;
     if (o === 'buy') return { text: leak ? `New phone. Then a snippet of "${m.data?.demo}" appeared online. Someone went through the old one.` : 'New phone, same number. Lesson learnt.', effects: [{ k: 'money', v: -1200 }, ...(leak ? [{ k: 'momentum' as const, v: 2 }, { k: 'reputation' as const, v: -1 }] : [])] };
     if (o === 'track') return roll < 0.4 ? { text: 'The police found it at a market stall. Cracked screen, everything still there.', effects: [{ k: 'energy', v: -15 }] } : { text: 'Hours at the station. The phone is long gone.', effects: [{ k: 'energy', v: -15 }, { k: 'money', v: -1200 }] };
-    return { text: 'Thousands of people sent love. A few hundred sent fake "I found your phone" messages.', effects: [{ k: 'momentum', v: 1 }, { k: 'fans', v: 120 }, { k: 'money', v: -1200 }] };
+    return { text: _w.playerFame >= 25 ? 'Thousands of people sent love. A few hundred sent fake "I found your phone" messages.' : 'Friends and a few fans sent love. Two people sent fake "I found your phone" messages.', effects: [{ k: 'momentum', v: 1 }, { k: 'fans', v: Math.round(10 + _w.playerFame * 4) }, { k: 'money', v: -1200 }] };
   },
 };
 
@@ -810,7 +824,7 @@ const oldFriend: Template = {
 const charity: Template = {
   id: 'charity_visit', channel: 'life', weight: 0.8,
   build: (w, seed) => {
-    if (w.money < 6000) return null;
+    if (w.money < 6000 || w.releasedTitles.length < 2 || w.playerFame < 20) return null;
     const place = pick(['an orphanage', 'your old school', 'a children\'s hospital ward', 'a community library'], seed);
     return {
       kind: 'charity_visit', title: `Invitation from ${place}`, data: { place },

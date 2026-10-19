@@ -4,6 +4,7 @@
 // the storylines still developing.
 
 import { useMemo, useState } from 'react';
+import { openNotificationAction } from '../notificationRoute';
 import { useGameStore } from '../../store/gameStore';
 import { dateToSerial } from '../../sim/gameClock';
 import { gradientFor } from '../ui/kit';
@@ -49,8 +50,6 @@ export function NewsScreen() {
   const markRead = useGameStore((s) => s.markNotificationRead);
   const markAll = useGameStore((s) => s.markAllNotificationsRead);
   const clear = useGameStore((s) => s.clearNotifications);
-  const setScreen = useGameStore((s) => s.setScreen);
-  const selectNPC = useGameStore((s) => s.selectNPC);
   const [tab, setTab] = useState<Tab>('alerts');
   const [kind, setKind] = useState<Kind>('all');
   const today = dateToSerial(gameDate);
@@ -73,8 +72,7 @@ export function NewsScreen() {
     markRead(n.id);
     const a = n.action;
     if (!a) return;
-    if (a.type === 'artist') selectNPC(a.id);
-    setScreen(a.type === 'chart' ? 'charts' : a.type === 'platform' ? 'streaming' : a.type === 'video' ? 'watch' : a.type === 'inbound' ? 'mailbox' : a.type === 'artist' ? 'npc_profile' : 'studio');
+    openNotificationAction(a);
   };
 
   const news = [...headlines].sort((a, b) => b.priority - a.priority).slice(0, 30);

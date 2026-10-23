@@ -87,6 +87,8 @@ export interface ProducerOption {
   country: string;
   /** What they bring to a record, in plain language. */
   specialty: string;
+  /** A producer builds and re-arranges; an engineer mixes and masters. */
+  craft: 'producer' | 'engineer';
 }
 
 function stableHash(s: string): number {
@@ -132,7 +134,8 @@ export function getProducerOptions(npcs: NPC[]): ProducerOption[] {
       skill: producerSkillOf(npc),
       tier: npc.tier,
       country: npc.country,
-      specialty: PRODUCER_SPECIALTIES[h % PRODUCER_SPECIALTIES.length],
+      specialty: npc.role === 'engineer' ? 'Mixing and mastering — clean, loud, translates everywhere' : PRODUCER_SPECIALTIES[h % PRODUCER_SPECIALTIES.length],
+      craft: npc.role === 'engineer' ? 'engineer' : 'producer',
     };
   });
   opts.sort((a, b) => b.skill - a.skill);
@@ -922,4 +925,41 @@ export function describeCritical(score: number): string {
   if (score >= 60) return 'Respectable. It will not be dismissed.';
   if (score >= 45) return 'It will get a fair hearing and not much more.';
   return 'The press are likely to shrug at this one.';
+}
+
+
+// ─── MIXING, AS A TRADE OF ITS OWN ─────────────────────────────────────────
+// A producer builds the record: they re-arrange it, swap sounds, raise what it
+// can be. An engineer mixes and masters it: they close the gap between what you
+// tracked and what it could be, cleanly and cheaply, but they don't rebuild it.
+
+export interface MixCraft { ceiling: number; closing: number; feeMult: number; days: number }
+
+export function mixCraft(role: string, skill: number): MixCraft {
+  const s = Math.max(0, Math.min(100, skill));
+  if (role === 'engineer') {
+    return { ceiling: Math.round(s * 0.9), closing: Math.min(1, 0.62 + (s / 100) * 0.38), feeMult: 0.45, days: s >= 75 ? 3 : 2 };
+  }
+  return { ceiling: Math.round(s * 0.95), closing: 0.45 + (s / 100) * 0.55, feeMult: 0.55, days: s >= 80 ? 5 : s >= 60 ? 3 : 2 };
+}
+
+export type MixDecision =
+  | { outcome: 'free'; fee: 0 }
+  | { outcome: 'terms'; fee: number }
+  | { outcome: 'declined'; fee: 0; why: 'busy' | 'rough' | 'bigger' };
+
+/**
+ * You send a record to someone who mixes. A friend who rates it does it for
+ * nothing; most want the going rate; a name that's far above you, or a record
+ * that's too rough to put their ear on, gets a no.
+ */
+export function decideMix(i: { role: string; skill: number; fame: number; rel: number; songQuality: number; playerFame: number; generous: boolean; roll: number }): MixDecision {
+  const gap = i.fame - i.playerFame;
+  if (gap > 30 && i.rel < 30 && i.roll < 0.6) return { outcome: 'declined', fee: 0, why: 'bigger' };
+  if (i.songQuality < 35 && i.skill > 60 && i.roll < 0.7) return { outcome: 'declined', fee: 0, why: 'rough' };
+  if (i.roll < 0.06) return { outcome: 'declined', fee: 0, why: 'busy' };
+  const love = (i.rel / 100) * 0.5 + (i.songQuality / 100) * 0.4 + (i.generous ? 0.12 : 0);
+  if (love + i.roll * 0.25 > 0.8 && i.rel >= 40) return { outcome: 'free', fee: 0 };
+  const craft = mixCraft(i.role, i.skill);
+  return { outcome: 'terms', fee: Math.max(0, Math.round((producerFee(i.skill) * craft.feeMult * (i.rel >= 25 ? 0.8 : 1)) / 10) * 10) };
 }

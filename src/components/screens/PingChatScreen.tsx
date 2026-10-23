@@ -44,6 +44,7 @@ function preview(m?: DMMessage): string {
 }
 
 const DESK = '__desk__';
+const TEAM = '__team__';
 
 export function PingChatScreen() {
   const npcs = useGameStore((s) => s.npcs);
@@ -56,6 +57,11 @@ export function PingChatScreen() {
   const blocked = useGameStore((s) => s.blocked);
   const clearReadThreads = useGameStore((s) => s.clearReadThreads);
   const markDeskSeen = useGameStore((s) => s.markDeskSeen);
+  const crewCount = useGameStore((s) => (s.crew ?? []).length);
+  const teamUnread = useGameStore((s) => s.teamChatUnread ?? 0);
+  const teamChat = useGameStore((s) => s.teamChat);
+  const teamLast = teamChat?.[teamChat.length - 1];
+  const readTeamChat = useGameStore((s) => s.readTeamChat);
 
   const [selectedId, setSelectedId] = useState<string | null>(focusedNPCId);
   const [search, setSearch] = useState('');
@@ -91,11 +97,12 @@ export function PingChatScreen() {
     return npcs.filter((n) => n.role !== 'fan_account' && (n.name.toLowerCase().includes(q) || (n.city ?? '').toLowerCase().includes(q))).sort((a, b) => b.fame - a.fame).slice(0, 25);
   }, [npcs, search]);
 
-  const selectedNPC = selectedId && selectedId !== DESK ? npcById.get(selectedId) : undefined;
+  const selectedNPC = selectedId && selectedId !== DESK && selectedId !== TEAM ? npcById.get(selectedId) : undefined;
 
   function select(id: string) {
     setSelectedId(id);
     if (id === DESK) markDeskSeen();
+    else if (id === TEAM) readTeamChat();
     else markDMRead(id);
     setSearch('');
   }
@@ -124,6 +131,17 @@ export function PingChatScreen() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5"><span className="text-[14px] font-semibold text-ink">{manager ? `${manager.name.split(' ')[0]}'s desk` : 'Business'}</span>{deskWaiting > 0 && <span className="ml-auto px-1.5 h-[18px] rounded-full bg-amber text-black text-[10px] font-bold flex items-center">{deskWaiting}</span>}</div>
                   <div className="text-[12px] text-ink3 truncate">{manager ? 'Shows, features, interviews — with advice' : 'No manager: offers come straight to your DMs'}</div>
+                </div>
+              </div>
+            </button>
+          )}
+          {!search.trim() && crewCount > 0 && (
+            <button onClick={() => select(TEAM)} className={cn('w-full text-left p-3 rounded-[14px] transition', selectedId === TEAM ? 'bg-amber/10' : 'hover:bg-white/[0.03]')}>
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-rise/15 flex items-center justify-center text-[20px] shrink-0">👥</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5"><span className="text-[14px] font-semibold text-ink">Team group</span>{teamUnread > 0 && <span className="ml-auto px-1.5 h-[18px] rounded-full bg-amber text-black text-[10px] font-bold flex items-center">{teamUnread}</span>}</div>
+                  <div className="text-[12px] text-ink3 truncate">{teamLast ? `${teamLast.from === 'player' ? 'You' : teamLast.name.split(' ')[0]}: ${teamLast.text}` : `${crewCount} on your team — updates and advice`}</div>
                 </div>
               </div>
             </button>
@@ -171,7 +189,9 @@ export function PingChatScreen() {
 
       {/* Chat / desk */}
       <div className={cn('flex-1 min-w-0 flex-col', showList ? 'hidden md:flex' : 'flex')}>
-        {selectedId === DESK ? (
+        {selectedId === TEAM ? (
+          <TeamGroup onBack={() => setSelectedId(null)} />
+        ) : selectedId === DESK ? (
           <div className="flex-1 overflow-y-auto rounded-[18px] border border-line bg-card p-4">
             <button onClick={() => setSelectedId(null)} className="md:hidden text-[13px] text-ink2 mb-3">← Chats</button>
             <ManagerDesk />
@@ -204,10 +224,14 @@ function Conversation({ npc, isManager, blocked, onBack }: { npc: NPC; isManager
   const [song, setSong] = useState<string | null>(null);
   const [sheet, setSheet] = useState<'none' | 'song' | 'plan' | 'menu'>('none');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const askToMix = useGameStore((s) => s.askToMix);
+  const answerMixOffer = useGameStore((s) => s.answerMixOffer);
+  const [mixMsg, setMixMsg] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const persona = personaOf(npc);
   const rel = relChip(npc.relationshipScore);
   const real = isRealId(npc.id);
+  const canMix = !real && (npc.role === 'producer' || npc.role === 'engineer');
   const msgs = thread?.messages ?? [];
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length, thread?.pendingAI, npc.id]);
@@ -316,7 +340,17 @@ function Conversation({ npc, isManager, blocked, onBack }: { npc: NPC; isManager
               ))}
             </div>
           )}
-          {attached && <div className="flex items-center gap-2 text-[12px] text-ink2 px-1">🎵 Sending “{attached.title}” <button onClick={() => setSong(null)} className="text-ink3 hover:text-ink">✕</button></div>}
+          {attached && <div className="flex items-center gap-2 text-[12px] text-ink2 px-1 flex-wrap">🎵 Sending “{attached.title}” <button onClick={() => setSong(null)} className="text-ink3 hover:text-ink">✕</button>
+            {canMix && attached.masterStatus === 'recorded' && <button onClick={() => { const r = askToMix(npc.id, attached.id); setMixMsg(r.message); setSong(null); setSheet('none'); }} className="ml-auto rounded-full border border-amber/60 text-amber bg-amber/10 px-3 py-1 text-[12px] font-semibold">🎚️ Ask {npc.name.split(' ')[0]} to {npc.role === 'engineer' ? 'mix & master' : 'mix'} it</button>}
+          </div>}
+          {thread?.mixOffer && (
+            <div className="rounded-[14px] border border-amber/40 bg-amber/[0.06] p-2.5 flex items-center gap-2 flex-wrap">
+              <div className="text-[12px] text-ink2 flex-1 min-w-[140px]">🎚️ “{thread.mixOffer.songTitle}” · <b className="text-ink">${thread.mixOffer.fee.toLocaleString()}</b> · {thread.mixOffer.days} days</div>
+              <Button size="sm" onClick={() => setMixMsg(answerMixOffer(npc.id, true).message)}>Book it</Button>
+              <Button size="sm" variant="ghost" onClick={() => setMixMsg(answerMixOffer(npc.id, false).message)}>Pass</Button>
+            </div>
+          )}
+          {mixMsg && <div className="text-[11px] text-ink3 px-1">{mixMsg}</div>}
           <div className="flex items-center gap-2">
             {songs.length > 0 && <button onClick={() => setSheet(sheet === 'song' ? 'none' : 'song')} className={cn('w-10 h-10 rounded-full border text-[16px] shrink-0', song ? 'border-amber bg-amber/10' : 'border-line hover:bg-white/5')} aria-label="Attach a song">🎵</button>}
             <input className="flex-1 min-w-0 h-11 rounded-full bg-sidebar border border-line px-4 text-[15px] text-ink placeholder:text-ink3 outline-none focus:border-amber" placeholder={`Message ${npc.name.split(' ')[0]}…`} value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
@@ -454,6 +488,58 @@ function PlanSheet({ npc, onDone }: { npc: NPC; onDone: () => void }) {
         {tooSoon && <span className="text-[11px] text-ink3">Give them an hour's notice.</span>}
       </div>
       {msg && <div className="text-[12px] text-ink2">{msg}</div>}
+    </div>
+  );
+}
+
+
+// ─── THE TEAM GROUP ────────────────────────────────────────────────────────
+
+const ROLE_EMOJI: Record<string, string> = { manager: '💼', accountant: '💰', producer: '🎛️', engineer: '🎚️', songwriter: '📝', vocal_coach: '🎤', publicist: '📣', stylist: '👗', photographer: '📸', personal_assistant: '🗓️', trainer: '💪', lawyer: '⚖️' };
+
+function TeamGroup({ onBack }: { onBack: () => void }) {
+  const chat = useGameStore((s) => s.teamChat);
+  const crew = useGameStore((s) => s.crew);
+  const post = useGameStore((s) => s.postTeamChat);
+  const read = useGameStore((s) => s.readTeamChat);
+  const unread = useGameStore((s) => s.teamChatUnread ?? 0);
+  const [text, setText] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+  const msgs = chat ?? [];
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length]);
+  useEffect(() => { if (unread) read(); }, [unread, read]);
+  function send() { if (!text.trim()) return; post(text); setText(''); }
+  const names = (crew ?? []).map((c) => c.npcName.split(' ')[0]).join(', ');
+  return (
+    <div className="flex-1 min-h-0 flex flex-col rounded-[18px] border border-line bg-[#0C0D12] overflow-hidden">
+      <div className="flex items-center gap-3 px-3 py-2.5 border-b border-line bg-card">
+        <button onClick={onBack} className="md:hidden w-9 h-9 rounded-full hover:bg-white/5 text-[18px]" aria-label="Back">←</button>
+        <div className="w-10 h-10 rounded-full bg-rise/15 flex items-center justify-center text-[18px]">👥</div>
+        <div className="min-w-0"><div className="text-[15px] font-semibold text-ink">Team group</div><div className="text-[11px] text-ink3 truncate">You, {names || 'nobody yet'}</div></div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1.5">
+        {msgs.length === 0 && <div className="text-center py-10 text-[13px] text-ink3 px-6">Your team will post updates here as the days go by. Ask about money, beats, posts, your schedule or a case and the right person answers.</div>}
+        {msgs.map((m, i) => {
+          const mine = m.from === 'player';
+          const prev = msgs[i - 1];
+          const grouped = prev && prev.from === m.from;
+          return (
+            <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-2.5')}>
+              <div className={cn('max-w-[84%] sm:max-w-[440px] px-3.5 py-2 text-[14px] leading-snug rl-pop', mine ? 'bg-amber text-black rounded-[18px] rounded-br-[6px]' : 'bg-white/[0.08] text-ink rounded-[18px] rounded-bl-[6px]')}>
+                {!mine && !grouped && <div className="text-[11px] font-semibold text-amber mb-0.5">{ROLE_EMOJI[m.role] ?? '👤'} {m.name.split(' ')[0]} · {m.role.replace(/_/g, ' ')}</div>}
+                {m.text}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef} />
+      </div>
+      <div className="border-t border-line bg-card p-2.5">
+        <div className="flex items-center gap-2">
+          <input className="flex-1 min-w-0 h-11 rounded-full bg-sidebar border border-line px-4 text-[15px] text-ink placeholder:text-ink3 outline-none focus:border-amber" placeholder="Ask your team…" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
+          <button onClick={send} disabled={!text.trim()} className="w-11 h-11 rounded-full bg-amber text-black font-bold text-[16px] disabled:opacity-30 shrink-0" aria-label="Send">➤</button>
+        </div>
+      </div>
     </div>
   );
 }

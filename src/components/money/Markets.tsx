@@ -71,7 +71,7 @@ export function MarketPanel({ kind }: { kind: Kind }) {
           {advisor ? (
             <div className="mt-1"><div className="text-[14px] font-semibold text-ink">{advisor.name}</div><div className="text-[11px] text-ink3">Skill {advisor.skill} · calls on every {kind === 'stock' ? 'stock' : 'coin'}</div></div>
           ) : (
-            <div className="text-[12px] text-ink2 mt-1 leading-snug">No financial advisor. Put an accountant on <b>Financial advisor</b> in Team to get buy/sell calls.</div>
+            <div className="text-[12px] text-ink2 mt-1 leading-snug">No financial advisor. Hire an accountant (Team → Accountants) and put them on <b>Financial advisor</b> to get buy/sell calls.</div>
           )}
         </Card>
       </div>

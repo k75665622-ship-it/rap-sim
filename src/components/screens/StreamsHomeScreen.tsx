@@ -260,7 +260,7 @@ export function StreamsHomeScreen() {
                 <button
                   key={row.songId}
                   onClick={() => openSong(row.songId)}
-                  className="w-full grid grid-cols-[36px_1fr_110px_90px_70px] md:grid-cols-[44px_1fr_180px_120px_110px_90px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
+                  className="w-full grid grid-cols-[28px_minmax(0,1fr)_56px_64px] md:grid-cols-[44px_1fr_180px_120px_110px_90px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
                 >
                   <span className="text-[17px] font-bold text-ink num text-right pr-1">{position}</span>
                   <span className="flex items-center gap-3 min-w-0">
@@ -279,6 +279,7 @@ export function StreamsHomeScreen() {
                       <span className="hidden md:block text-[11px] text-ink3 truncate">
                         {genreLabel(row.genre)}
                       </span>
+                      <span className="md:hidden block text-[11px] text-ink3 truncate">{row.artistName}</span>
                     </span>
                   </span>
                   <span className="hidden md:block text-[13px] text-ink2 truncate">{row.artistName}</span>
@@ -398,7 +399,7 @@ function AlbumTable({
         <button
           key={a.id}
           onClick={() => onOpen(a.artistId)}
-          className="w-full grid grid-cols-[36px_1fr_90px] md:grid-cols-[44px_1fr_180px_90px_120px_110px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
+          className="w-full grid grid-cols-[28px_minmax(0,1fr)_72px] md:grid-cols-[44px_1fr_180px_90px_120px_110px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
         >
           <span className="text-[17px] font-bold text-ink num text-right pr-1">{i + 1}</span>
           <span className="flex items-center gap-3 min-w-0">
@@ -456,7 +457,7 @@ function ArtistTable({
         <button
           key={a.id}
           onClick={() => onOpen(a.id)}
-          className="w-full grid grid-cols-[36px_1fr_90px] md:grid-cols-[44px_1fr_180px_120px_110px_90px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
+          className="w-full grid grid-cols-[28px_minmax(0,1fr)_72px] md:grid-cols-[44px_1fr_180px_120px_110px_90px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
         >
           <span className="text-[17px] font-bold text-ink num text-right pr-1">{i + 1}</span>
           <span className="flex items-center gap-3 min-w-0">
@@ -505,7 +506,7 @@ function NewTable({
         <button
           key={r.s.id}
           onClick={() => (r.isPlayer ? onOpenSong(r.s.id) : onOpenArtist(r.s.ownerId ?? ''))}
-          className="w-full grid grid-cols-[36px_1fr_90px] md:grid-cols-[44px_1fr_180px_120px_110px_90px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
+          className="w-full grid grid-cols-[28px_minmax(0,1fr)_72px] md:grid-cols-[44px_1fr_180px_120px_110px_90px] items-center gap-3 px-3 h-14 border-t border-line/60 hover:bg-cardhover transition-colors text-left"
         >
           <span className="text-[17px] font-bold text-ink num text-right pr-1">{i + 1}</span>
           <span className="flex items-center gap-3 min-w-0">

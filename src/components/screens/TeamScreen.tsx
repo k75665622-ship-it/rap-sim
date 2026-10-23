@@ -1,4 +1,5 @@
 import { MomentCard } from '../moments/MomentCard';
+import { takeTeamFocus } from '../teamFocus';
 import { ManagerDesk } from '../moments/ManagerDesk';
 // ─── TEAM & MANAGEMENT ─────────────────────────────────────────────────────
 //
@@ -73,7 +74,7 @@ export function TeamScreen() {
   const openSong = useGameStore((s) => s.openSong);
   const moments = useGameStore((s) => s.moments);
 
-  const [roleFilter, setRoleFilter] = useState<NPCRole | 'all'>('all');
+  const [roleFilter, setRoleFilter] = useState<NPCRole | 'all'>(() => takeTeamFocus() ?? 'all');
   const [query, setQuery] = useState('');
   const [flash, setFlash] = useState<TeamActionResult | null>(null);
   const [confirmFire, setConfirmFire] = useState<string | null>(null);

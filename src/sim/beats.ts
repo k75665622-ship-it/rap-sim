@@ -149,7 +149,7 @@ export function storeCatalogue(opts: { producers: NPC[]; genre: Genre; country: 
 
 /** How often a team member sends a beat, in days. */
 export function dropInterval(role: string, beatSpeed: number): number {
-  const base = role === 'producer' ? 4 : 8;
+  const base = role === 'producer' ? 9 : 8;
   return Math.max(2, Math.round(base / beatSpeed));
 }
 
@@ -158,8 +158,8 @@ export function teamBeat(opts: { memberId: string; npcId: string; npcName: strin
   const { npcId, npcName, role, skill, genre, serial, roll } = opts;
   const seed = `team|${npcId}|${serial}`;
   // Engineers make cleaner, safer beats; producers swing wider.
-  const spread = role === 'producer' ? 18 : 10;
-  const quality = Math.round(clamp(skill - (role === 'producer' ? 0 : 6) + (roll - 0.5) * spread, 20, 98));
+  const spread = role === 'producer' ? 16 : 10;
+  const quality = Math.round(clamp(skill + (role === 'producer' ? 3 : -6) + (roll - 0.5) * spread, 20, 98));
   return {
     id: `beat:${seed}`,
     name: beatName(seed),

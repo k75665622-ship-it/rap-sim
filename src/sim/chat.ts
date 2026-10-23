@@ -160,6 +160,37 @@ function isRealName(npc: NPC): boolean {
   return isRealId(npc.id);
 }
 
+const first = (n: string) => n.split(' ')[0];
+
+/**
+ * The people who read a big name's DMs. It's their manager who answers — a
+ * fictional staffer, never the artist: busy, polite, professional, and quick
+ * to tell you where business goes.
+ */
+function managerReply(npc: NPC, intent: ChatIntent, ctx: ChatContext, score: number, roll: number, message: string): ChatReply {
+  const gap = npc.fame - ctx.playerFame;
+  const answerChance = Math.max(0.6, Math.min(0.97, 0.9 - Math.max(0, gap) / 200 + score / 250));
+  if (intent === 'insult') return { text: null, relationship: -3, note: 'Seen. Nobody is going to answer that.' };
+  if (roll > answerChance) return { text: null, relationship: 0, note: `Seen. ${first(npc.name)}'s manager hasn't got back to you yet.` };
+  const n = first(npc.name);
+  const pickOne = (xs: string[]) => xs[hashString(`${ctx.seed}|${npc.id}|${message.length}`) % xs.length];
+  const by: Partial<Record<ChatIntent, string[]>> = {
+    greet: [`Hi, this is ${n}'s manager. What can I do for you?`, `Hey! You've reached ${n}'s manager. Is it business?`],
+    compliment: [`Appreciate that — I'll make sure ${n} sees it 🙏🏾`, `That means a lot, thank you. I'll pass it on.`],
+    collab: [`Send me the record and I'll put it in front of ${n} this week. No promises — we get a lot of these — but I do listen.`, `If it's a feature, send the song here (use the 🎵 button) and tell me what you're thinking. I'll come back with an answer.`],
+    show: [`Bookings go through the agency. Send me the dates, the venue and the budget and I'll check ${n}'s calendar.`, `What's the date, the city and the budget? I'll see if it fits the schedule.`],
+    sign: [`We don't talk deals over DM. If you're serious, send a proper pitch — numbers, plan, what you bring.`],
+    money: [`I can't help with that one.`, `That's not something we do, sorry.`],
+    flirt: [`Please keep it professional.`],
+    apology: [`No problem, all good.`],
+    question: [`Let me find out and get back to you.`, `I'll check with ${n} and come back to you.`],
+    other: [`Got it, thanks. I'll pass it on.`, `Noted. If there's something specific you need, tell me and I'll see what I can do.`],
+  };
+  const pool = by[intent] ?? by.other!;
+  const rel = intent === 'compliment' ? 1 : intent === 'flirt' || intent === 'money' ? -1 : 0;
+  return { text: `📨 ${n}'s manager: ${pickOne(pool)}`, relationship: rel };
+}
+
 export function chatReply(npc: NPC, message: string, ctx: ChatContext, roll: number): ChatReply {
   const intent = detectIntent(message);
   const t = traitsOf(npc);
@@ -171,10 +202,7 @@ export function chatReply(npc: NPC, message: string, ctx: ChatContext, roll: num
   if (ctx.sentToday === 3) return { text: arche === 'street' ? 'Bro chill 😂 I\'ll hit you back' : 'I\'ll get back to you — busy day.', relationship: -1 };
 
   // Real artists: their team reads the DMs.
-  if (isRealName(npc)) {
-    if (roll < 0.85 || score < 30) return { text: null, relationship: 0, note: 'Delivered. Their team manages their messages.' };
-    return { text: '[Their team] Thanks for reaching out — we\'ve passed this along.', relationship: 1 };
-  }
+  if (isRealName(npc)) return managerReply(npc, intent, ctx, score, roll, message);
 
   // Busy people answer the people they know.
   const gap = npc.fame - ctx.playerFame;

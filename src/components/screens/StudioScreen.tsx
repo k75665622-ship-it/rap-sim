@@ -570,6 +570,8 @@ export function StudioScreen() {
   const [mixDialog, setMixDialog] = useState<string | null>(null);
   const [mixResult, setMixResult] = useState<MixResult | null>(null);
   const [releaseDialog, setReleaseDialog] = useState<string | null>(null);
+  const [videoLater, setVideoLater] = useState(false);
+  const videosAll = useGameStore(s => s.videos);
   const [marketing, setMarketing] = useState(0);
   // Which platforms the record is delivered to. Everything, until the player
   // says otherwise — skipping a platform is a real decision, not a default.
@@ -884,9 +886,10 @@ export function StudioScreen() {
     // something. Delivering everywhere is the default and stays `undefined`,
     // which is also what every record already in the world carries.
     const ids = releasePlatforms.length === PLATFORM_LIST.length ? undefined : releasePlatforms;
-    releaseMaster(releaseDialog, marketing, ids);
+    releaseMaster(releaseDialog, marketing, ids, videoLater ? [] : undefined);
     setReleaseDialog(null);
-  }, [releaseDialog, releaseMaster, marketing, releasePlatforms]);
+    setVideoLater(false);
+  }, [releaseDialog, releaseMaster, marketing, releasePlatforms, videoLater]);
 
   // How much of the world's listening the chosen delivery list actually
   // reaches. Computed from the engine's own platform weights rather than a
@@ -2100,6 +2103,16 @@ export function StudioScreen() {
               Once it is out you cannot take it back. Pick where it goes, and set a budget if you
               want to push it.
             </p>
+
+            {(videosAll ?? []).some(v => v.isPlayer && v.songId === releaseSong.id && v.awaitingRelease && !v.removed) && (
+              <div className="rounded-xl border border-gray-700 bg-gray-800/40 p-3 mb-4">
+                <div className="text-xs text-gray-300 font-semibold mb-1.5">🎬 You've shot a video for this record</div>
+                <div className="flex gap-2">
+                  <button onClick={() => setVideoLater(false)} className={`flex-1 text-xs px-2 py-2 rounded-lg border ${!videoLater ? 'border-yellow-500 bg-yellow-500/10 text-white' : 'border-gray-700 text-gray-400'}`}>Release it with the song</button>
+                  <button onClick={() => setVideoLater(true)} className={`flex-1 text-xs px-2 py-2 rounded-lg border ${videoLater ? 'border-yellow-500 bg-yellow-500/10 text-white' : 'border-gray-700 text-gray-400'}`}>Hold it for later</button>
+                </div>
+              </div>
+            )}
 
             {/* ── WHERE IT GOES ──────────────────────────────────────────── */}
             <div className="mb-2 flex items-center justify-between">

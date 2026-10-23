@@ -266,6 +266,10 @@ function VaultRow({
   onDelete: () => void;
 }) {
   const isArchived = !!song.archivedAt;
+  const setScreen = useGameStore((st) => st.setScreen);
+  const selectSong = useGameStore((st) => st.selectSong);
+  const videos = useGameStore((st) => st.videos);
+  const heldVideos = useMemo(() => (videos ?? []).filter((v) => v.isPlayer && v.songId === song.id && !v.removed), [videos, song.id]);
   const isMixed = song.masterStatus === 'mastered';
   const lineage = lineageLabel(song);
   /** Delete asks twice. Everything else on this row can be walked back. */
@@ -369,6 +373,10 @@ function VaultRow({
                 🎚️ Send to Mix
               </Button>
             )}
+            <Button size="sm" variant="secondary" onClick={() => { selectSong(song.id); setScreen('create_video'); }}>
+              {heldVideos.length ? '🎬 Another video' : '🎬 Make a video'}
+            </Button>
+            {heldVideos.length > 0 && <span className="self-center text-[11px] text-green-400">✓ {heldVideos.length} video{heldVideos.length > 1 ? 's' : ''} shot · goes up with the record, or later from Videos</span>}
             <Button
               size="sm"
               variant={song.readyToRelease ? 'secondary' : 'secondary'}

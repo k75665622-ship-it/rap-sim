@@ -70,7 +70,8 @@ export function Sidebar() {
   /** The result of the last sleep, so the control answers back. */
   const [restNotice, setRestNotice] = useState<string | null>(null);
 
-  const totalUnread = Object.values(dmThreads).reduce((sum, t) => sum + t.unread, 0);
+  const teamUnreadN = useGameStore((s) => s.teamChatUnread ?? 0);
+  const totalUnread = Object.values(dmThreads).reduce((sum, t) => sum + t.unread, 0) + teamUnreadN;
   const unreadMail = mailbox.filter((m) => !m.read).length;
   // Things at the label waiting on the player: records to fund, demands,
   // poaching and disputes, and talks about to lapse.

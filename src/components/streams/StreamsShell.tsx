@@ -160,7 +160,7 @@ export function StreamsShell({
       {/* ── Centre column ────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0">
         {/* Top bar: search + country + icons. */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-4">
           <button
             onClick={() => setNavOpen(true)}
             className="lg:hidden w-10 h-10 shrink-0 rounded-[12px] bg-card border border-line flex items-center justify-center text-ink2"
@@ -169,7 +169,7 @@ export function StreamsShell({
             <IconTrend size={18} />
           </button>
 
-          <div className="relative flex-1 min-w-0">
+          <div className="relative order-last basis-full md:order-none md:basis-0 flex-1 min-w-0">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink3 pointer-events-none">
               <IconSearch size={16} />
             </span>

@@ -33,6 +33,8 @@ function useNow(): number {
   return useGameStore((s) => Math.floor(nowMinuteOf(s) / 3) * 3);
 }
 
+function hashStr(s: string): number { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return x >>> 0; }
+
 export function SocialScreen({ platform }: { platform: Platform }) {
   const app = (SOCIAL_APPS.includes(platform as SocialApp) ? platform : 'chirp') as SocialApp;
   const meta = APP_META[app];
@@ -126,9 +128,11 @@ export function SocialScreen({ platform }: { platform: Platform }) {
       const c = liveCounts(p, revealed);
       const hours = Math.max(0, revealed - minuteOf(p)) / 60;
       return Math.log10(1 + c.likes + c.views / 12 + c.comments * 3) - hours * (app === 'chirp' ? 0.12 : 0.06)
-        + (followSet.has(p.authorId) ? 0.6 : 0) + (p.isPlayerPost && hours < 6 ? 1.5 : 0) + (p.viral ? 1 : 0);
+        + (followSet.has(p.authorId) ? 0.6 : 0) + (p.isPlayerPost && hours < 6 ? 1.5 : 0) + (p.viral ? 1 : 0)
+        // A real timeline is mostly ordinary people: lift them so stars don't crowd everyone out.
+        + (p.authorId.startsWith('fan:') ? 0.55 : 0) + ((hashStr(p.id) % 100) / 100) * 0.5;
     };
-    return list.slice(0, 90).map((p) => ({ p, s: score(p) })).sort((a, b) => b.s - a.s).map((x) => x.p).slice(0, app === 'clip' ? 30 : 60);
+    return list.slice(0, 160).map((p) => ({ p, s: score(p) })).sort((a, b) => b.s - a.s).map((x) => x.p).slice(0, app === 'clip' ? 30 : 60);
   }, [shownPool, filter, followSet, app, revealed]);
 
   const mentionsCount = (activity ?? []).filter((a) => !a.read && a.minute <= now).length;

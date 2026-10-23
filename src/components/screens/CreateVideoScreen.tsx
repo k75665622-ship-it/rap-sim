@@ -28,13 +28,29 @@ export function CreateVideoScreen() {
 
   // Archived masters are out of the active vault and out of scope here.
   // Released records come first — they are the ones that can go live today.
+  // Newest first, vault masters and fresh releases at the top; the ones that
+  // already have a video drop below the ones that don't.
+  const [search, setSearch] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const videoOf = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const v of state.videos ?? []) if (v.isPlayer && !v.removed) m.set(v.songId, (m.get(v.songId) ?? 0) + 1);
+    return m;
+  }, [state.videos]);
   const songs = useMemo(
     () =>
       state.songs
-        .filter((s) => !s.archivedAt)
-        .sort((a, b) => Number(isSongReleased(b)) - Number(isSongReleased(a))),
-    [state.songs],
+        .map((s, i) => ({ s, i }))
+        .filter(({ s }) => !s.archivedAt)
+        .sort((a, b) => Number(!videoOf.has(b.s.id)) - Number(!videoOf.has(a.s.id)) || Number(!isSongReleased(b.s)) - Number(!isSongReleased(a.s)) || b.i - a.i)
+        .map(({ s }) => s),
+    [state.songs, videoOf],
   );
+  const shownSongs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q ? songs.filter((s) => s.title.toLowerCase().includes(q)) : songs;
+    return showAll || q ? list : list.slice(0, 9);
+  }, [songs, search, showAll]);
 
   // Arriving from a record's page, that record is the one being shot.
   const [songId, setSongId] = useState<string>(songs.find((s) => s.id === state.selectedSongId)?.id ?? songs[0]?.id ?? '');
@@ -159,8 +175,9 @@ export function CreateVideoScreen() {
           {/* ── Record ─────────────────────────────────────────────────── */}
           <section>
             <SectionTitle>Which record?</SectionTitle>
+            {songs.length > 6 && <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search your songs" className="w-full mb-3 h-10 rounded-[10px] bg-card border border-line px-3 text-[14px] text-ink placeholder:text-ink3 outline-none focus:border-amber" />}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {songs.slice(0, 9).map((s) => (
+              {shownSongs.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => {
@@ -184,11 +201,13 @@ export function CreateVideoScreen() {
                       {isSongReleased(s)
                         ? `${compact(s.totalStreams)} streams · Q${Math.round(s.quality)}`
                         : `In the vault · Q${Math.round(s.quality)}`}
+                      {videoOf.has(s.id) ? ` · 🎬 ${videoOf.get(s.id)}` : ' · no video yet'}
                     </span>
                   </span>
                 </button>
               ))}
             </div>
+            {!search && songs.length > 9 && <button onClick={() => setShowAll(!showAll)} className="mt-3 text-[12px] text-amber hover:underline">{showAll ? 'Show fewer' : `Show all ${songs.length} songs`}</button>}
           </section>
 
           {/* ── Guests ─────────────────────────────────────────────────── */}

@@ -666,6 +666,8 @@ export interface DMThread {
   sentToday?: { serial: number; count: number };
   /** Waiting on an AI reply (real ms when asked), for a chat message or a decision. */
   pendingAI?: { since: number; momentId?: string; optionId?: string };
+  /** A mixer who heard your record and named a price; waiting on your yes. */
+  mixOffer?: { songId: string; songTitle: string; fee: number; days: number };
   /** They have stopped answering you until this day serial. */
   mutedUntil?: number;
 }
@@ -2489,6 +2491,9 @@ export interface GameState {
   pendingDMs?: PendingDM[];
   /** Plans on the clock: studio sessions, link-ups. */
   appointments?: Appointment[];
+  /** The group chat with everyone on your payroll. */
+  teamChat?: TeamChatMsg[];
+  teamChatUnread?: number;
   /** The plan happening right now (the modal is open). */
   activeAppointment?: string | null;
   /** Clothes, jewellery, the shop's drops and the wardrobe. */
@@ -2693,4 +2698,17 @@ export interface GameState {
   taxPaidThisYear?: number;
   /** Everything ever paid, for the record. */
   taxPaidLifetime?: number;
+}
+
+
+export interface TeamChatMsg {
+  id: string;
+  /** NPC id of the sender, or 'player'. */
+  from: string;
+  name: string;
+  role: string;
+  text: string;
+  serial: number;
+  /** Real time, for ordering and the "2h" stamp. */
+  at: string;
 }

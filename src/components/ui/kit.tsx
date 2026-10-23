@@ -85,12 +85,12 @@ export function PageTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 mb-5">
-      <div className="min-w-0">
-        <h1 className="text-[28px] font-bold text-ink leading-tight truncate">{children}</h1>
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 mb-5">
+      <div className="min-w-[200px] flex-1">
+        <h1 className="text-[24px] md:text-[28px] font-bold text-ink leading-tight">{children}</h1>
         {subtitle ? <div className="text-[13px] text-ink2 mt-1">{subtitle}</div> : null}
       </div>
-      {action}
+      {action ? <div className="shrink-0 max-w-full">{action}</div> : null}
     </div>
   );
 }

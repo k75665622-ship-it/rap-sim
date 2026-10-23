@@ -416,6 +416,9 @@ import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, 
 import { assignmentsFor, weekOfWork } from '../sim/assignments';
 import { specialSkillOf, crewWithSkill, personaOf } from '../sim/persona';
 import { isSilentOption, playerLine, npcReply, toneOf, followUpFor, outcomeChips } from '../sim/dmVoice';
+import { mixCraft, decideMix } from '../sim/studio';
+import { teamUpdates, teamReply, type Snapshot as TeamSnapshot, type TeamLine } from '../sim/teamChat';
+import { everydayPost, sceneFanPost } from '../sim/everyday';
 import { nearDuplicate, impliedPlan, soundsLikeYes } from '../sim/dmGuard';
 import { replyStorm, fanScream, type BuzzWhere } from '../sim/buzz';
 import { defaultSlot, whenLabel, placeFor, KIND_LABEL, lateness, sceneChoices, resolveScene, noShow, type SceneResult } from '../sim/appointments';
@@ -2495,6 +2498,8 @@ interface GameActions {
   openPlatform: (platformId: string) => void;
   /** Remember the last record a drawer showed, so a refresh restores it. */
   openSong: (songId: string) => void;
+  /** Remember a record for the next page (the video shoot, say) without leaving this one. */
+  selectSong: (songId: string) => void;
   /**
    * Send the player from an artist's profile to the Studio's Features tab with
    * that artist already filtered for. `null` clears the hand-off.
@@ -2556,9 +2561,14 @@ interface GameActions {
    */
   buyGear: (slotId: GearSlotId) => { ok: boolean; message: string };
   /** Hire a producer to mix and master a recorded song. Raises production quality. */
-  mixMasterSong: (songId: string, producerId: string) => MixResult | null;
+  mixMasterSong: (songId: string, producerId: string, deal?: { fee: number }) => MixResult | null;
+  askToMix: (npcId: string, songId: string) => FeatureActionResult;
+  postTeamChat: (text: string) => void;
+  readTeamChat: () => void;
+  answerMixOffer: (npcId: string, accept: boolean) => FeatureActionResult;
   /** Put a recorded master out into the world. */
-  releaseMaster: (songId: string, marketingBudget: number, platformIds?: string[]) => void;
+  /** `withVideos`: ids of shot videos to put up with the record. Omit for all of them; [] to hold them for later. */
+  releaseMaster: (songId: string, marketingBudget: number, platformIds?: string[], withVideos?: string[]) => void;
   /**
    * Bundle released masters into an album or EP.
    *
@@ -6132,6 +6142,40 @@ function fanChatter(state: GameState, npcs: NPC[], serial: number, days: number)
   });
 }
 
+const LIFE_REPLIES = ['😂😂😂', 'Facts', 'Same here 😭', 'Exactly this', 'lol true', 'This is me 😅', 'Amen 🙏🏾', '😭😭', 'Say it louder', 'Not you calling me out', 'Real', 'Why is this so accurate', 'I felt that', 'Eh?? 😂', 'Preach', '💯', 'Tell them!!', 'Me every day', 'No lies detected'];
+
+/** Ordinary people living their lives: the bulk of any real timeline. */
+function everydayFeed(state: GameState, npcs: NPC[], serial: number, days: number, live: boolean): void {
+  const p = state.player;
+  if (!p) return;
+  const minute = gameMinute(state);
+  const month = ((serialToDate(serial).month - 1) % 12 + 12) % 12;
+  const count = live ? 5 + Math.floor(Math.random() * 5) : Math.min(34, Math.round(Math.max(1, Math.min(days, 3)) * (11 + Math.random() * 7)));
+  // The scene's records get talked about by everybody, not just your fans.
+  const hot = (state.npcSongs ?? []).filter((x) => x.ownerId && !isRealId(x.ownerId) && (x.weeksOut ?? 99) <= 6).sort((a, b) => (b.weeklyStreams ?? 0) - (a.weeklyStreams ?? 0)).slice(0, 6);
+  for (let i = 0; i < count; i++) {
+    const at = live ? minute - 3 - Math.floor(Math.random() * 120) : minute + Math.floor(Math.random() * 1300) - 60;
+    const hour = Math.floor((((at % 1440) + 1440) % 1440) / 60);
+    const sceneSong = hot.length && Math.random() < 0.22 ? hot[Math.floor(Math.random() * hot.length)] : undefined;
+    const handle = `@${fanHandle(`${serial}|life|${i}|${Math.floor(Math.random() * 1e6)}`)}`;
+    const base = sceneSong
+      ? sceneFanPost({ title: sceneSong.title, artist: sceneSong.ownerName ?? 'them', seed: `${serial}|${i}|${sceneSong.id}` })
+      : everydayPost({ country: p.country, seed: `${serial}|${i}|${Math.floor(Math.random() * 1e6)}`, hour, month });
+    const post: SocialPost = {
+      id: uuidv4(), platform: base.app, authorId: `fan:${handle}`, authorName: handle, content: base.text, likes: 0, shares: 0, comments: [],
+      timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 12 + Math.floor(Math.random() * 18), daySerial: Math.floor(at / MINUTES_PER_DAY), kind: base.kind,
+      relatedSongId: sceneSong?.id,
+    } as SocialPost;
+    const nC = Math.random() < 0.65 ? 1 + Math.floor(Math.random() * 4) : 0;
+    for (let k = 0; k < nC; k++) {
+      const ch = `@${fanHandle(`${serial}|lc|${i}|${k}|${Math.floor(Math.random() * 1e6)}`)}`;
+      post.comments.push({ id: uuidv4(), authorId: `fan:${ch}`, authorName: ch, content: LIFE_REPLIES[Math.floor(Math.random() * LIFE_REPLIES.length)], likes: Math.floor(Math.random() * 40), timestamp: new Date().toISOString(), tone: 'neutral' });
+    }
+    livenPost(state, post, { npcs, at, minComments: nC, audience: 300 + Math.floor(Math.random() * 4000) });
+    state.socialPosts.unshift(post);
+  }
+}
+
 function pick2<T>(arr: T[], seed: string): T {
   return arr[(hashString(seed) >>> 0) % arr.length];
 }
@@ -6241,6 +6285,7 @@ function scenePosts(state: GameState, npcs: NPC[], _serial: number, days: number
     stories.unshift(npcStory(who, when(), Math.random()));
   }
   if (stories.length > 40) stories.length = 40;
+  everydayFeed(state, npcs, _serial, days, !!opts.live);
   return made;
 }
 
@@ -6808,6 +6853,23 @@ function pushDM(state: GameState, npcId: string, msg: Omit<DMMessage, 'id' | 'np
  * with a number…") is narration — it goes in as a small note, never as a
  * bubble from them.
  */
+/** What a real artist's manager says about a verse — their business, never a quote from them. */
+function managerVoice(who: string, kind: 'free' | 'terms' | 'declined' | 'took' | 'counter' | 'final' | 'off' | 'hold', fee: number, seed: string, song: string): string {
+  const f = `$${Math.round(fee).toLocaleString()}`;
+  const lines: Record<typeof kind, string[]> = {
+    free: [`Good news — ${who} heard "${song}" and is happy to jump on it, no fee. Send the stems.`, `We played "${song}" for ${who}. They're in, as a favour. Send the files over.`],
+    terms: [`We heard "${song}" and ${who} is interested. The fee is ${f} for the verse and they keep their publishing.`, `${who} likes the record. Their rate for this is ${f}. Let me know if you want to go ahead.`, `Thanks for sending "${song}". ${who} can do it for ${f}.`],
+    declined: [`Thanks for sending "${song}". ${who} is going to pass this time — the schedule is full. Keep making music.`, `${who} has passed on this one. Nothing personal, it's just not the right moment.`],
+    took: [`${f} works for us. Send the stems when you're ready.`, `We can do ${f}. I'll tell ${who}.`],
+    counter: [`We can't go that low. ${f} and we have a deal.`, `The best I can do is ${f}.`],
+    final: [`${f} is our final number.`, `That's as low as it goes: ${f}.`],
+    off: [`That offer isn't serious. We're done on this one.`, `We'll leave it there. Good luck with the record.`],
+    hold: [`The number is ${f}.`, `Like I said, ${f}.`],
+  };
+  const list = lines[kind];
+  return `📨 ${who}'s manager: ${list[hashString(seed) % list.length]}`;
+}
+
 function featureVoice(kind: 'free' | 'terms' | 'declined' | 'took' | 'counter' | 'final' | 'off' | 'hold', fee: number, seed: string): string {
   const f = `$${Math.round(fee).toLocaleString()}`;
   const lines: Record<typeof kind, string[]> = {
@@ -8187,7 +8249,7 @@ function deliverBeatOrder(state: GameState, o: BeatOrder, serial: number): void 
   const b = beatsOf(state);
   const npc = state.npcs.find((n) => n.id === o.producerId);
   const crewMember = (state.crew ?? []).find((c) => c.npcId === o.producerId);
-  const skill = crewMember ? crewMember.skill : npc ? producerSkillOf(npc as NPC) : 50;
+  const skill = crewMember ? Math.max(crewMember.skill, npc ? producerSkillOf(npc as NPC) : 0) : npc ? producerSkillOf(npc as NPC) : 50;
   const quality = customBeatQuality(skill, Math.random(), !!o.redoOf);
   const beat: OwnedBeat = {
     id: `beat:order:${o.id}`,
@@ -8215,6 +8277,48 @@ function deliverBeatOrder(state: GameState, o: BeatOrder, serial: number): void 
   state.lastEventLog.unshift(`🎹 ${o.producerName} delivered "${beat.name}"${o.forTitle ? ` for "${o.forTitle}"` : ''} — ${beatGrade(quality)}.`);
 }
 
+function teamSnapshot(state: GameState, serial: number): TeamSnapshot {
+  const p = state.player!;
+  const now = nowMinuteOf(state);
+  const plan = (state.appointments ?? []).filter((a) => a.status === 'confirmed' && a.atMinute > now).sort((a, b) => a.atMinute - b.atMinute)[0];
+  const loan = (state.loans ?? []).filter((l) => l.status === 'active').sort((a, b) => a.nextDue - b.nextDue)[0];
+  const openCase = (state.cases ?? []).find((c) => c.status === 'served' || c.status === 'hearing');
+  const lastPost = Math.max(-999, ...Object.values(state.socialStats ?? {}).map((x) => x.lastPostSerial ?? -999));
+  return {
+    money: p.career.money, energy: p.energy, fame: blendedFame(p), momentum: p.career.momentum ?? 0, serial, minute: now,
+    openOffers: (state.managerDesk ?? []).filter((b) => b.status === 'new').length + (state.moments ?? []).filter((m) => m.status === 'open').length,
+    nextPlan: plan ? { label: `${KIND_LABEL[plan.kind].label.toLowerCase()} with ${plan.npcName.split(' ')[0]}`, inMin: plan.atMinute - now } : undefined,
+    freshBeats: (state.beats?.library ?? []).filter((b) => !b.usedOnSongId).length,
+    unreleased: state.songs.filter((x) => x.masterStatus === 'recorded' || x.masterStatus === 'mixed' || x.masterStatus === 'mastered').filter((x) => !x.archivedAt).length,
+    rentDue: state.home?.due ? { amount: state.home.due.amount, days: Math.max(0, state.home.due.by - serial) } : undefined,
+    loanDue: loan ? { amount: loan.monthly, days: Math.max(0, loan.nextDue - serial) } : undefined,
+    openCase: openCase ? { kind: String(openCase.kind), claim: openCase.claim } : undefined,
+    daysSincePost: lastPost < 0 ? 99 : Math.max(0, serial - lastPost),
+    burn: monthlyBurnOf(state).total,
+  };
+}
+
+function pushTeamLines(state: GameState, lines: TeamLine[], serial: number): void {
+  const list = state.teamChat ?? (state.teamChat = []);
+  for (const l of lines) {
+    list.push({ id: uuidv4(), from: l.from, name: l.name, role: l.role, text: l.text, serial, at: new Date().toISOString() });
+    state.teamChatUnread = (state.teamChatUnread ?? 0) + 1;
+  }
+  if (list.length > 120) list.splice(0, list.length - 120);
+}
+
+/** Once a day the team talks among themselves — news you can use. */
+function teamChatTick(state: GameState, serial: number): void {
+  if (!state.player || !(state.crew ?? []).length) return;
+  const last = state.teamChat?.[state.teamChat.length - 1];
+  if (last && last.serial === serial) return;
+  // Nobody repeats themselves inside a week.
+  const recent = new Map<string, number>();
+  for (const m of state.teamChat ?? []) if (m.from !== 'player') recent.set(m.from, Math.max(recent.get(m.from) ?? -99, m.serial));
+  const fresh = teamUpdates(state, teamSnapshot(state, serial), serial).filter((l) => serial - (recent.get(l.from) ?? -99) >= 6);
+  pushTeamLines(state, fresh, serial);
+}
+
 function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
   const p = state.player;
   if (!p) return;
@@ -8224,10 +8328,10 @@ function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number):
 
   // 1. The team's regular drops.
   for (const c of state.crew ?? []) {
-    if (c.role !== 'producer' && c.role !== 'engineer') continue;
+    // Producers build beats. Engineers mix and master — they don't send beats.
+    if (c.role !== 'producer') continue;
     // What you have them on changes how often they send you one.
     const asg = c.assignment;
-    if (c.role === 'engineer' && asg === 'rentals') continue;
     const factor = (asg === 'placements' ? 2.5 : asg === 'mentor' ? 1.6 : asg === 'beatmaking' ? 0.5 : 1) * (specialSkillOf(c.npcId, c.role, c.skill)?.id === 'fast_hands' ? 0.6 : 1);
     const every = Math.max(2, Math.round(dropInterval(c.role, tier.beatSpeed) * factor));
     const last = b.lastDrop[c.id] ?? c.hiredSerial ?? serial;
@@ -8238,7 +8342,10 @@ function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number):
       // Mostly your lane; now and then something left-field.
       const genre = Math.random() < 0.8 ? p.genre : (['afrobeats', 'hip_hop', 'drill', 'rnb', 'dancehall', 'amapiano'] as Genre[])[Math.floor(Math.random() * 6)];
       const sk = specialSkillOf(c.npcId, c.role, c.skill)?.id;
-      made.push(teamBeat({ memberId: c.id, npcId: c.npcId, npcName: c.npcName, role: c.role, skill: Math.min(100, c.skill + (sk === 'hitmaker' ? 5 : sk === 'golden_ears' ? 3 : 0)), genre, serial: serial - k, roll: Math.random() }));
+      // They make beats as well as they do for anybody else: never below what they'd sell you outside.
+      const them = state.npcs.find((n) => n.id === c.npcId);
+      const ownSkill = them ? Math.max(c.skill, producerSkillOf(them as NPC)) : c.skill;
+      made.push(teamBeat({ memberId: c.id, npcId: c.npcId, npcName: c.npcName, role: c.role, skill: Math.min(100, ownSkill + (sk === 'hitmaker' ? 5 : sk === 'golden_ears' ? 3 : 0)), genre, serial: serial - k, roll: Math.random() }));
     }
     b.library.unshift(...made);
     b.lastDrop[c.id] = serial;
@@ -8352,6 +8459,11 @@ export const useGameStore = create<GameState & GameActions>()(
       set((state) => {
         state.selectedPlatformId = platformId;
         state.screen = 'platform';
+      }),
+
+    selectSong: (songId) =>
+      set((state) => {
+        state.selectedSongId = songId;
       }),
 
     openSong: (songId) =>
@@ -8851,7 +8963,7 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    mixMasterSong: (songId, producerId) => {
+    mixMasterSong: (songId, producerId, deal) => {
       let result: MixResult | null = null;
 
       set((state) => {
@@ -8887,13 +8999,16 @@ export const useGameStore = create<GameState & GameActions>()(
         const producer = (raw(state.npcs) as NPC[]).find(n => n.id === producerId);
         if (!producer) return;
 
-        const skill = producerSkillOf(producer);
+        const onTeam = (state.crew ?? []).find((c) => c.npcId === producer.id);
+        const skill = onTeam ? Math.max(onTeam.skill, producerSkillOf(producer)) : producerSkillOf(producer);
+        const craft = mixCraft(producer.role, skill);
         // Mixing is charged separately from the beat, at a lower rate — you are
-        // buying their ear, not a fresh instrumental.
-        const cost = Math.round(producerFee(skill) * 0.55);
+        // buying their ear, not a fresh instrumental. Your own team does it
+        // for the wage you already pay; a deal in the DMs is whatever was agreed.
+        const cost = deal ? Math.round(deal.fee) : onTeam ? 0 : Math.round(producerFee(skill) * craft.feeMult);
         if (state.player.career.money < cost) return;
-        // A mix session is a day in someone else's room.
-        if (!spendEnergy(state, ENERGY_COSTS.mixMaster)) return;
+        // A mix session is a day in someone else's room (not when it's sent over the wire).
+        if (!deal && !spendEnergy(state, ENERGY_COSTS.mixMaster)) return;
 
         const qualityBefore = song.quality;
         const productionBefore = song.productionQuality ?? 0;
@@ -8909,9 +9024,9 @@ export const useGameStore = create<GameState & GameActions>()(
         // replace sounds and re-track. So their skill raises the CEILING, not
         // just how much of a fixed gap they close. That is what makes hiring a
         // real producer the decision that matters.
-        const skillCeiling = Math.round(skill * 0.95);
+        const skillCeiling = craft.ceiling;
         const target = Math.max(ceilingBefore, skillCeiling);
-        const closingRate = 0.45 + (skill / 100) * 0.55;   // 0.45 .. 1.0
+        const closingRate = craft.closing;
         const productionAfter = Math.round(Math.max(
           productionBefore,
           Math.min(target, productionBefore + (target - productionBefore) * closingRate),
@@ -8944,7 +9059,7 @@ export const useGameStore = create<GameState & GameActions>()(
           ? undefined
           : Math.max(1, Math.min(100, Math.round(song.criticalPotential * ratio)));
 
-        const daysTotal = skill >= 80 ? 5 : skill >= 60 ? 3 : 2;
+        const daysTotal = craft.days;
         const startSerial = dateToSerial(state.gameDate);
 
         const gain = productionAfter - productionBefore;
@@ -9005,7 +9120,105 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    releaseMaster: (songId, marketingBudget, platformIds) =>
+    postTeamChat: (text) =>
+      set((state) => {
+        const p = state.player;
+        const t = text.trim().slice(0, 300);
+        if (!p || !t) return;
+        const serial = dateToSerial(state.gameDate);
+        const list = state.teamChat ?? (state.teamChat = []);
+        list.push({ id: uuidv4(), from: 'player', name: p.artistName, role: 'player', text: t, serial, at: new Date().toISOString() });
+        pushTeamLines(state, teamReply(state as GameState, teamSnapshot(state as GameState, serial), t), serial);
+      }),
+
+    readTeamChat: () =>
+      set((state) => { state.teamChatUnread = 0; }),
+
+    // ─── SEND A RECORD TO SOMEONE WHO MIXES ─────────────────────────────
+    askToMix: (npcId, songId) => {
+      let result: FeatureActionResult = { ok: false, message: 'They are not taking that.' };
+      let book: { fee: number } | null = null;
+      set((state) => {
+        const p = state.player;
+        const npc = state.npcs.find((n) => n.id === npcId);
+        const song = state.songs.find((x) => x.id === songId);
+        if (!p || !npc || !song || isBlocked(state, npcId)) return;
+        const thread = state.dmThreads[npcId] ?? (state.dmThreads[npcId] = { npcId, messages: [], unread: 0 });
+        const mk = (content: string, fromPlayer = false, extra: Partial<DMMessage> = {}) => thread.messages.push({ id: uuidv4(), npcId, fromPlayer, content, timestamp: new Date().toISOString(), read: fromPlayer, ...extra });
+        const crew = (state.crew ?? []).find((c) => c.npcId === npcId);
+        const first = npc.name.split(' ')[0];
+        const eng = npc.role === 'engineer';
+        mk(`Yo ${first} — sending you "${song.title}". Can you ${eng ? 'mix and master' : 'mix'} it for me?`, true, { attachedSongId: song.id, attachedTitle: song.title });
+        if (isRealId(npc.id)) { mk(`📨 ${first}'s manager: Thanks for sending it. ${first} doesn't mix other people's records — but we'll keep you in mind.`); thread.unread += 1; result = { ok: false, message: 'They don\'t take outside mixes.' }; return; }
+        if (song.masterStatus !== 'recorded') { mk(pick3(['That one\'s already out, I can only work on records that haven\'t dropped. Send me the next one.', 'It\'s already released — nothing to mix. What\'s the next record?'], song.id)); thread.unread += 1; result = { ok: false, message: 'Only a record that isn\'t out yet can be mixed.' }; return; }
+        if ((state.workItems ?? []).some((w) => w.kind === 'mix' && (w.payload as MixWork).songId === songId)) { mk('I\'ve already got that one on my desk 😅'); thread.unread += 1; result = { ok: false, message: 'That record is already being mixed.' }; return; }
+        if (thread.mixOffer) { mk('Let\'s finish the one we\'re talking about first.'); thread.unread += 1; return; }
+        const persona = personaOf(npc);
+        const skill = crew ? Math.max(crew.skill, producerSkillOf(npc as NPC)) : producerSkillOf(npc as NPC);
+        const d = decideMix({ role: npc.role, skill, fame: npc.fame, rel: npc.relationshipScore, songQuality: song.quality, playerFame: blendedFame(p), generous: persona.warmth > 0.65, roll: Math.random() });
+        const craft = mixCraft(npc.role, skill);
+        if (crew && d.outcome !== 'declined') {
+          // On your team: it's what you pay them for.
+          mk(pick3([`On it. You'll have it back in ${craft.days} days.`, `Say less — I'll work on it now.`], song.id + 'c'));
+          book = { fee: 0 };
+        } else if (d.outcome === 'declined') {
+          mk(d.why === 'bigger' ? pick3(['Appreciate you sending it, but my books are full. Maybe when we know each other better.', 'I don\'t take outside mixes right now. Respect for the hustle though.'], song.id)
+            : d.why === 'rough' ? pick3(['Honestly it needs more work before it\'s ready for a mix — re-record the vocals and send it back.', 'It\'s not there yet. Tighten the record first, then I\'ll mix it.'], song.id)
+            : pick3(['Slammed this week, can\'t take it. Try me later.', 'Not this week bro, sorry 🙏🏾'], song.id));
+          npc.relationshipScore = Math.max(-100, npc.relationshipScore + (d.why === 'rough' ? 0 : -1));
+          result = { ok: false, message: `${first} passed.` };
+        } else if (d.outcome === 'free') {
+          mk(pick3([`I like this one. Free — you don't owe me anything. Back in ${craft.days} days 🔥`, `For you? No charge. I'll get on it now.`, `Say less. On the house, I want to hear it finished 🙏🏾`], song.id));
+          npc.relationshipScore = Math.min(100, npc.relationshipScore + 3);
+          book = { fee: 0 };
+        } else {
+          thread.mixOffer = { songId, songTitle: song.title, fee: d.fee, days: craft.days };
+          mk(pick3([`I'm down. $${d.fee.toLocaleString()} and it's back to you in ${craft.days} days.`, `Love the record. My rate is $${d.fee.toLocaleString()} for the ${eng ? 'mix and master' : 'mix'}, ${craft.days} days.`, `$${d.fee.toLocaleString()}. I'll do it properly — ${craft.days} days.`], song.id));
+          result = { ok: true, message: `${first} quoted $${d.fee.toLocaleString()}.` };
+        }
+        thread.unread += 1;
+        npc.memoryLog = [...npc.memoryLog.slice(-9), `[Mix] You sent "${song.title}" to be mixed.`];
+      });
+      const b = book as { fee: number } | null;
+      if (b) {
+        const r = get().mixMasterSong(songId, npcId, { fee: b.fee });
+        result = r ? { ok: true, message: r.read } : { ok: false, message: 'Could not book that mix.' };
+      }
+      return result;
+    },
+
+    answerMixOffer: (npcId, accept) => {
+      let result: FeatureActionResult = { ok: false, message: 'That offer has gone.' };
+      const offer = get().dmThreads[npcId]?.mixOffer;
+      if (!offer) return result;
+      if (accept) {
+        const money = get().player?.career.money ?? 0;
+        if (money < offer.fee) return { ok: false, message: `You need $${offer.fee.toLocaleString()} for that.` };
+        const r = get().mixMasterSong(offer.songId, npcId, { fee: offer.fee });
+        set((state) => {
+          const t = state.dmThreads[npcId];
+          if (!t) return;
+          t.mixOffer = undefined;
+          t.messages.push({ id: uuidv4(), npcId, fromPlayer: true, content: pick3(['Deal. Let\'s do it.', 'Bet, go ahead.', 'Locked in 🤝🏾'], offer.songId), timestamp: new Date().toISOString(), read: true });
+          t.messages.push({ id: uuidv4(), npcId, fromPlayer: false, content: r ? pick3(['Got it. I\'ll send it back when it\'s done.', 'Cool, starting now.'], offer.songId + 'a') : 'Something\'s off with that record, send it again?', timestamp: new Date().toISOString(), read: false });
+          t.unread += 1;
+        });
+        result = r ? { ok: true, message: `Booked. Back in ${offer.days} days.` } : { ok: false, message: 'That mix could not be booked.' };
+      } else {
+        set((state) => {
+          const t = state.dmThreads[npcId];
+          if (!t) return;
+          t.mixOffer = undefined;
+          t.messages.push({ id: uuidv4(), npcId, fromPlayer: true, content: pick3(['That\'s too much for me right now, thanks.', 'Let me think about it.'], offer.songId + 'd'), timestamp: new Date().toISOString(), read: true });
+          t.messages.push({ id: uuidv4(), npcId, fromPlayer: false, content: pick3(['No stress. The offer\'s there if you change your mind.', 'All good 🙏🏾'], offer.songId + 'e'), timestamp: new Date().toISOString(), read: false });
+          t.unread += 1;
+        });
+        result = { ok: true, message: 'Passed on the mix.' };
+      }
+      return result;
+    },
+
+    releaseMaster: (songId, marketingBudget, platformIds, withVideos) =>
       set((state) => {
         if (!state.player) return;
         // Retired and putting out music: that's semi-retirement now, not a dead button.
@@ -9141,6 +9354,20 @@ export const useGameStore = create<GameState & GameActions>()(
           category: 'chart',
         });
 
+        // Videos shot while it was in the vault: up with the record, or held for later.
+        const held = (state.videos ?? []).filter((v) => v.isPlayer && v.songId === song.id && v.awaitingRelease && !v.removed);
+        let videoUp = 0;
+        for (const v of held) {
+          v.awaitingRelease = false;
+          if (withVideos && !withVideos.includes(v.id)) continue; // later, from Videos
+          v.status = 'published';
+          v.published = true;
+          v.uploadSerial = dateToSerial(state.gameDate);
+          v.uploadDate = formatGameDate(state.gameDate);
+          song.hasVideo = true;
+          videoUp++;
+        }
+        if (videoUp) state.lastEventLog.unshift(`🎬 The video for "${song.title}" went up with the record.`);
         state.lastEventLog.unshift(`🚀 "${song.title}" is out. Streams start next week.`);
         state.lastEventLog = state.lastEventLog.slice(0, 10);
       }),
@@ -10176,8 +10403,9 @@ export const useGameStore = create<GameState & GameActions>()(
         });
         // Their answer in their words; the read of it as a small note.
         const how = out.refused ? (out.final && out.fee > counter && out.fee < askedBefore ? 'final' : 'off') : out.fee <= counter ? 'took' : out.fee >= askedBefore ? 'hold' : 'counter';
-        if (!isRealId(req.npcId)) thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, content: featureVoice(how, out.fee, `${req.id}|${counter}`), timestamp: new Date().toISOString(), read: false });
-        thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, system: true, content: out.reason, timestamp: new Date().toISOString(), read: true });
+        const realReq = isRealId(req.npcId);
+        thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, content: realReq ? managerVoice(npc.name.split(' ')[0], how, out.fee, `${req.id}|${counter}`, req.songTitle) : featureVoice(how, out.fee, `${req.id}|${counter}`), timestamp: new Date().toISOString(), read: false });
+        if (!realReq) thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, system: true, content: out.reason, timestamp: new Date().toISOString(), read: true });
         thread.unread += 1;
         state.dmThreads[req.npcId] = thread;
 
@@ -11230,7 +11458,7 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         const title = payload.title.trim() || videoTitle(song.title, hashString(`mv|${song.id}`), song.genre);
-        const id = `vid-${song.id}-${nowSerial}`;
+        const id = `vid-${song.id}-${nowSerial}-${(state.videos ?? []).length}`;
         const seed = videoSeed(id);
         const quality = shootQuality({
           directorSkill: director.skill,
@@ -11454,13 +11682,13 @@ export const useGameStore = create<GameState & GameActions>()(
             npc.memoryLog = [...npc.memoryLog.slice(-9), `[DM] You: "${message.slice(0, 50)}"${song ? ` (sent "${song.title}")` : ''}`];
             return;
           }
-          if (song && today < 3) {
+          if (song && today < 3 && !isRealId(npc.id)) {
             const reaction = generateSongReaction(npc, song.title, song.quality);
             replyContent = isRealId(npc.id) ? null : reaction.text;
             relChange = isRealId(npc.id) ? 0 : reaction.relationshipChange;
-            if (replyContent === null) note = 'Delivered. Their team manages their messages.';
+            if (replyContent === null) note = 'Delivered.';
           } else {
-            const reply = chatReply(npc as NPC, message, {
+            const reply = chatReply(npc as NPC, song && isRealId(npc.id) ? `${message} feature` : message, {
               playerFame: state.player ? blendedFame(state.player) : 0,
               sentToday: today,
               beef: activeBeefIds(state).has(npcId),
@@ -17039,7 +17267,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
       const wage = crewWage(npc, npc.role);
       const upfront = hireUpfrontCost(npc, npc.role);
-      const skill = npcSkill(npc);
+      const skill = npc.role === 'producer' || npc.role === 'engineer' ? Math.max(npcSkill(npc), producerSkillOf(npc as NPC)) : npcSkill(npc);
       const serial = dateToSerial(state.gameDate);
       // Their characteristics, frozen onto the record. Deterministic from the
       // id, so this is a cache the tick can fold without the whole roster.
@@ -17066,6 +17294,7 @@ export const useGameStore = create<GameState & GameActions>()(
           morale: 70,
         };
         s.crew.push(member);
+        pushTeamLines(s as GameState, [{ from: npc.id, name: npc.name, role: npc.role, text: pick3([`Glad to be on the team, ${(s.player?.artistName ?? 'boss').split(' ')[0]}. Let's work 🙏🏾`, 'Happy to be here. Tell me what you need first.', `Thanks for the opportunity. I'll post updates here.`], npc.id) }], dateToSerial(s.gameDate));
         const n = s.npcs.find((x) => x.id === npc.id);
         if (n) {
           n.relationshipScore = Math.min(100, n.relationshipScore + 6);
@@ -17854,8 +18083,9 @@ export const useGameStore = create<GameState & GameActions>()(
           // the player's own outgoing message in it.
           if (decision.outcome !== 'ignored') {
             const kind = decision.outcome === 'terms' ? 'terms' : decision.outcome === 'declined' ? 'declined' : 'free';
-            if (!isRealId(req.npcId)) thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, content: featureVoice(kind, decision.fee, req.id), timestamp: new Date().toISOString(), read: false });
-            thread.messages.push({
+            const realFeat = isRealId(req.npcId);
+            thread.messages.push({ id: uuidv4(), npcId: req.npcId, fromPlayer: false, content: realFeat ? managerVoice(req.npcName.split(' ')[0], kind, decision.fee, req.id, req.songTitle) : featureVoice(kind, decision.fee, req.id), timestamp: new Date().toISOString(), read: false });
+            if (!realFeat) thread.messages.push({
               id: uuidv4(),
               npcId: req.npcId,
               fromPlayer: false,
@@ -18681,6 +18911,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // The team's beat drops, commissioned beats arriving, the weekly
         // store, and the studio's monthly bills.
         beatsTick(state, rawNPCs, targetSerial, days);
+        teamChatTick(state, targetSerial);
 
         // ─── MONEY & THE TEAM'S WEEK ──────────────────────────────────
         // Markets move daily; businesses, rent and dividends at the month;

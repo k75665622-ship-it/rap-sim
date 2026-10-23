@@ -3,6 +3,7 @@
 // financial advisor would do with it.
 
 import { useMemo } from 'react';
+import { focusTeamRole } from '../teamFocus';
 import { useGameStore, netWorthOf, advisorOf } from '../../store/gameStore';
 import { adviceFor } from '../../sim/markets';
 import { monthlyRent } from '../../sim/realestate';
@@ -105,7 +106,7 @@ export function Overview({ go }: { go: (t: MoneyTab) => void }) {
             <div className="text-[15px] font-semibold text-ink mt-0.5 truncate">{advisor ? `${advisor.name} · skill ${advisor.skill}` : accountant ? `${accountant.npcName} could do this` : 'Nobody yet'}</div>
           </div>
           {!advisor && accountant && <Button size="sm" onClick={() => assignCrew(accountant.id, 'markets')}>Make them advisor</Button>}
-          {!advisor && !accountant && <Button size="sm" variant="secondary" onClick={() => setScreen('team')}>Hire an accountant</Button>}
+          {!advisor && !accountant && <Button size="sm" variant="secondary" onClick={() => { focusTeamRole('accountant'); setScreen('team'); }}>Hire a financial manager</Button>}
         </div>
         {advisor ? (
           <div className="mt-3 space-y-3">

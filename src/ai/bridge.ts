@@ -3,7 +3,10 @@
 // Everything here is optional and best-effort: if a call fails, the built-in
 // writing takes over and the player never sees an error in the chat.
 
-import { useGameStore, blendedFame, nowMinuteOf } from '../store/gameStore';
+import { useGameStore, blendedFame, nowMinuteOf, teamSnapshotOf } from '../store/gameStore';
+import { charterOf } from '../sim/teamRules';
+import { specialtyOf, managerReach } from '../sim/managerStyle';
+import type { Snapshot as TeamSnapshot } from '../sim/teamChat';
 import { aiActiveFor, callAI as callClaude, parseJSON, mentionsAny, AIError } from '../sim/ai';
 import { personaOf, styleNote } from '../sim/persona';
 import { isSongReleased } from '../sim/release';
@@ -39,6 +42,7 @@ Game actions (only when the conversation clearly leads there):
 - accept_studio / accept_linkup: the player asked to meet and the character agrees. Include the agreed time.
 - offer_collab: the character wants the player on one of their songs.
 - go_quiet: the player was rude or annoying enough that the character stops replying for a while.
+- Only for people on the player's own team, when the player asks them to do their job: make_beat (their producer builds a beat; put the song title in "song" if one was named), mix_song (their engineer mixes a song; "song" = its title), push_shows / push_features / push_deals (their manager focuses on that for a month).
 - none: anything else (most of the time).
 
 Relationship change ("rel"): an integer from -5 to 5. 0 for ordinary chat. Positive when the player is kind, respectful, funny or helpful; negative when rude, needy, spammy or disrespectful.
@@ -105,7 +109,14 @@ export function openBusiness(state: GameState, npc: NPC): string[] {
   const today = dateToSerial(state.gameDate);
   const first = npc.name.split(' ')[0];
   const crew = state.crew.find((c) => c.npcId === npc.id);
-  if (crew) out.push(`${first} is on the player's team as their ${crew.role.replace(/_/g, ' ')}.`);
+  const isMgr = state.contracts.some((c) => c.type === 'management' && c.active && c.npcId === npc.id);
+  if (crew || isMgr) {
+    const role = crew ? crew.role : 'manager';
+    const ch = charterOf(role);
+    out.push(`${first} is on the player's team as their ${role.replace(/_/g, ' ')}. Job: ${ch.purpose} Rules: ${ch.rules.join('; ')}.`);
+    if (isMgr) { const sp = specialtyOf(npc); if (sp) out.push(`${first} is "${sp.label}": ${sp.purpose} Works: ${managerReach(npc).label.toLowerCase()}.`); }
+    out.push(`Team facts: ${teamFacts(teamSnapshotOf(state)).slice(0, 6).join(' ')}`);
+  }
   for (const a of (state.appointments ?? []).filter((x) => x.npcId === npc.id)) {
     const h = ((a.atMinute % 1440) + 1440) % 1440;
     const clock = `${String(Math.floor(h / 60)).padStart(2, '0')}:${String(h % 60).padStart(2, '0')}`;
@@ -159,7 +170,97 @@ function transcript(state: GameState, npcId: string, npcName: string, limit = 14
 
 // ─── CHAT ──────────────────────────────────────────────────────────────────
 
-interface ChatOut { reply: string; rel?: number; action?: string; time?: string }
+interface ChatOut { reply: string; rel?: number; action?: string; time?: string; song?: string }
+
+// ─── THE TEAM GROUP ────────────────────────────────────────────────────────
+
+/** The facts the team may quote, as plain sentences. */
+function teamFacts(s: TeamSnapshot): string[] {
+  const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const out = [
+    `Cash ${usd(s.money)}; monthly living costs ${usd(s.burn)}${s.payroll ? ` plus ${usd(s.payroll)} team wages` : ''}.`,
+    `Energy ${Math.round(s.energy)}/100, fame ${Math.round(s.fame)}/100, momentum ${Math.round(s.momentum)}.`,
+    s.newest ? `Newest release: "${s.newest.title}", ${s.newest.days} days out, ${s.newest.weekly.toLocaleString()} streams this week.` : 'Nothing released yet.',
+    s.vault?.length ? `In the vault (unreleased): ${s.vault.map((v) => `"${v.title}" ${Math.round(v.quality)}/100 (${v.status})`).join(', ')}.` : 'Vault is empty.',
+    `${s.freshBeats} unused beat${s.freshBeats === 1 ? '' : 's'} in the library.`,
+    s.desk?.length ? `On the manager's desk: ${s.desk.join('; ')}.` : 'Nothing waiting on the manager\'s desk.',
+    s.nextPlan ? `Next in the diary: ${s.nextPlan.label} in ${Math.round(s.nextPlan.inMin / 60)}h.` : 'Diary clear.',
+    s.nextShow ? `Next show: ${s.nextShow.label} in ${s.nextShow.days} days.` : '',
+    s.nextAward ? `Next awards: ${s.nextAward.name} in ${s.nextAward.days} days (${s.nextAward.nominated ? `nominated ${s.nextAward.nominated}×` : s.nextAward.entered ? 'entries in' : 'entries NOT in'}).` : '',
+    s.rentDue ? `Rent ${usd(s.rentDue.amount)} due in ${s.rentDue.days} days.` : '',
+    s.loanDue ? `Loan payment ${usd(s.loanDue.amount)} due in ${s.loanDue.days} days.` : '',
+    s.openCase ? `Open court case: ${s.openCase.kind.replace(/_/g, ' ')}, ${usd(s.openCase.claim)}.` : '',
+    `Last social post ${s.daysSincePost >= 99 ? 'never' : `${s.daysSincePost} days ago`}.`,
+    s.policy?.length ? `The player's rules for the team: ${s.policy.join(' ')}` : '',
+  ];
+  return out.filter(Boolean);
+}
+
+function teamRoster(st: GameState): { text: string; codes: { code: string; id: string }[] } {
+  const mgrC = st.contracts.find((c) => c.type === 'management' && c.active);
+  const mgr = mgrC ? st.npcs.find((n) => n.id === mgrC.npcId) : undefined;
+  const people: { npc: NPC; role: string; months?: number; morale?: number }[] = [];
+  if (mgr) people.push({ npc: mgr, role: 'manager' });
+  for (const c of st.crew) { const n = st.npcs.find((x) => x.id === c.npcId); if (n) people.push({ npc: n, role: c.role, months: c.monthsServed, morale: c.morale }); }
+  const codes = people.map((p, i) => ({ code: `T${i + 1}`, id: p.npc.id }));
+  const text = people.map((p, i) => {
+    const ch = charterOf(p.role);
+    const pp = personaOf(p.npc);
+    const sp = p.role === 'manager' ? specialtyOf(p.npc) : null;
+    return `T${i + 1}: ${p.npc.name}, ${p.role.replace(/_/g, ' ')}${sp ? ` ("${sp.label}" — ${sp.tagline.toLowerCase()}, works ${managerReach(p.npc).label.toLowerCase()})` : ''}. Job: ${ch.purpose} Talks about: ${ch.talks}. Rules: ${ch.rules.join('; ')}. ${pp.temperament}; texting style: ${styleNote(pp.style)}${p.months !== undefined ? `; ${p.months} months on the team` : ''}${p.morale !== undefined ? `; morale ${Math.round(p.morale)}/100` : ''}.`;
+  }).join('\n');
+  return { text, codes };
+}
+
+function teamTranscript(st: GameState, limit = 16): string {
+  return (st.teamChat ?? []).slice(-limit).map((m) => `${m.from === 'player' ? st.player?.artistName ?? 'Player' : `${m.name} (${m.role.replace(/_/g, ' ')})`}: ${m.text}`).join('\n') || '(no messages yet)';
+}
+
+const TEAM_NOTE = 'This is the player\'s own team talking in their private group chat. They work FOR the player: loyal, direct, a little informal, and they know their jobs. Each person speaks only about their own job and quotes only numbers from FACTS. Keep each message to one or two short sentences, like real WhatsApp messages. They may @mention each other, agree, disagree or joke, but never invent deals, offers, songs or money that are not in FACTS.';
+
+async function teamChatReply(): Promise<void> {
+  const st = useGameStore.getState();
+  const pending = st.teamChatPending;
+  if (!pending || !st.player) return;
+  const { text: roster, codes } = teamRoster(st);
+  if (!codes.length) { useGameStore.getState().fallbackTeamChat(); return; }
+  const context = `${playerBlock(st)}\n\n${TEAM_NOTE}\n\nTHE TEAM:\n${roster}\n\nFACTS (true right now):\n${teamFacts(teamSnapshotOf(st)).map((f) => `- ${f}`).join('\n')}`;
+  const ask = `Group chat so far (oldest first):\n${teamTranscript(st)}\n\n${st.player.artistName} just wrote: "${pending.text}"\n\nWrite the team's replies: 1 to 3 messages from whoever it concerns (by code). The person whose job it is answers first. If the player asked somebody to do something that is their job, add an action: "make_beat" (producer; "song" = a title if named), "mix_song" (engineer; "song" = the title from the vault), "push_shows" / "push_features" / "push_deals" (manager). Answer as JSON: {"replies":[{"who":"T1","text":"..."}],"actions":[{"who":"T2","do":"mix_song","song":""}]}`;
+  const text = await callClaude({ json: true, feature: 'dms', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 420 });
+  const out = parseJSON<{ replies?: { who: string; text: string }[]; actions?: { who: string; do: string; song?: string }[] }>(text);
+  const names = realNames(st);
+  const idOf = (code: string) => codes.find((c) => c.code === code)?.id;
+  const replies = (out?.replies ?? []).filter((r) => r?.text && idOf(r.who) && !mentionsAny(r.text, names)).map((r) => ({ from: idOf(r.who)!, text: r.text }));
+  if (!replies.length) throw new AIError('Unusable reply', 'bad');
+  const actions = (out?.actions ?? []).filter((a) => a && idOf(a.who) && a.do).map((a) => ({ from: idOf(a.who)!, kind: a.do, song: a.song }));
+  useGameStore.getState().applyAITeamChat({ replies, actions });
+}
+
+let lastChatterDay = -1;
+let lastChatterAt = 0;
+
+/** Once a game day, the team talks among themselves — in their own words. */
+export async function runTeamChatter(): Promise<void> {
+  if (!aiActiveFor('director')) return;
+  const st = useGameStore.getState();
+  if (!st.player || st.teamChatPending) return;
+  const day = Math.floor(nowMinuteOf(st) / 1440);
+  if (day === lastChatterDay || Date.now() - lastChatterAt < 180000) return;
+  const { text: roster, codes } = teamRoster(st);
+  if (!codes.length) return;
+  lastChatterDay = day;
+  lastChatterAt = Date.now();
+  const today = (st.teamChat ?? []).filter((m) => m.serial === dateToSerial(st.gameDate));
+  const context = `${playerBlock(st)}\n\n${TEAM_NOTE}\n\nTHE TEAM:\n${roster}\n\nFACTS (true right now):\n${teamFacts(teamSnapshotOf(st)).map((f) => `- ${f}`).join('\n')}\n\nRecent news: ${st.headlines.slice(0, 3).map((h) => h.text).filter((t) => !mentionsAny(t, realNames(st))).join(' | ') || 'quiet'}`;
+  const ask = `Group chat so far (oldest first):\n${teamTranscript(st, 12)}\n\nIt is ${timeWord(st)}. Write 1 to 3 messages the team posts in the group on their own today: a useful update on their area from FACTS, a heads-up, advice, a reaction to the news, or light banter between two of them. Don't repeat anything already said today${today.length ? ` (${today.length} messages so far today)` : ''}. If nothing is worth saying, return an empty list. Answer as JSON: {"messages":[{"who":"T1","text":"..."}]}`;
+  try {
+    const text = await callClaude({ json: true, feature: 'director', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 360 });
+    const out = parseJSON<{ messages?: { who: string; text: string }[] }>(text);
+    const names = realNames(st);
+    const lines = (out?.messages ?? []).filter((m) => m?.text && codes.some((c) => c.code === m.who) && !mentionsAny(m.text, names)).map((m) => ({ from: codes.find((c) => c.code === m.who)!.id, text: m.text }));
+    if (lines.length) useGameStore.getState().applyAITeamChatter(lines);
+  } catch { /* the built-in updates keep coming */ }
+}
 
 async function chatReply(npcId: string): Promise<void> {
   const st = useGameStore.getState();
@@ -167,7 +268,7 @@ async function chatReply(npcId: string): Promise<void> {
   if (!npc || !st.player) return;
   const context = `${playerBlock(st)}\n\n${npcBlock(st, npc)}`;
   const songs = st.songs.filter((x) => isSongReleased(x)).slice(-4).map((x) => `"${x.title}"`);
-  const ask = `Conversation so far (oldest first):\n${transcript(st, npcId, npc.name, 18)}\n\n${songs.length ? `The player's released songs: ${songs.join(', ')}.\n` : ''}Write ${npc.name}'s next message to ${st.player.artistName}, answering the player's last message directly. One or two short texts' worth. Don't say anything ${npc.name.split(' ')[0]} already said above. Answer as JSON: {"reply": "...", "rel": 0, "action": "none", "time": ""}`;
+  const ask = `Conversation so far (oldest first):\n${transcript(st, npcId, npc.name, 18)}\n\n${songs.length ? `The player's released songs: ${songs.join(', ')}.\n` : ''}Write ${npc.name}'s next message to ${st.player.artistName}, answering the player's last message directly. One or two short texts' worth. Don't say anything ${npc.name.split(' ')[0]} already said above. Answer as JSON: {"reply": "...", "rel": 0, "action": "none", "time": "", "song": ""}`;
   const text = await callClaude({ json: true, feature: 'dms', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 260 });
   const out = parseJSON<ChatOut>(text);
   if (out && typeof out.reply === 'string' && !out.reply.trim()) { useGameStore.getState().applyAIChat(npcId, { ...out, reply: '' }); return; }
@@ -195,6 +296,15 @@ const inFlight = new Set<string>();
 
 export function kickAI(): void {
   const st = useGameStore.getState();
+  // The team group: answered by the AI, or by the built-in team if it can't.
+  const tp = st.teamChatPending;
+  if (tp && !inFlight.has('§team')) {
+    if (Date.now() - tp.since > 30000 || !aiActiveFor('dms')) st.fallbackTeamChat();
+    else {
+      inFlight.add('§team');
+      teamChatReply().catch(() => useGameStore.getState().fallbackTeamChat()).finally(() => inFlight.delete('§team'));
+    }
+  }
   for (const [npcId, t] of Object.entries(st.dmThreads)) {
     if (!t.pendingAI || inFlight.has(npcId)) continue;
     const age = Date.now() - t.pendingAI.since;

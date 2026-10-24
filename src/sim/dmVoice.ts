@@ -104,6 +104,16 @@ const SAY: Record<string, Record<string, string[]>> = {
     swap: ['Verse for a verse. Deal', 'I\'ll jump on yours too. Even trade', 'Bet — send me your track'],
     pay: ['I\'d rather just pay. What\'s the number?', 'Let me just pay you, cleaner', 'Send your fee'],
   },
+  feature_breach: {
+    pay: ['Sending it now. My fault', 'Alright. Payment coming — we good after this'],
+    half: ['I can do half. That\'s fair', 'Meet me halfway on this one'],
+    refuse: ['The record stays as it is', 'I\'m not paying for that'],
+    remove: ['Fine, I\'ll take it off', 'Understood. The verse comes off'],
+    apologise: ['You\'re right. I should have told you first. My bad', 'That one\'s on me. Apologies'],
+    fire: ['A deal\'s a deal both ways. Relax', 'You posted that? Ok. Watch.'],
+    promise: ['It drops in two weeks, on my word', 'Give me two weeks. It\'s coming out'],
+    return: ['Take it back. No hard feelings', 'Fair. The verse is yours'],
+  },
   feature_lead: {
     yes: ['Fine, your name first', 'Cool, lead it', 'Your name first, just make it hard'],
     no: ['It\'s my song. My name first.', 'My record, my name first. Respectfully', 'Nah, my name goes first on my song'],
@@ -178,6 +188,16 @@ const REPLY: Record<string, Record<string, ToneBank>> = {
     yes: { good: ['THANK YOU 🙏🏾 I won\'t let you down', 'You don\'t know what this means to me'], neutral: ['Thank you! I\'ll bring it', 'Appreciate this. Won\'t forget it'], bad: ['Thanks'] },
     no: { good: ['Understood, I\'ll keep working'], neutral: ['No problem, next time maybe', 'Understood. I\'ll keep pushing'], bad: ['Ok. I\'ll remember'] },
   },
+  feature_breach: {
+    pay: { good: ['Appreciate it. We\'re straight now'], neutral: ['Received. We\'re good'], bad: ['Received. Don\'t do it again'] },
+    half: { good: ['Fine. Half and we move'], neutral: ['Ok. Half.'], bad: ['Half? Nah.', 'Insulting.'] },
+    refuse: { good: ['Your call'], neutral: ['Your call. Remember that'], bad: ['Then you\'ll hear from me', 'Ok. Watch what happens'] },
+    remove: { good: ['Respect for handling it right'], neutral: ['Thank you. That\'s all I asked'], bad: ['Should have been like that from the start'] },
+    apologise: { good: ['Appreciate that. We move'], neutral: ['Alright. Apology accepted… this time'], bad: ['Words are cheap'] },
+    fire: { good: ['Oh so that\'s how it is?'], neutral: ['You really want this smoke?'], bad: ['Say less. It\'s on', 'You just made it worse'] },
+    promise: { good: ['Two weeks. I\'m holding you to it'], neutral: ['Two weeks. Not a day more'], bad: ['We\'ll see'] },
+    return: { good: ['Respect. Maybe another time 🤝🏾'], neutral: ['Thanks. Appreciate you being straight'], bad: ['Should have dropped it when you said you would'] },
+  },
   feature_late: {
     wait: { good: ['Appreciate the patience, it\'ll be worth it 🙏🏾'], neutral: ['Thanks, I\'m on it this week', 'Appreciate you. Soon'], bad: ['ok. soon'] },
     chase: { good: ['Fair, sending it this week'], neutral: ['I\'m on it'], bad: ['Don\'t rush me', 'Relax, I\'ll send it when I send it'] },
@@ -242,12 +262,17 @@ export function followUpFor(kind: string, persona: Persona, seed: string): { tex
 }
 
 /** The small grey line under a decision: what it did, without the narration bubble. */
+const statName = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+
 export function outcomeChips(effects: MomentEffect[], npcName?: string): string[] {
   const out: string[] = [];
+  let relDone = false;
   for (const e of effects) {
     switch (e.k) {
       case 'money': out.push(`${e.v >= 0 ? '+' : '−'}$${Math.abs(e.v).toLocaleString()}`); break;
-      case 'rel': out.push(`${npcName ? npcName.split(' ')[0] : 'Them'} ${e.v >= 0 ? '+' : ''}${e.v}`); break;
+      case 'rel': if (!relDone) { relDone = true; out.push(`${npcName ? npcName.split(' ')[0] : 'Them'} ${e.v >= 0 ? '+' : ''}${e.v}`); } break;
+      case 'stat': if (e.v >= 0.2) out.push(`📈 ${statName(e.stat)} +${Math.round(e.v * 10) / 10}`); break;
+      case 'cypher': out.push('🗓️ In your diary'); break;
       case 'reputation': out.push(`Reputation ${e.v >= 0 ? '+' : ''}${e.v}`); break;
       case 'momentum': out.push(`Momentum ${e.v >= 0 ? '+' : ''}${e.v}`); break;
       case 'fame': out.push(`Fame ${e.v >= 0 ? '+' : ''}${e.v}`); break;
@@ -263,5 +288,6 @@ export function outcomeChips(effects: MomentEffect[], npcName?: string): string[
     }
   }
   const where = out.filter((c) => /^(🎹|🎙️|📬|🗓️|🎁)/.test(c));
-  return [...where, ...out.filter((c) => !where.includes(c))].slice(0, 4);
+  const grew = out.filter((c) => c.startsWith('📈')).slice(0, 2);
+  return [...where, ...grew, ...out.filter((c) => !where.includes(c) && !c.startsWith('📈'))].slice(0, 5);
 }

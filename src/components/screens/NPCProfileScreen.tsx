@@ -15,6 +15,7 @@ import { getCountryNameList } from '../../data/locations';
 import { ENERGY_COSTS } from '../../sim/energy';
 import { dateToSerial } from '../../sim/gameClock';
 import { crewWage, hireCheck, hireUpfrontCost, managerEffectLine, managerNetwork, npcCV, roleSpec, traitsFor } from '../../sim/roles';
+import { specialtyOf, managerReach } from '../../sim/managerStyle';
 import type { TeamActionResult } from '../../sim/roles';
 import { HIDDEN_TRAITS, VISIBLE_TRAITS } from '../../sim/traits';
 import { IconVerified } from '../icons';
@@ -329,7 +330,7 @@ export function NPCProfileScreen() {
                 <div className="space-y-1.5 mb-3">{cv.credits.map((c, i) => <div key={i} className="flex gap-3 text-[12px]"><span className="text-ink3 num w-10 shrink-0">{c.year}</span><span className="text-ink2">{c.text}</span></div>)}</div>
                 <div className="flex flex-wrap gap-1.5">{cv.strengths.map((s2) => <Chip key={s2} cls="bg-[#7B61FF]/15 text-[#A78BFA]">{s2}</Chip>)}</div>
                 <p className="text-[12px] text-ink3 mt-3 italic">{cv.verdict}</p>
-                {selected.role === 'manager' && <div className="mt-3 rounded-[10px] bg-white/[0.04] px-3 py-2 text-[12px]"><div className="flex justify-between"><span className="text-ink3">Manager network</span><span className="text-ink font-bold">{managerNetwork(selected)}/100</span></div><div className="text-ink3 mt-1">{managerEffectLine(selected)}</div></div>}
+                {selected.role === 'manager' && <div className="mt-3 rounded-[10px] bg-white/[0.04] px-3 py-2 text-[12px]"><div className="flex justify-between"><span className="text-ink3">Manager network</span><span className="text-ink font-bold">{managerNetwork(selected)}/100</span></div><div className="text-ink3 mt-1">{managerEffectLine(selected)}</div>{(() => { const sp = specialtyOf(selected); return sp ? <div className="mt-2"><div className="text-ink font-semibold">{sp.emoji} {sp.label} <span className="text-ink3 font-normal">· {managerReach(selected).label}</span></div><div className="text-ink3 mt-0.5">{sp.purpose}</div><div className="text-ink3 mt-0.5">Weak spot: {sp.weakness}</div></div> : null; })()}</div>}
               </Section>
             )}
           </>

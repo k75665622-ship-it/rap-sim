@@ -3,6 +3,7 @@ import { useGameStore, blendedFame } from '../../store/gameStore';
 import type { ShowType } from '../../types/game';
 import {
   SHOW_CITIES,
+  orderCountries,
   venuesInCity,
   venueLockReason,
   accessTier,
@@ -46,16 +47,17 @@ export function ShowsScreen() {
   const [venueId, setVenueId] = useState<string | null>(null);
   const [showType, setShowType] = useState<ShowType>('local_club');
   // Open on the room's FAIR price, not an arbitrary $20 — see the plan card.
-  const [price, setPrice] = useState(() => (player ? perceivedTicketPrice(blendedFame(player)) : 20));
+  const [price, setPrice] = useState(() => (player ? perceivedTicketPrice(blendedFame(player), player.country) : 20));
   const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
   /** Plan one night, watch what is on sale, or run a tour. */
   const [mode, setMode] = useState<'plan' | 'upcoming' | 'offers' | 'tour'>('plan');
   /** The night the player wants to announce. Null means the earliest open one. */
   const [pickedSerial, setPickedSerial] = useState<number | null>(null);
 
+  // Home first, then your continent, then the world.
   const countries = useMemo(
-    () => Array.from(new Set(SHOW_CITIES.map((c) => c.country))),
-    [],
+    () => orderCountries(Array.from(new Set(SHOW_CITIES.map((c) => c.country))), player?.country ?? 'Ghana'),
+    [player?.country],
   );
   const cities = useMemo(
     () => SHOW_CITIES.filter((c) => c.country === country).map((c) => c.city),
@@ -72,7 +74,7 @@ export function ShowsScreen() {
     ?? openable[openable.length - 1]
     ?? venues[0];
 
-  const fair = perceivedTicketPrice(blendedFame(player));
+  const fair = perceivedTicketPrice(blendedFame(player), venue?.country ?? country);
   const maxPrice = Math.max(40, Math.round(fair * 3 / 5) * 5);
 
   const preview = planShowAt(venue.id, price);

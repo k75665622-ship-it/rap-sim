@@ -17,6 +17,8 @@
 //     and it is capped — pushing a fourth time ends the conversation.
 //   · Silence is a real outcome and is reported as silence, not as a refusal.
 
+import { CONDITION_LABEL } from '../../sim/featureTerms';
+import { serialToDate, formatGameDate } from '../../sim/gameClock';
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../ui/Card';
 import { cn } from '@/utils/cn';
@@ -77,6 +79,16 @@ export function FeatureRequestRow({
             <span className="text-gray-500 font-normal"> · "{request.songTitle}"</span>
           </div>
           <div className="text-xs text-gray-400 mt-0.5 leading-snug">{request.reason}</div>
+          {(request.conditions ?? []).length > 0 && (
+            <div className="mt-1.5 space-y-0.5">
+              {request.conditions!.map((c) => (
+                <div key={c.kind} className="text-[11px] text-amber-300 leading-snug">📜 {CONDITION_LABEL[c.kind]}{c.rivalNames?.length ? ` (${c.rivalNames.join(', ')})` : c.fameCap ? ` (nobody above ${c.fameCap} fame)` : c.bySerial ? ` (out by ${formatGameDate(serialToDate(c.bySerial))})` : ''}</div>
+              ))}
+            </div>
+          )}
+          {(request.breaches ?? []).filter((b) => !b.settled).map((b, i) => (
+            <div key={i} className="text-[11px] text-red-300 mt-1">⚠️ Broken: {b.text}</div>
+          ))}
         </div>
         {status === 'sent' && (
           <span className="text-[11px] text-gray-500 shrink-0">due {request.dueDate}</span>

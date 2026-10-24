@@ -58,6 +58,11 @@ export const ASSIGNMENTS: Record<string, Assignment[]> = {
     { id: 'yours', label: 'Your songs', emoji: '✍️', blurb: 'Songwriting and lyricism every week.' },
     { id: 'pitch', label: 'Write for others', emoji: '💵', blurb: 'Sells songs to other artists — weekly income.' },
   ],
+  dj: [
+    { id: 'spins', label: 'Club spins', emoji: '💿', blurb: 'Plays your records in the clubs every week — local fame and momentum.' },
+    { id: 'mixtape', label: 'DJ mixtapes', emoji: '📼', blurb: 'Puts your songs on his mixtapes and online sets — followers grow.' },
+    { id: 'hype', label: 'Hypeman', emoji: '📢', blurb: 'Rides with you to shows and runs the crowd — stage presence and charisma.' },
+  ],
   vocal_coach: [
     { id: 'voice', label: 'Your voice', emoji: '🎤', blurb: 'Vocals and delivery every week.' },
     { id: 'live', label: 'Live shows', emoji: '🔥', blurb: 'Performance every week.' },
@@ -82,6 +87,8 @@ export interface WorkResult {
   followers?: number;
   /** Posts the social media manager puts up for you this week. */
   posts?: number;
+  /** Local fame (club spins). */
+  fame?: number;
   line: string;
 }
 
@@ -154,6 +161,9 @@ function baseWeek(role: string, assignment: string | undefined, skill: number, m
     case 'songwriter:pitch': { const m = Math.round((140 + skill * 16) * (0.6 + morale / 200)); return { money: m, line: `${n} sold a song to another artist: $${m.toLocaleString()}.` }; }
     case 'vocal_coach:live': return { stats: { performance: 0.45 * q }, line: `${n} drilled your live vocals.` };
     case 'vocal_coach:freestyle': return { stats: { freestyle: 0.55 * q }, line: `${n} ran freestyle drills with you.` };
+    case 'dj:spins': { const v = Math.round((0.2 + q * 0.6) * 10) / 10; return { momentum: Math.max(1, Math.round(q * 2)), fame: v, line: `${n} ran your records in the clubs all week (+${v} local fame).` }; }
+    case 'dj:mixtape': { const f = Math.round((50 + ctx.fame * 14) * (0.5 + q)); return { followers: f, line: `${n} put you on a mixtape set (+${f.toLocaleString()} followers).` }; }
+    case 'dj:hype': return { stats: { stagePresence: 0.3 * q, charisma: 0.2 * q }, line: `${n} rehearsed the crowd moments with you.` };
     default: return { line: `${n}: ${a.label.toLowerCase()}.` };
   }
 }

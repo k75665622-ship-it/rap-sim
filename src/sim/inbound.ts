@@ -143,6 +143,15 @@ export interface InboundGenerationInput {
   weeksElapsed: number;
   /** 0..1, injected. */
   roll: number;
+  /**
+   * A connected manager's pull: added to the weekly chance, and it opens the
+   * door to bigger names (see `sim/managerStyle.ts`). 0 without one.
+   */
+  pull?: number;
+  /** How far above the player a manager can bring somebody, in fame points. */
+  reachUp?: number;
+  /** A manager who works abroad brings asks from other countries. */
+  abroadOk?: boolean;
 }
 
 export interface InboundGenerationResult {
@@ -183,7 +192,7 @@ export function generateInboundAsk(
   // payroll run — and then scaled by how much time the tick actually covered.
   const base = clamp01((standing - 20) / 130);
   const heatBonus = recentHeat >= 70 ? 0.16 : recentHeat >= 55 ? 0.08 : 0;
-  const weekly = Math.min(0.30, base + heatBonus);
+  const weekly = Math.min(0.42, Math.min(0.30, base + heatBonus) + (input.pull ?? 0));
   const chance = Math.min(0.85, weekly * Math.max(0, weeksElapsed));
   if (roll > chance) return { npc: null, reason: '', heat: 0 };
 
@@ -210,14 +219,14 @@ export function generateInboundAsk(
             // A genuine reach — rare, and it needs a reason: they know you,
             // you're from the same scene, or your record is everywhere. A
             // global star doesn't DM an unknown from another country.
-            ? (gap > 40 && (n.relationshipScore ?? 0) < 40 && recentHeat < 80) || (n.country !== input.playerCountry && recentHeat < 70 && (n.relationshipScore ?? 0) < 30)
+            ? (gap > 40 + (input.reachUp ?? 0) * 0.5 && (n.relationshipScore ?? 0) < 40 && recentHeat < 80) || (n.country !== input.playerCountry && !input.abroadOk && recentHeat < 70 && (n.relationshipScore ?? 0) < 30)
               ? 0
-              : 0.15
+              : 0.15 + (input.pull ?? 0) * 1.5
             : gap >= -35
               ? 0.45 // a step below you
               : 0.12; // far below, and they know they cannot pay you
     const genreWeight = n.genre === input.playerGenre ? 1.35 : 0.7;
-    const homeWeight = n.country === input.playerCountry ? 1.15 : 1;
+    const homeWeight = n.country === input.playerCountry ? 1.15 : input.abroadOk ? 1.1 : 1;
     const relWeight = 1 + clamp01((n.relationshipScore ?? 0) / 100) * 0.6;
     return { npc: n, w: gapWeight * genreWeight * homeWeight * relWeight };
   });

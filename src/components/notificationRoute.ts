@@ -9,6 +9,8 @@ export function openNotificationAction(a: NonNullable<GameNotification['action']
   const st = useGameStore.getState();
   if (a.type === 'artist') st.selectNPC(a.id);
   if (a.type === 'features') { st.openStudioAt('guest'); return; }
+  if (a.type === 'chat') { st.selectNPC(a.id); st.setScreen('pingchat'); return; }
+  if (a.type === 'team') { st.setScreen('team'); return; }
   const to: Record<string, GameScreen> = {
     chart: 'charts', platform: 'streaming', video: 'watch', inbound: 'mailbox', artist: 'npc_profile',
     court: 'court', awards: 'awards', home: 'lifestyle', song: 'studio',

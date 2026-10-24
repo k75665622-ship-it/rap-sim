@@ -18,6 +18,7 @@ import { useGameStore, blendedFame, type TourStop } from '../../store/gameStore'
 import { Card, Button } from '../ui/Card';
 import {
   SHOW_CITIES,
+  orderCountries,
   venuesInCity,
   venueLockReason,
   perceivedTicketPrice,
@@ -44,7 +45,7 @@ export function TourPlanner() {
   const [stops, setStops] = useState<TourStop[]>([]);
   const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const countries = useMemo(() => Array.from(new Set(SHOW_CITIES.map((c) => c.country))), []);
+  const countries = useMemo(() => orderCountries(Array.from(new Set(SHOW_CITIES.map((c) => c.country))), player?.country ?? 'Ghana'), [player?.country]);
   const cities = useMemo(
     () => SHOW_CITIES.filter((c) => c.country === country).map((c) => c.city),
     [country],
@@ -59,7 +60,7 @@ export function TourPlanner() {
   // One price for the run, opened on the fair price for this artist. A run is
   // priced once because a tour that charges $80 in Lagos and $12 in Accra is a
   // different mistake in every city, and the planner already warns per leg.
-  const fair = perceivedTicketPrice(fame);
+  const fair = perceivedTicketPrice(fame, country);
 
   const preview = stops.length ? planTourAt(stops) : null;
   const plan = preview?.plan;

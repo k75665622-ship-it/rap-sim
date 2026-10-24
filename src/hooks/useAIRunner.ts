@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import { useGameStore, nowMinuteOf } from '../store/gameStore';
 import { aiSettings } from '../sim/ai';
-import { kickAI, runDirector, runFeed, commentsForPost, interviewFollowUp } from '../ai/bridge';
+import { kickAI, runDirector, runFeed, runTeamChatter, commentsForPost, interviewFollowUp } from '../ai/bridge';
 
 export function useAIRunner() {
   useEffect(() => {
@@ -23,7 +23,7 @@ export function useAIRunner() {
       const live = st.activeInterview;
       const ivKey = live ? `${live.id}|${live.idx}` : '';
       if (ivKey && ivKey !== lastIv) { lastIv = ivKey; void interviewFollowUp(); }
-      if (Math.floor(nowMinuteOf(st) / 1440) && !document.hidden) { void runDirector(); void runFeed(); }
+      if (Math.floor(nowMinuteOf(st) / 1440) && !document.hidden) { void runDirector(); void runFeed(); void runTeamChatter(); }
     }, 2000);
     return () => window.clearInterval(id);
   }, []);

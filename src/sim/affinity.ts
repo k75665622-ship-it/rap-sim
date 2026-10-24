@@ -35,7 +35,23 @@ const BRIDGES: Record<string, number> = {
   'Europe|Oceania': 0.25,
 };
 
+const affinityMemo = new Map<string, number>();
+
+/**
+ * How well an artist from `home` travels in `market`. Memoised: the charts
+ * and the streaming engine ask this tens of thousands of times a day, and the
+ * answer for a pair of countries never changes.
+ */
 export function affinity(home: string | undefined, market: string): number {
+  const key = `${home ?? ''}|${market}`;
+  const hit = affinityMemo.get(key);
+  if (hit !== undefined) return hit;
+  const v = affinityRaw(home, market);
+  affinityMemo.set(key, v);
+  return v;
+}
+
+function affinityRaw(home: string | undefined, market: string): number {
   if (market === 'World') {
     return home ? (home === 'USA' || home === 'UK' ? 0.3 : 0.18) : 0.15;
   }

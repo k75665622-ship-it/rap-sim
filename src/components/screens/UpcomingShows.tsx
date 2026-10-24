@@ -125,7 +125,7 @@ function ShowCard({ show }: { show: ScheduledShow }) {
   const fill = show.ticketsSold / Math.max(1, show.capacity);
   const projected = Math.round(Math.min(show.capacity, target));
 
-  const fair = player ? perceivedTicketPrice(blendedFame(player)) : 20;
+  const fair = player ? perceivedTicketPrice(blendedFame(player), findVenue(show.venueId)?.country) : 20;
   const maxPrice = Math.max(40, Math.round((fair * 3) / 5) * 5);
 
   // Free nights after the current date, for the postpone picker.

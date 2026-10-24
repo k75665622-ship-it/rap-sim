@@ -853,6 +853,29 @@ const cypherInvite: Template = {
   },
 };
 
+// They broke YOUR terms on a verse you gave them. Your move.
+const verseBreach: Template = {
+  id: 'verse_breach', channel: 'team', weight: 0, build: () => null,
+  resolve: (m, o, w, roll) => {
+    const d = m.data ?? {};
+    const npcId = String(d.npcId ?? '');
+    const name = String(d.name ?? 'They').split(' ')[0];
+    const fee = Number(d.fee ?? 0);
+    const warmth = Number(d.warmth ?? 0.5);
+    const more = Math.max(300, Math.round((fee * 0.5) / 100) * 100);
+    const rel = (v: number): MomentEffect[] => (npcId ? [{ k: 'rel', npcId, v }] : []);
+    if (o === 'more') return roll < 0.35 + warmth * 0.4
+      ? { text: `${name} paid $${more.toLocaleString()} extra to make it go away.`, effects: [{ k: 'money', v: more }, ...rel(-3)] }
+      : { text: `${name} refused: "A verse is a verse." Now it's cold between you.`, effects: rel(-8) };
+    if (o === 'pull') return { text: `Your verse is off "${String(d.title ?? 'their record')}". You stood on business — people respect it.`, effects: [{ k: 'pullMyVerse', songId: String(d.songId ?? ''), requestId: String(d.requestId ?? '') }, { k: 'reputation', v: 1 }, ...rel(-12)] };
+    if (o === 'public') return { text: `You called ${name} out. The timeline loved it; ${name} didn't.`, effects: [{ k: 'momentum', v: 3 }, ...rel(-15), ...(roll < 0.4 ? [{ k: 'startBeef' as const, npcId }] : [])] };
+    if (o === 'lawyer') return roll < 0.4 + w.businessKnowledge / 250
+      ? { text: `Your lawyer's letter worked. ${name} settled for $${Math.round(fee * 0.8).toLocaleString()}.`, effects: [{ k: 'money', v: Math.round(fee * 0.8) }, ...rel(-15)] }
+      : { text: `${name} fought it. Lawyers cost more than the verse — you dropped it.`, effects: [{ k: 'money', v: -500 }, ...rel(-10)] };
+    return { text: 'You let it go. Bigger things to do.', effects: [{ k: 'reputation', v: 0.5 }, ...rel(-2)] };
+  },
+};
+
 const remixAsk: Template = {
   id: 'remix_ask', channel: 'dm', weight: 0, build: () => null,
   resolve: (m, o) => {
@@ -1511,7 +1534,7 @@ export const TEMPLATES: Template[] = [
   featureLate, featureSwap, featureLead, featureBreach,
   familyMoney, policeStop, phoneStolen, hacked, fanMob, oldFriend, charity, awardPresenter, healthScare, dumsor, movieSync, scamPromoter, viralMoment, breakIn, churchInvite, carTrouble,
   weddingGig, campusShow, radioPayola, producerPoints, leaseClash, fanCover,
-  cypherInvite, birthdayPlan, npcBirthday, remixAsk,
+  cypherInvite, birthdayPlan, npcBirthday, remixAsk, verseBreach,
 ];
 
 const BY_ID = new Map(TEMPLATES.map((t) => [t.id, t]));

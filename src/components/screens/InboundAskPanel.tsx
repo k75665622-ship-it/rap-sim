@@ -20,7 +20,10 @@ import { useGameStore, blendedFame } from '../../store/gameStore';
 import { Button, Badge } from '../ui/Card';
 import { MAX_NEGOTIATION_ROUNDS } from '../../sim/features';
 import { playerVerseRate } from '../../sim/inbound';
-import type { InboundRequest } from '../../types/game';
+import type { InboundRequest, NPC } from '../../types/game';
+import { discloseFor, MY_TERMS, type MyTerm, type MyTermKind } from '../../sim/myTerms';
+import { personaOf } from '../../sim/persona';
+import { isRealId } from '../../sim/realPeople';
 
 /** A confidence bar, because "0.62" means nothing to anybody. */
 function confidenceLabel(c: number): { text: string; color: string } {
@@ -126,6 +129,8 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
 
       {/* What they actually said is the letter itself, printed above this panel
           by the Mailbox. Repeating it here would be the same paragraph twice. */}
+
+      <VerseTerms request={r} />
 
       {/* ── The manager's read ────────────────────────────────────────── */}
       {!settled && (
@@ -275,6 +280,57 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
           {notice}
         </p>
       )}
+    </div>
+  );
+}
+
+// ─── WHAT THEY TOLD YOU, AND YOUR TERMS ────────────────────────────────────
+
+function VerseTerms({ request: r }: { request: InboundRequest }) {
+  const npcs = useGameStore((s) => s.npcs);
+  const beefs = useGameStore((s) => s.beefs);
+  const setTerms = useGameStore((s) => s.setVerseTerms);
+  const [pick, setPick] = useState<MyTermKind[]>([]);
+  const [targets, setTargets] = useState<string[]>([]);
+  const [msg, setMsg] = useState<string | null>(null);
+  const npc = npcs.find((n) => n.id === r.npcId) as NPC | undefined;
+  if (!npc) return null;
+  const real = isRealId(npc.id);
+  const disc = real ? null : discloseFor(npc, personaOf(npc), npcs as NPC[], r.id);
+  const pool = [...(disc?.open ? disc.others : []), ...beefs.filter((b) => !b.resolution).map((b) => ({ id: b.npcId, name: b.npcName }))].filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i);
+  const canSet = (r.status === 'open' || r.status === 'agreed') && !r.termsSet;
+  const toggle = (k: MyTermKind) => setPick((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+  const send = () => {
+    const terms: MyTerm[] = pick.map((k) => (k === 'no_artist' ? { kind: k, targets: pool.filter((x) => targets.includes(x.id)) } : { kind: k })).filter((t) => t.kind !== 'no_artist' || (t.targets ?? []).length);
+    setMsg(setTerms(r.id, terms).message);
+  };
+  return (
+    <div className="rounded-lg border border-purple-500/20 bg-black/20 p-3 space-y-2">
+      {disc && <div className="text-[11px] text-gray-300 leading-snug"><span className="text-gray-500">{npc.name.split(' ')[0]} on the record: </span>{disc.line}</div>}
+      {real && <div className="text-[11px] text-gray-500">Their team hasn't said who else is on it.</div>}
+      {r.termsSet ? (
+        <div className="text-[11px] leading-snug">
+          <div className="text-purple-200 font-semibold">📜 Your terms{r.myTerms?.length ? '' : ' — none agreed'}</div>
+          {(r.myTerms ?? []).map((t) => <div key={t.kind} className="text-gray-300">• {MY_TERMS[t.kind].label}{t.targets?.length ? ` (${t.targets.map((x) => x.name).join(', ')})` : ''}</div>)}
+          {(r.myBreaches ?? []).filter((b) => !b.settled).map((b, i) => <div key={i} className="text-red-300 mt-0.5">⚠️ Broken: {b.text}</div>)}
+        </div>
+      ) : canSet ? (
+        <div className="space-y-2">
+          <div className="text-[11px] text-purple-200 font-semibold">📜 Set your terms <span className="text-gray-500 font-normal">— one round. Bigger names push back; too many and they walk.</span></div>
+          <div className="flex flex-wrap gap-1.5">
+            {(Object.keys(MY_TERMS) as MyTermKind[]).filter((k) => k !== 'no_artist' || pool.length).map((k) => (
+              <button key={k} onClick={() => toggle(k)} title={MY_TERMS[k].line} className={`rounded-full border px-2.5 py-1 text-[11px] ${pick.includes(k) ? 'border-purple-400 bg-purple-500/25 text-white' : 'border-gray-700 text-gray-300'}`}>{MY_TERMS[k].label}</button>
+            ))}
+          </div>
+          {pick.includes('no_artist') && (
+            <div className="flex flex-wrap gap-1.5">
+              {pool.map((x) => <button key={x.id} onClick={() => setTargets((t) => (t.includes(x.id) ? t.filter((y) => y !== x.id) : [...t, x.id]))} className={`rounded-full border px-2 py-0.5 text-[10px] ${targets.includes(x.id) ? 'border-red-400 bg-red-500/20 text-white' : 'border-gray-700 text-gray-400'}`}>🚫 {x.name}</button>)}
+            </div>
+          )}
+          {pick.length > 0 && <Button size="sm" onClick={send}>Send my terms</Button>}
+        </div>
+      ) : null}
+      {msg && <div className="text-[11px] text-gray-300">{msg}</div>}
     </div>
   );
 }

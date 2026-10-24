@@ -1831,7 +1831,9 @@ export type MomentEffect =
   /** The star shared your record. */
   | { k: 'cosign'; npcId: string; songId?: string }
   /** The intro happened; how it went. */
-  | { k: 'introDone'; npcId: string; outcome: string };
+  | { k: 'introDone'; npcId: string; outcome: string }
+  /** They jump on your remix: a remix with their verse lands in the vault. */
+  | { k: 'remixGuest'; npcId: string; songId: string };
 
 export interface Moment {
   id: string;

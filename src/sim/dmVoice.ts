@@ -273,6 +273,7 @@ export function outcomeChips(effects: MomentEffect[], npcName?: string): string[
       case 'rel': if (!relDone) { relDone = true; out.push(`${npcName ? npcName.split(' ')[0] : 'Them'} ${e.v >= 0 ? '+' : ''}${e.v}`); } break;
       case 'stat': if (e.v >= 0.2) out.push(`📈 ${statName(e.stat)} +${Math.round(e.v * 10) / 10}`); break;
       case 'cypher': out.push('🗓️ In your diary'); break;
+      case 'remixGuest': out.push('🎛️ Remix in your vault'); break;
       case 'reputation': out.push(`Reputation ${e.v >= 0 ? '+' : ''}${e.v}`); break;
       case 'momentum': out.push(`Momentum ${e.v >= 0 ? '+' : ''}${e.v}`); break;
       case 'fame': out.push(`Fame ${e.v >= 0 ? '+' : ''}${e.v}`); break;
@@ -287,7 +288,7 @@ export function outcomeChips(effects: MomentEffect[], npcName?: string): string[
       case 'dripGift': out.push('🎁 In your wardrobe'); break;
     }
   }
-  const where = out.filter((c) => /^(🎹|🎙️|📬|🗓️|🎁)/.test(c));
+  const where = out.filter((c) => /^(🎹|🎙️|📬|🗓️|🎁|🎛️)/.test(c));
   const grew = out.filter((c) => c.startsWith('📈')).slice(0, 2);
   return [...where, ...grew, ...out.filter((c) => !where.includes(c) && !c.startsWith('📈'))].slice(0, 5);
 }

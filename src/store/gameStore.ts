@@ -426,6 +426,7 @@ import { cypherSpecFor, playRound, finishCypher as finishCypherNight, MOVES as C
 import { npcBirthday, birthdayOf, daysUntil, partyCost, dinnerCost, partyNight, wishLine, teamWish, fanWish, type Guest } from '../sim/birthdays';
 import { pitchChoices, resolvePitch, introPitchLine } from '../sim/starIntro';
 import { discloseFor, judgeTerms, myBreaches, MY_TERMS, type MyTerm } from '../sim/myTerms';
+import { newFanClub, fanAction, fanDay, costOf as fanCost, FAN_ACTIONS, MILESTONES as FAN_MILESTONES, type FanClub, type FanActionId } from '../sim/fanClub';
 import { specialSkillOf, crewWithSkill, personaOf } from '../sim/persona';
 import { isSilentOption, playerLine, npcReply, toneOf, followUpFor, outcomeChips } from '../sim/dmVoice';
 import { mixCraft, decideMix } from '../sim/studio';
@@ -848,6 +849,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         teamPolicy: state.teamPolicy,
         lifeFlags: state.lifeFlags,
         managerPush: state.managerPush,
+        fanClub: state.fanClub,
         teamDispute: state.teamDispute ?? null,
         lastDisputeSerial: state.lastDisputeSerial,
         birthday: state.birthday,
@@ -969,6 +971,7 @@ function runSideTicksNow(): void {
     birthdaysTick(state, npcs, job.serial, 1);
     starPulseTick(state, npcs, job.serial);
     breakoutTick(state, job.serial);
+    fanClubTick(state, job.serial, 1);
   });
 }
 
@@ -3178,6 +3181,8 @@ interface GameActions {
   likeComment: (postId: string, commentId: string) => void;
   setFanbaseName: (name: string) => void;
   fanWarAction: (warId: string, action: FanWarAction) => FeatureActionResult;
+  /** Do something for your fans. */
+  fanClubAction: (id: FanActionId) => FeatureActionResult;
   /** A gesture with a price on it. The second in a week is a bribe. */
   sendGift: (npcId: string, tier: 'flowers' | 'bottle' | 'chain') => FeatureActionResult;
 
@@ -6186,6 +6191,36 @@ function socialStatsOf(state: GameState): Record<string, { followers: number; la
   return stats;
 }
 
+function fanClubOf(state: GameState): FanClub {
+  if (!state.fanClub) {
+    const c = newFanClub();
+    // A career that already has fans has already passed those milestones.
+    c.milestones = FAN_MILESTONES.filter((m) => (state.player?.career.fanbase ?? 0) >= m);
+    state.fanClub = c;
+  }
+  return state.fanClub;
+}
+
+/** Daily: the fans' mood moves, milestones get celebrated. */
+function fanClubTick(state: GameState, serial: number, days: number): void {
+  const p = state.player;
+  if (!p) return;
+  const club = fanClubOf(state);
+  const newest = state.songs.filter((x) => isSongReleased(x)).reduce((m, x) => Math.max(m, releaseSerialOf(state, x, -999)), -999);
+  const lastPost = Math.max(-999, ...Object.values(state.socialStats ?? {}).map((x) => x.lastPostSerial ?? -999));
+  fanDay(club, { daysSinceRelease: newest > -999 ? serial - newest : undefined, daysSincePost: lastPost < 0 ? 99 : serial - lastPost, momentum: p.career.momentum ?? 0, days });
+  const next = FAN_MILESTONES.find((m) => p.career.fanbase >= m && !club.milestones.includes(m));
+  if (next) {
+    club.milestones.push(next);
+    club.hype = Math.min(100, club.hype + 8);
+    const label = next >= 1_000_000 ? `${next / 1_000_000}M` : `${next / 1000}K`;
+    addMomentum(state, next >= 100_000 ? 4 : 2, `${label} fans`);
+    pushNotification(state, { kind: 'milestone', title: `🎉 ${label} fans — ${fanbaseNameOf(state)} keep growing`, body: next >= 100_000 ? 'Fan pages are throwing a party in your comments. Thank them.' : 'A real fanbase. Look after them.', artSeed: `fans|${next}` });
+    const mgr = managerOf(state);
+    if (mgr) pushTeamLines(state, [{ from: mgr.id, name: mgr.name, role: 'manager', text: `${label} fans 🎉 Do something for them this week — a meet-up, a giveaway. That's how they stay.`, key: `fans:${next}` }], serial);
+  }
+}
+
 function fanbaseNameOf(state: GameState): string {
   if (!state.fanbaseName && state.player) state.fanbaseName = fanbaseNameFor(state.player.artistName, state.player.id);
   return state.fanbaseName ?? 'the fans';
@@ -6496,9 +6531,24 @@ function socialTick(state: GameState, npcs: NPC[], serial: number, days: number)
       if (t.spillsIntoBeef && rival && !beef) npcStartsBeef(state, rival, serial, `the fan war with ${war.theirFans} spilled over.`);
     }
     war.lastSerial = serial;
+    // Loyal fans fight harder.
+    war.edge = Math.max(-50, Math.min(50, war.edge + ((fanClubOf(state).loyalty - 50) / 100) * Math.min(days, 7)));
     if (war.intensity < 6) {
       war.status = 'over';
-      war.log = [`It's over. ${war.edge >= 0 ? `${fanbaseNameOf(state)} are calling it a win.` : `${war.theirFans} are calling it a win.`}`, ...war.log].slice(0, 12);
+      const club = fanClubOf(state);
+      const us = fanbaseNameOf(state);
+      if (war.edge > 10) {
+        club.war.won += 1; club.loyalty = Math.min(100, club.loyalty + 4); club.hype = Math.min(100, club.hype + 6); addMomentum(state, 3, `${us} won the fan war`);
+        war.log = [`It's over — ${us} won. The timeline agrees.`, ...war.log].slice(0, 12);
+        pushNotification(state, { kind: 'milestone', title: `🏆 ${us} won the fan war with ${war.theirFans}`, body: `Record: ${club.war.won}W–${club.war.lost}L${club.war.drawn ? `–${club.war.drawn}D` : ''}. Your fans are feeling themselves.`, artSeed: `fanwar|${war.id}|won` });
+      } else if (war.edge < -10) {
+        club.war.lost += 1; club.hype = Math.max(0, club.hype - 6); club.loyalty = Math.max(0, club.loyalty - 2);
+        war.log = [`It's over — ${war.theirFans} took this one.`, ...war.log].slice(0, 12);
+        pushNotification(state, { kind: 'business', title: `${war.theirFans} won the fan war`, body: `Record: ${club.war.won}W–${club.war.lost}L. Your fans want a response — new music is the best one.`, artSeed: `fanwar|${war.id}|lost` });
+      } else {
+        club.war.drawn += 1;
+        war.log = [`It's over. Nobody won — both sides are claiming it.`, ...war.log].slice(0, 12);
+      }
     }
   }
   const activeWars = wars.filter((w) => w.status === 'active').length;
@@ -11088,6 +11138,23 @@ export const useGameStore = create<GameState & GameActions>()(
         // Every guest's terms are checked the day it comes out.
         checkFeatureTerms(state, song.id, false, true);
         rollBreakout(state, [song]);
+        {
+          // Your fans turn up on release day — more if you hyped them first.
+          const club = fanClubOf(state);
+          const lift = (club.hype + (club.preHype ?? 0)) / 300;
+          if (lift >= 0.1) pushSong(state, song.id, lift, 10, club.preHype ? 'Your superfans were waiting for it' : 'Your fans turned up on release day');
+          club.preHype = 0;
+          club.hype = Math.min(100, club.hype + 12);
+          club.loyalty = Math.min(100, club.loyalty + 1);
+          // Somebody at your level dropped the same week: the fans want a winner.
+          const fame0 = blendedFame(state.player);
+          const idx0 = npcIndex(baseNpcs(state));
+          const clash = state.npcSongs.find((x) => (x.weeksOut ?? 9) === 0 && x.ownerId && x.ownerCountry === state.player!.country && (() => { const n = idx0.get(x.ownerId!); return !!n && n.role === 'artist' && Math.abs(n.fame - fame0) <= 15 && n.relationshipScore < 30; })());
+          if (clash && Math.random() < 0.6) {
+            const rival = idx0.get(clash.ownerId!)!;
+            sparkFanWar(state, rival, `${rival.name} dropped "${clash.title}" the same week as your "${song.title}". The timeline wants a winner.`, dateToSerial(state.gameDate), 30);
+          }
+        }
         // `undefined` means everywhere, which is what an untouched release
         // dialog means. An explicit list is what the engine reads to decide
         // where this record can actually be heard.
@@ -14145,6 +14212,44 @@ export const useGameStore = create<GameState & GameActions>()(
         const n = name.trim().slice(0, 28);
         if (n.length >= 2) state.fanbaseName = n;
       }),
+
+    fanClubAction: (id) => {
+      let result: FeatureActionResult = { ok: false, message: 'Not now.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const club = fanClubOf(state);
+        const a = FAN_ACTIONS[id];
+        const serial = dateToSerial(state.gameDate);
+        const since = serial - (club.used[id] ?? -999);
+        if (since < a.cooldown) { result.message = `You did that ${since === 0 ? 'today' : `${since} day${since === 1 ? '' : 's'} ago`}. Again in ${a.cooldown - since} day${a.cooldown - since === 1 ? '' : 's'}.`; return; }
+        if (p.career.fanbase < a.minFans) { result.message = `You need about ${a.minFans.toLocaleString()} fans for that — you have ${p.career.fanbase.toLocaleString()}.`; return; }
+        const fame = blendedFame(p);
+        const cost = fanCost(id, fame, costIndex(p.country));
+        if (cost > p.career.money) { result.message = `That costs $${cost.toLocaleString()}.`; return; }
+        const newest = state.songs.filter((x) => isSongReleased(x)).sort((x, y) => releaseSerialOf(state, y, serial) - releaseSerialOf(state, x, serial))[0];
+        if (id === 'stream_party' && (!newest || serial - releaseSerialOf(state, newest, serial) > 60)) { result.message = 'A stream party needs something fresh — nothing out in the last two months.'; return; }
+        if (id === 'listening' && !state.songs.some((x) => isVaultMaster(x))) { result.message = 'There\'s nothing unreleased to play them.'; return; }
+        if (!spendEnergy(state, a.energy, { admin: id === 'reply' || id === 'shoutout' })) { result.message = energyShortfallMessage(a.energy, p.energy); return; }
+        p.career.money -= cost;
+        const page = sampleNpcs(baseNpcs(state), 1, (n) => n.role === 'fan_account' && n.country === p.country)[0];
+        const r = fanAction(id, club, { fans: p.career.fanbase, fame, charisma: p.stats.charisma, city: p.city, pageName: page?.name ?? `@${fanbaseNameOf(state).toLowerCase().replace(/\s+/g, '')}hq`, roll: Math.random() });
+        club.used[id] = serial;
+        club.loyalty = Math.max(0, Math.min(100, club.loyalty + r.loyalty));
+        club.hype = Math.max(0, Math.min(100, club.hype + r.hype));
+        if (r.preHype) club.preHype = Math.min(40, (club.preHype ?? 0) + r.preHype);
+        p.career.fanbase += r.fans;
+        const st = socialStatsOf(state);
+        st.snapgram.followers += Math.round(r.fans * 0.5); st.chirp.followers += Math.round(r.fans * 0.3); st.clip.followers += Math.round(r.fans * 0.2);
+        if (r.momentum) addMomentum(state, r.momentum);
+        if (r.reputation) p.career.reputation = Math.max(0, Math.min(100, p.career.reputation + r.reputation));
+        if (r.push && newest) pushSong(state, newest.id, r.push, 7, 'Stream party');
+        if (r.edge) for (const w of state.fanWars ?? []) if (w.status === 'active') { w.edge = Math.max(-50, Math.min(50, w.edge + r.edge)); w.log = [`Stream party: ${fanbaseNameOf(state)} ran the numbers up.`, ...w.log].slice(0, 12); }
+        if (id === 'meetup' || id === 'giveaway') state.socialPosts.unshift({ id: uuidv4(), platform: 'snapgram', authorId: 'player', authorName: p.artistName, content: id === 'meetup' ? `${p.city} you showed UP today 😭❤️ ${fanbaseNameOf(state)} forever` : `Giveaway time 🎁 ${fanbaseNameOf(state)} this one's for you`, likes: Math.round(300 + fame * 80), shares: Math.round(30 + fame * 8), comments: [], timestamp: new Date().toISOString(), isPlayerPost: true, trendingScore: 55, daySerial: serial, kind: 'photo' } as SocialPost);
+        result = { ok: true, message: `${r.text}${cost ? ` (−$${cost.toLocaleString()})` : ''}` };
+      });
+      return result;
+    },
 
     fanWarAction: (warId, action) => {
       let result: FeatureActionResult = { ok: false, message: 'That war is over.' };
@@ -21291,6 +21396,7 @@ export const useGameStore = create<GameState & GameActions>()(
         if (!deferSide) birthdaysTick(state, rawNPCs, targetSerial, days);
         if (!deferSide) starPulseTick(state, rawNPCs, targetSerial);
         if (!deferSide) breakoutTick(state, targetSerial);
+        if (!deferSide) fanClubTick(state, targetSerial, days);
         if (deferSide) pendingSide = { serial: targetSerial };
 
         // ─── MONEY & THE TEAM'S WEEK ──────────────────────────────────

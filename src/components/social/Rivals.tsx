@@ -6,7 +6,8 @@
 import { useMemo, useState } from 'react';
 import { cn } from '@/utils/cn';
 import { Button } from '../ui/kit';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, blendedFame, isSongReleased } from '../../store/gameStore';
+import { newFanClub, moodLine, FAN_ACTIONS, costOf as fanCostOf, type FanActionId } from '../../sim/fanClub';
 import { FANWAR_ACTIONS, fanbaseNameFor, type FanWarAction } from '../../sim/social';
 import { BEEF_RUNGS, readBeef, RESOLUTION_LABEL, beefRung, type ChosenResolution } from '../../sim/beef';
 import type { BeefState, FanWar, NPC } from '../../types/game';
@@ -133,6 +134,56 @@ function BeefCard({ beef, npc, nowSerial, money, energy, onMove, onEnd }: {
   );
 }
 
+// ─── YOUR FANBASE ──────────────────────────────────────────────────────────
+
+function FanClubPanel({ onFlash }: { onFlash: (r: { ok: boolean; message: string }) => void }) {
+  const club = useGameStore((s) => s.fanClub);
+  const player = useGameStore((s) => s.player);
+  const fanbaseName = useGameStore((s) => s.fanbaseName);
+  const songs = useGameStore((s) => s.songs);
+  const gameDate = useGameStore((s) => s.gameDate);
+  const act = useGameStore((s) => s.fanClubAction);
+  if (!player) return null;
+  const c = club ?? newFanClub();
+  const serial = dateToSerial(gameDate);
+  const fame = blendedFame(player);
+  const lastRelease = songs.filter((x) => isSongReleased(x)).reduce((m, x) => Math.max(m, x.releaseDate ? dateToSerial(parseDMY(x.releaseDate)) : -999), -999);
+  const quiet = lastRelease > -999 ? serial - lastRelease : undefined;
+  const bar = (v: number, color: string) => <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${Math.max(3, v)}%`, background: color }} /></div>;
+  return (
+    <section className="rounded-[14px] border border-line bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[15px] font-bold text-ink truncate">💛 {fanbaseName ?? 'Your fans'}</div>
+          <div className="text-[11px] text-ink3">{player.career.fanbase.toLocaleString()} fans · fan wars {c.war.won}W–{c.war.lost}L{c.war.drawn ? `–${c.war.drawn}D` : ''}</div>
+        </div>
+        {(c.preHype ?? 0) > 0 && <span className="px-2 h-[20px] rounded-full bg-amber/15 text-amber text-[10px] font-bold flex items-center">🎧 Hype banked</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div><div className="flex justify-between text-[11px] text-ink3 mb-1"><span>Loyalty</span><span className="num">{Math.round(c.loyalty)}</span></div>{bar(c.loyalty, '#2ED573')}</div>
+        <div><div className="flex justify-between text-[11px] text-ink3 mb-1"><span>Hype</span><span className="num">{Math.round(c.hype)}</span></div>{bar(c.hype, '#F5B301')}</div>
+      </div>
+      <div className="text-[12px] text-ink2 leading-snug">{moodLine(c, quiet)}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {(Object.keys(FAN_ACTIONS) as FanActionId[]).map((id) => {
+          const a = FAN_ACTIONS[id];
+          const cost = fanCostOf(id, fame, 1);
+          const wait = a.cooldown - (serial - (c.used[id] ?? -999));
+          const locked = player.career.fanbase < a.minFans;
+          return (
+            <button key={id} disabled={locked || wait > 0} onClick={() => onFlash(act(id))} className="rounded-[10px] border border-line px-3 py-2 text-left hover:bg-cardhover transition disabled:opacity-40">
+              <div className="flex items-center justify-between gap-2"><span className="text-[12px] font-semibold text-ink">{a.emoji} {a.label}</span><span className="text-[10px] text-amber num shrink-0">⚡{a.energy}{cost ? ` · ~$${cost.toLocaleString()}` : ''}</span></div>
+              <div className="text-[10px] text-ink3 leading-snug mt-0.5">{locked ? `Unlocks at ${a.minFans.toLocaleString()} fans` : wait > 0 ? `Again in ${wait} day${wait === 1 ? '' : 's'}` : a.blurb}</div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function parseDMY(s: string) { const [d, m, y] = s.split('/').map(Number); return { day: d || 1, month: m || 1, year: y || 2024 }; }
+
 export function RivalsTab({ onFlash }: { onFlash: (r: { ok: boolean; message: string }) => void }) {
   const fanWars = useGameStore((s) => s.fanWars);
   const beefs = useGameStore((s) => s.beefs);
@@ -164,6 +215,7 @@ export function RivalsTab({ onFlash }: { onFlash: (r: { ok: boolean; message: st
 
   return (
     <div className="p-3 space-y-5">
+      <FanClubPanel onFlash={onFlash} />
       <details className="rounded-[14px] border border-line bg-white/[0.02] p-4" open={liveWars.length + liveBeefs.length === 0}>
         <summary className="text-[13px] font-semibold text-ink cursor-pointer">How rivalry works</summary>
         <div className="grid sm:grid-cols-2 gap-4 mt-3 text-[12px] text-ink2 leading-relaxed">

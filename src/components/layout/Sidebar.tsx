@@ -107,6 +107,7 @@ export function Sidebar() {
     // per-platform page it used to open is still reachable from the shell's
     // Albums / Artists / New Releases tabs.
     { id: 'streams', label: 'Streaming', icon: <IconMusic />, group: 'music' },
+    { id: 'catalog', label: 'Catalog', icon: <IconMusic />, group: 'music' },
     { id: 'charts', label: 'Charts', icon: <IconTrend />, group: 'music' },
     { id: 'videos', label: 'Videos', icon: <IconPlay />, group: 'music' },
 

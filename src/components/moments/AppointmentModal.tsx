@@ -4,8 +4,11 @@
 // lands depends on who is waiting.
 
 import { useState } from 'react';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, pitchSongs } from '../../store/gameStore';
 import { sceneChoices, fmtMinute, KIND_LABEL } from '../../sim/appointments';
+import { pitchChoices } from '../../sim/starIntro';
+import { MOVES, ROUNDS, VIBE_LABEL, type CypherMove } from '../../sim/freestyle';
+import { cn } from '@/utils/cn';
 import { personaOf } from '../../sim/persona';
 import { isRealId } from '../../sim/realPeople';
 import { isSongReleased } from '../../sim/release';
@@ -19,6 +22,7 @@ const BG: Record<Appointment['kind'], string> = {
   linkup: 'radial-gradient(120% 90% at 50% 0%, rgba(46,213,115,0.25), rgba(10,11,16,0) 60%), linear-gradient(180deg, #0b1a12, #0c0d12)',
   meeting: 'radial-gradient(120% 90% at 50% 0%, rgba(77,163,255,0.28), rgba(10,11,16,0) 60%), linear-gradient(180deg, #0b1422, #0c0d12)',
   gig: 'radial-gradient(120% 90% at 50% 0%, rgba(255,92,92,0.3), rgba(10,11,16,0) 60%), linear-gradient(180deg, #1c0c0e, #0c0d12)',
+  cypher: 'radial-gradient(120% 90% at 50% 0%, rgba(255,120,40,0.34), rgba(10,11,16,0) 60%), linear-gradient(180deg, #1d0f06, #0c0d12)',
 };
 
 export function AppointmentModal() {
@@ -39,7 +43,8 @@ export function AppointmentModal() {
   // Real artists get no personality read: the game doesn't characterise real people.
   const persona = npc && !isRealId(npc.id) ? personaOf(npc) : null;
   const hasUnreleased = songs.some((s) => !isSongReleased(s) && !s.archivedAt);
-  const choices = sceneChoices(a, hasUnreleased);
+  const ps = a.pitch ? pitchSongs({ songs }) : null;
+  const choices = a.pitch && ps ? pitchChoices(ps.best ? { title: ps.best.title } : undefined, ps.fresh ? { title: ps.fresh.title } : undefined) : sceneChoices(a, hasUnreleased);
   const label = KIND_LABEL[a.kind];
   const finished = !!done;
   const arrived = going === a.id;
@@ -87,8 +92,15 @@ export function AppointmentModal() {
               </button>
             </div>
           </div>
+        ) : !finished && a.kind === 'cypher' && a.cypher ? (
+          <CypherSession a={a} onDone={(message) => { setDone({ id: a.id, message }); setGoing(null); }} />
         ) : !finished ? (
           <div className="px-5 pb-5 space-y-2.5">
+            {a.pitch && (
+              <div className="rounded-[12px] bg-black/30 border border-white/10 px-3.5 py-2.5 text-[12px] text-ink2 leading-snug text-center">
+                {a.pitch.real ? `${a.pitch.starName}'s team is in the room. Fifteen minutes.` : `${a.pitch.starName} is in the room. Fifteen minutes.`} What you play and how you carry yourself decide it.
+              </div>
+            )}
             {(a.outcome || a.lateBy) ? (
               <div className="rounded-[12px] bg-black/30 border border-white/10 px-3.5 py-2.5 text-[13px] text-ink2 leading-snug text-center">
                 {a.outcome ? `${a.outcome} ` : ''}{a.lateBy ? `${first}'s running ${a.lateBy} minutes late.` : ''}
@@ -120,6 +132,93 @@ export function AppointmentModal() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── THE CYPHER ────────────────────────────────────────────────────────────
+// Three rounds. Each one you pick what to do with your sixteen bars; your
+// skills, the beat and the room decide how it lands.
+
+const TIER_STYLE: Record<string, string> = {
+  fire: 'border-amber/60 bg-amber/10 text-amber',
+  solid: 'border-rise/40 bg-rise/10 text-rise',
+  mid: 'border-white/15 bg-white/5 text-ink2',
+  fumble: 'border-fall/40 bg-fall/10 text-fall',
+};
+const TIER_LABEL: Record<string, string> = { fire: '🔥 Fire', solid: '👍🏾 Solid', mid: '😐 Mid', fumble: '💀 Fumbled' };
+
+function CypherSession({ a, onDone }: { a: Appointment; onDone: (message: string) => void }) {
+  const round = useGameStore((s) => s.cypherRound);
+  const finish = useGameStore((s) => s.cypherFinish);
+  const bail = useGameStore((s) => s.attendAppointment);
+  const energy = useGameStore((s) => s.player?.energy ?? 0);
+  const stats = useGameStore((s) => s.player?.stats);
+  const [err, setErr] = useState<string | null>(null);
+  const spec = a.cypher!;
+  const rounds = a.cypherRounds ?? [];
+  const crowd = Math.max(-40, Math.min(60, rounds.reduce((x, r) => x + r.crowd, 0)));
+  const over = rounds.length >= ROUNDS;
+  const last = rounds[rounds.length - 1];
+  const statOf = (m: CypherMove) => {
+    if (!stats) return 0;
+    const w = MOVES[m].stats;
+    let t = 0; let n = 0;
+    for (const [k, v] of Object.entries(w)) { t += (stats as unknown as Record<string, number>)[k] * (v ?? 0); n += v ?? 0; }
+    return Math.round(t / Math.max(0.01, n));
+  };
+  return (
+    <div className="px-5 pb-5 space-y-3">
+      <div className="rounded-[14px] bg-black/35 border border-white/10 p-3">
+        <div className="flex items-center justify-between text-[11px] text-ink3">
+          <span>{VIBE_LABEL[spec.vibe]} · {spec.bpm} bpm{spec.live ? ' · 🔴 filmed' : ''}</span>
+          <span>Room level {spec.level}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {spec.mcs.map((m) => <span key={m.name} className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-ink2">🎤 {m.name.split(' ')[0]} · {m.level}</span>)}
+        </div>
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[11px] text-ink3 mb-1"><span>The crowd</span><span>Round {Math.min(rounds.length + (over ? 0 : 1), ROUNDS)} of {ROUNDS}</span></div>
+          <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+            <div className={cn('h-full rounded-full transition-all duration-500', crowd >= 20 ? 'bg-amber' : crowd >= 0 ? 'bg-rise' : 'bg-fall')} style={{ width: `${Math.max(4, Math.min(100, 40 + crowd))}%` }} />
+          </div>
+        </div>
+      </div>
+      {rounds.map((r, i) => (
+        <div key={i} className={cn('rounded-[14px] border px-3.5 py-2.5 rl-fade', TIER_STYLE[r.tier])}>
+          <div className="flex items-center justify-between text-[11px] font-semibold"><span>{MOVES[r.move].emoji} {MOVES[r.move].label}</span><span>{TIER_LABEL[r.tier]} · {r.score}</span></div>
+          {r.bars.length > 0 && <div className="mt-1.5 text-[13px] text-ink italic leading-snug">“{r.bars[0]} /<br />{r.bars[1]}”</div>}
+          <div className="mt-1 text-[12px] text-ink2 leading-snug">{r.text}</div>
+        </div>
+      ))}
+      {!over ? (
+        <div className="space-y-2">
+          <div className="text-[12px] text-ink3 text-center">{rounds.length === 0 ? 'The beat drops. The circle turns to you.' : last?.tier === 'fumble' ? 'Shake it off. Your turn again.' : 'It comes back round to you.'}</div>
+          {(Object.keys(MOVES) as CypherMove[]).map((m) => {
+            const mv = MOVES[m];
+            const tired = energy < mv.energy;
+            const used = rounds.filter((r) => r.move === m).length;
+            return (
+              <button key={m} disabled={tired} onClick={() => { const r = round(m); setErr(r.ok ? null : r.message); }}
+                className="w-full text-left rounded-[14px] border border-white/10 bg-black/35 hover:bg-black/55 hover:border-amber/60 transition px-4 py-2.5 disabled:opacity-40">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[14px] font-semibold text-ink">{mv.emoji} {mv.label}</span>
+                  <span className="text-[11px] text-amber num shrink-0">skill {statOf(m)} · ⚡{mv.energy}</span>
+                </div>
+                <div className="text-[12px] text-ink3 mt-0.5">{mv.hint}{used ? ' · they\'ve seen this already' : ''}{tired ? ' · too tired' : ''}</div>
+              </button>
+            );
+          })}
+          {err && <div className="text-[12px] text-fall text-center">{err}</div>}
+          {rounds.length === 0 && (
+            <div className="pt-1 text-center">
+              <button onClick={() => { const r = bail('watch'); if (r.ok) onDone(r.message); }} className="text-[12px] text-ink3 hover:text-ink">Just watch tonight</button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <Button className="w-full" onClick={() => { const r = finish(); if (r.ok) onDone(r.message); }}>See how it went</Button>
+      )}
     </div>
   );
 }

@@ -8,10 +8,12 @@ import { Button } from '../ui/kit';
 import { Avatar } from '../social/shared';
 import { cn } from '@/utils/cn';
 import { dateToSerial } from '../../sim/gameClock';
-import { awardBodies, nextCalendar, voteShare, type AwardBody } from '../../sim/awardSeasons';
+import { awardBodies, homeBodies, nextCalendar, voteShare, type AwardBody } from '../../sim/awardSeasons';
+import { getCountry, getContinents } from '../../data/locations';
 
 const fmtDay = (serial: number) => new Date(serial * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-const SCOPE: Record<AwardBody['scope'], string> = { country: 'National', continental: 'Africa', global: 'Global' };
+const REGION: Record<string, string> = { Africa: 'Africa', Europe: 'Europe', Latin: 'Latin world', AsiaPacific: 'Asia-Pacific', Arab: 'Arab world' };
+const scopeLabel = (b: AwardBody) => b.scope === 'global' ? 'Global' : b.scope === 'continental' ? REGION[b.region ?? 'Africa'] : `National · ${b.country}`;
 
 function phaseOf(s: AwardSeason | undefined, today: number, body: AwardBody): { text: string; cls: string } {
   const cal = s?.cal ?? nextCalendar(body, today);
@@ -33,6 +35,19 @@ export function AwardsScreen() {
   const today = dateToSerial(gameDate);
   const bodies = useMemo(() => awardBodies(player?.country ?? 'Ghana'), [player?.country]);
   const [open, setOpen] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [flashMsg, setFlashMsg] = useState<string | null>(null);
+  const [cont, setCont] = useState('');
+  const charts = useGameStore((s) => s.charts);
+  const mineBodies = useMemo(() => homeBodies(bodies, player?.country ?? 'Ghana'), [bodies, player?.country]);
+  const abroad = useMemo(() => {
+    const ids = new Set(mineBodies.map((b) => b.id));
+    return bodies.filter((b) => !ids.has(b.id) && b.scope === 'country' && (charts?.[b.country ?? ''] ?? []).some((e) => e.artistId === player?.id && e.position <= 40));
+  }, [bodies, mineBodies, charts, player?.id]);
+  const world = useMemo(() => {
+    const ids = new Set([...mineBodies, ...abroad].map((b) => b.id));
+    return bodies.filter((b) => !ids.has(b.id));
+  }, [bodies, mineBodies, abroad]);
   if (!player) return null;
   const latest = (b: AwardBody) => {
     const all = Object.values(seasons ?? {}).filter((s) => s.bodyId === b.id).sort((x, y) => y.year - x.year);
@@ -41,8 +56,42 @@ export function AwardsScreen() {
   };
   const myNoms = Object.values(seasons ?? {}).filter((s) => s.phase === 'nominations').flatMap((s) => s.categories.filter((c) => c.nominees.some((n) => n.isPlayer)).map((c) => ({ s, c })));
   const wins = awards.filter((a) => a.winner === player.id);
-  const next = bodies.map((b) => ({ b, cal: latest(b)?.phase === 'nominations' ? latest(b)!.cal : nextCalendar(b, today) })).sort((x, y) => x.cal.ceremony - y.cal.ceremony)[0];
+  const next = [...mineBodies, ...abroad].map((b) => ({ b, cal: latest(b)?.phase === 'nominations' ? latest(b)!.cal : nextCalendar(b, today) })).sort((x, y) => x.cal.ceremony - y.cal.ceremony)[0];
   const openSeason = open ? (seasons ?? {})[open] : undefined;
+  const enterAwards = useGameStore.getState().enterAwards;
+
+  const BodyCard = ({ b }: { b: AwardBody }) => {
+    const sx = latest(b);
+    const ph = phaseOf(sx?.phase === 'done' && nextCalendar(b, today).year !== sx.year ? undefined : sx, today, b);
+    const cal = sx && sx.phase !== 'done' ? sx.cal : nextCalendar(b, today);
+    const on = (follows ?? []).includes(b.id);
+    const mine = sx?.categories.filter((c) => c.nominees.some((n) => n.isPlayer)).length ?? 0;
+    const close = sx?.phase === 'upcoming' ? sx.cal.entriesClose : undefined;
+    return (
+      <div className="rounded-[16px] border border-line bg-card p-4">
+        <div className="flex items-start gap-3">
+          <div className="text-[30px] leading-none">{b.emoji}</div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-bold text-ink">{b.name}</div>
+            <div className="text-[11px] text-ink3">{scopeLabel(b)} · {b.venue}, {b.city}</div>
+          </div>
+          <button onClick={() => follow(b.id, !on)} title={on ? 'Following — you get notifications' : 'Follow for nominations and winners'} className={cn('h-8 px-2.5 rounded-full border text-[12px] font-semibold shrink-0', on ? 'border-amber bg-amber/15 text-amber' : 'border-line text-ink3')}>{on ? '🔔 Following' : '🔕 Follow'}</button>
+        </div>
+        <div className="mt-3 text-[12px] text-ink2">{fmtDay(cal.ceremony)}</div>
+        <div className={cn('text-[12px] font-semibold', ph.cls)}>{ph.text}{mine ? ` · ${mine} nomination${mine > 1 ? 's' : ''} for you` : ''}</div>
+        {b.scope !== 'global' && sx && sx.phase === 'upcoming' && close !== undefined && (
+          <div className="mt-2 text-[11px]">
+            {sx.entered
+              ? <span className="text-rise">✓ Entries in{sx.enteredBy === 'team' ? ' — your team handled it' : ''}</span>
+              : today <= close
+                ? <span className="flex items-center gap-2 flex-wrap"><span className="text-amber">Entries close in {close - today} day{close - today === 1 ? '' : 's'}</span><button onClick={() => setFlashMsg(enterAwards(sx.key).message)} className="h-7 px-2.5 rounded-full bg-amber text-black text-[11px] font-bold">Submit entries · $50</button></span>
+                : <span className="text-fall">Entries closed — you're not in this year</span>}
+          </div>
+        )}
+        {sx && sx.phase !== 'upcoming' && <Button size="sm" variant="secondary" className="mt-3" onClick={() => setOpen(sx.key)}>{sx.phase === 'done' ? 'See the winners' : 'Nominees & voting'}</Button>}
+      </div>
+    );
+  };
 
   return (
     <div className="max-w-[920px] mx-auto space-y-4 pb-12">
@@ -58,36 +107,49 @@ export function AwardsScreen() {
             <div className="text-[11px] text-ink3">award{wins.length === 1 ? '' : 's'} won</div>
           </div>
         </div>
+        {flashMsg && <div className="mt-3 text-[12px] text-amber">{flashMsg}</div>}
         {myNoms.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">{myNoms.map(({ s, c }) => <button key={s.key + c.id} onClick={() => setOpen(s.key)} className="h-7 px-2.5 rounded-full bg-amber/15 border border-amber/40 text-amber text-[11px] font-semibold">🏆 Nominated: {c.name}</button>)}</div>
         )}
       </div>
 
       {openSeason ? <SeasonView s={openSeason} body={bodies.find((b) => b.id === openSeason.bodyId)!} onBack={() => setOpen(null)} /> : (
-        <div className="grid sm:grid-cols-2 gap-3">
-          {bodies.map((b) => {
-            const s = latest(b);
-            const ph = phaseOf(s?.phase === 'done' && nextCalendar(b, today).year !== s.year ? undefined : s, today, b);
-            const cal = s && s.phase !== 'done' ? s.cal : nextCalendar(b, today);
-            const on = (follows ?? []).includes(b.id);
-            const mine = s?.categories.filter((c) => c.nominees.some((n) => n.isPlayer)).length ?? 0;
-            return (
-              <div key={b.id} className="rounded-[16px] border border-line bg-card p-4">
-                <div className="flex items-start gap-3">
-                  <div className="text-[30px] leading-none">{b.emoji}</div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[15px] font-bold text-ink">{b.name}</div>
-                    <div className="text-[11px] text-ink3">{SCOPE[b.scope]} · {b.venue}, {b.city}</div>
-                  </div>
-                  <button onClick={() => follow(b.id, !on)} title={on ? 'Following — you get notifications' : 'Follow for nominations and winners'} className={cn('h-8 px-2.5 rounded-full border text-[12px] font-semibold shrink-0', on ? 'border-amber bg-amber/15 text-amber' : 'border-line text-ink3')}>{on ? '🔔 Following' : '🔕 Follow'}</button>
-                </div>
-                <div className="mt-3 text-[12px] text-ink2">{fmtDay(cal.ceremony)}</div>
-                <div className={cn('text-[12px] font-semibold', ph.cls)}>{ph.text}{mine ? ` · ${mine} nomination${mine > 1 ? 's' : ''} for you` : ''}</div>
-                {s && s.phase !== 'upcoming' && <Button size="sm" variant="secondary" className="mt-3" onClick={() => setOpen(s.key)}>{s.phase === 'done' ? 'See the winners' : 'Nominees & voting'}</Button>}
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <Section title="Your awards" hint="Home, your region and the global academies.">
+            <div className="grid sm:grid-cols-2 gap-3">{mineBodies.map((b) => <BodyCard key={b.id} b={b} />)}</div>
+          </Section>
+          {abroad.length > 0 && (
+            <Section title="Where your music is playing" hint="You're charting in these countries — they know your name.">
+              <div className="grid sm:grid-cols-2 gap-3">{abroad.map((b) => <BodyCard key={b.id} b={b} />)}</div>
+            </Section>
+          )}
+          <Section title="Around the world" hint={`Every country has its own night — ${world.length} more ceremonies.`}>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a country or award" className="h-9 flex-1 min-w-[160px] rounded-[10px] bg-white/[0.05] border border-line px-3 text-[13px] text-ink" />
+              <select value={cont} onChange={(e) => setCont(e.target.value)} className="h-9 rounded-[10px] bg-white/[0.05] border border-line px-2 text-[12px] text-ink">
+                <option value="">All regions</option>
+                {getContinents().map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="rounded-[14px] border border-line bg-card divide-y divide-line">
+              {world.filter((b) => (!cont || getCountry(b.country ?? '')?.continent === cont) && (!q.trim() || `${b.name} ${b.country}`.toLowerCase().includes(q.trim().toLowerCase()))).map((b) => {
+                const sx = latest(b);
+                const cal = sx && sx.phase !== 'done' ? sx.cal : nextCalendar(b, today);
+                const ph = phaseOf(sx?.phase === 'done' && nextCalendar(b, today).year !== sx.year ? undefined : sx, today, b);
+                return (
+                  <button key={b.id} onClick={() => sx && sx.phase !== 'upcoming' ? setOpen(sx.key) : undefined} className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03]">
+                    <span className="text-[20px] w-7 text-center">{b.emoji}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-ink truncate">{b.name}</span>
+                      <span className="block text-[11px] text-ink3 truncate">{b.country} · {b.city} · {fmtDay(cal.ceremony)}</span>
+                    </span>
+                    <span className={cn('text-[11px] font-semibold shrink-0 text-right', ph.cls)}>{sx?.phase === 'done' ? 'Winners →' : sx?.phase === 'nominations' ? 'Nominees →' : ph.text}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
+        </>
       )}
     </div>
   );
@@ -169,5 +231,17 @@ function SeasonView({ s, body, onBack }: { s: AwardSeason; body: AwardBody; onBa
         );
       })}
     </div>
+  );
+}
+
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <div>
+        <div className="text-[15px] font-bold text-ink">{title}</div>
+        {hint && <div className="text-[12px] text-ink3">{hint}</div>}
+      </div>
+      {children}
+    </section>
   );
 }

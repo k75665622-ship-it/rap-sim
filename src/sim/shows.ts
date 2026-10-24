@@ -28,6 +28,8 @@
 
 import { affinity } from './affinity';
 import type { VenueClass, ShowCostLine, ShowType } from '../types/game';
+import { LOCATIONS } from '../data/locations';
+import { costIndex } from './home';
 
 export type { VenueClass, ShowCostLine };
 
@@ -93,8 +95,29 @@ const CITY_MARKET_SIZE: Record<string, number> = {
   Johannesburg: 1.25, 'Cape Town': 1.1, Durban: 0.7,
 };
 
+/**
+ * Every other city in the game, sized from its population: a city of a million
+ * supports a concert hall, two and a half million an arena, and the capital of
+ * a big scene a national stadium. The hand-tuned table above wins where it
+ * exists, so the rooms in those cities never change under a save.
+ */
+let derivedSizes: Map<string, number> | null = null;
+function derivedSize(city: string): number | undefined {
+  if (!derivedSizes) {
+    derivedSizes = new Map();
+    for (const c of LOCATIONS) {
+      c.cities.forEach((ci, i) => {
+        const primary = i === 0;
+        const v = 0.3 + 0.28 * Math.log2(Math.max(1, ci.population) / 300_000) + (primary ? 0.22 : 0);
+        derivedSizes!.set(ci.name, Math.max(0.3, Math.min(2.0, Math.round(v * 100) / 100)));
+      });
+    }
+  }
+  return derivedSizes.get(city);
+}
+
 export function cityMarketSize(city: string): number {
-  return CITY_MARKET_SIZE[city] ?? 0.5;
+  return CITY_MARKET_SIZE[city] ?? derivedSize(city) ?? 0.5;
 }
 
 /** The largest class of room a city can actually support. */
@@ -182,7 +205,7 @@ export function venuesInCity(city: string, country: string): Venue[] {
  * own private copy of the city map, which is the kind of duplication that ends
  * with the UI offering a city the engine has never heard of.
  */
-export const SHOW_CITIES: { city: string; country: string }[] = [
+const CORE_CITIES: { city: string; country: string }[] = [
   { city: 'Accra', country: 'Ghana' },
   { city: 'Kumasi', country: 'Ghana' },
   { city: 'Tema', country: 'Ghana' },
@@ -200,14 +223,39 @@ export const SHOW_CITIES: { city: string; country: string }[] = [
   { city: 'Durban', country: 'South Africa' },
 ];
 
+/**
+ * Every city with a scene: the original fifteen first (their rooms are tuned
+ * by hand), then every other city in every country the game knows. A Kenyan
+ * artist plays Nairobi, not Accra.
+ */
+export const SHOW_CITIES: { city: string; country: string }[] = [
+  ...CORE_CITIES,
+  ...LOCATIONS.flatMap((c) => c.cities.map((ci) => ({ city: ci.name, country: c.name })))
+    .filter((x) => !CORE_CITIES.some((k) => k.city === x.city)),
+];
+
 /** Every room in the game, derived. */
+/** Every country with at least one city that has rooms. */
+export const SHOW_COUNTRIES: string[] = Array.from(new Set(SHOW_CITIES.map((c) => c.country)));
+
+/** Home first, then the same continent, then everybody else — alphabetical within each. */
+export function orderCountries(list: string[], home: string): string[] {
+  const cont = LOCATIONS.find((c) => c.name === home)?.continent;
+  const rank = (c: string) => (c === home ? 0 : LOCATIONS.find((x) => x.name === c)?.continent === cont ? 1 : 2);
+  return [...list].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+let venueCache: Venue[] | null = null;
+let venueIndex: Map<string, Venue> | null = null;
 export function allVenues(): Venue[] {
-  return SHOW_CITIES.flatMap((c) => venuesInCity(c.city, c.country));
+  if (!venueCache) venueCache = SHOW_CITIES.flatMap((c) => venuesInCity(c.city, c.country));
+  return venueCache;
 }
 
 /** Resolve a venue id back to the room. Ids are derived, so this is a lookup. */
 export function findVenue(venueId: string): Venue | undefined {
-  return allVenues().find((v) => v.id === venueId);
+  if (!venueIndex) venueIndex = new Map(allVenues().map((v) => [v.id, v]));
+  return venueIndex.get(venueId);
 }
 
 /**
@@ -293,8 +341,59 @@ export function slotRequirement(
 // ─── DEMAND ────────────────────────────────────────────────────────────────
 
 /** The ticket price this artist's audience considers fair, right now. */
-export function perceivedTicketPrice(fame: number): number {
-  return Math.round(8 + Math.max(0, fame) * 1.15);
+/**
+ * How ticket prices in a country compare with home (Ghana = 1). A night out in
+ * London costs more than one in Accra; the same artist charges what the city
+ * pays. Damped, because a ticket is not rent: it moves less than the cost of
+ * living does.
+ */
+export function ticketPriceIndex(country?: string): number {
+  if (!country) return 1;
+  return Math.round((0.7 + 0.3 * costIndex(country)) * 100) / 100;
+}
+
+export function perceivedTicketPrice(fame: number, country?: string): number {
+  return Math.round((8 + Math.max(0, fame) * 1.15) * ticketPriceIndex(country));
+}
+
+// ─── THE CALENDAR AROUND A SHOW ────────────────────────────────────────────
+// The same artist draws differently in December in Accra (the diaspora is home
+// and every night is a party), during Ramadan in Dakar, or in a rained-out
+// stadium in August.
+
+const MUSLIM_MAJORITY = new Set(['Senegal', 'Egypt', 'Morocco', 'Mali', 'Burkina Faso', 'Tunisia', 'Algeria', 'UAE', 'Saudi Arabia', 'Indonesia', 'Malaysia']);
+const MUSLIM_CITIES = new Set(['Kano']);
+const WEST_AFRICA_RAINS = new Set(['Ghana', 'Nigeria', 'Ivory Coast', 'Senegal', 'Cameroon', 'Mali', 'Burkina Faso']);
+const NORTH = new Set(['Europe', 'North America']);
+
+/** Approximate first day of Ramadan in a Gregorian year, as a UTC day serial. */
+function ramadanStart(year: number): number {
+  // 18 Feb 2026, moving about 10.9 days earlier each year.
+  const base = Date.UTC(2026, 1, 18) / 86400000;
+  return Math.round(base - 10.875 * (year - 2026) + 365.2425 * (year - 2026));
+}
+
+export interface SeasonEffect { mult: number; label: string | null }
+
+export function seasonalDemand(country: string, city: string, serial: number, cls?: VenueClass, continent?: string): SeasonEffect {
+  const d = new Date(serial * 86400000);
+  const m = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+  const y = d.getUTCFullYear();
+  if (MUSLIM_MAJORITY.has(country) || MUSLIM_CITIES.has(city)) {
+    for (const yr of [y - 1, y, y + 1]) {
+      const s = ramadanStart(yr);
+      if (serial >= s && serial < s + 30) return { mult: 0.72, label: 'Ramadan — nights out are quieter' };
+    }
+  }
+  if ((country === 'Ghana' || country === 'Nigeria') && ((m === 12 && day >= 15) || (m === 1 && day <= 3))) {
+    return { mult: 1.3, label: 'December — the diaspora is home' };
+  }
+  if (continent === 'Africa' && m === 12) return { mult: 1.12, label: 'Festive season' };
+  if (cls === 'stadium' && WEST_AFRICA_RAINS.has(country) && m >= 6 && m <= 9) return { mult: 0.88, label: 'Rainy season — an open-air stadium is a gamble' };
+  if (continent && NORTH.has(continent) && m >= 6 && m <= 8) return { mult: 1.08, label: 'Summer — festival season' };
+  if (continent && NORTH.has(continent) && (m === 1 || m === 2)) return { mult: 0.9, label: 'Winter — people stay in' };
+  return { mult: 1, label: null };
 }
 
 export interface DemandInput {
@@ -320,6 +419,13 @@ export interface DemandInput {
    * See `decayedFatigue` — it is derived from the city's memory, not a flag.
    */
   fatigue: number;
+  /**
+   * 0-1: how much your music is actually playing in that country — charting
+   * there, having played there. Closes part of the gap that distance opens.
+   */
+  presence?: number;
+  /** The time of year (see `seasonalDemand`). 1 = an ordinary week. */
+  season?: number;
 }
 
 export interface DemandResult {
@@ -378,20 +484,22 @@ function clamp(v: number, lo: number, hi: number): number {
  * you that you priced it wrong, and it is the same "the lever does nothing"
  * bug the rebuild exists to kill.
  */
-export function fairDraw(fame: number, momentum: number, artistCountry: string, cityCountry: string, promo: number): number {
-  const reach = affinity(artistCountry, cityCountry);
+export function fairDraw(fame: number, momentum: number, artistCountry: string, cityCountry: string, promo: number, presence = 0, season = 1): number {
+  const aff = affinity(artistCountry, cityCountry);
+  // Charting in a country, or having played there, is a fanbase you can see.
+  const reach = aff + (1 - aff) * clamp(presence, 0, 1) * 0.7;
   const base = 150 * Math.pow(1 + Math.max(0, fame) / 32, 4);
   const hype = 1 + clamp(momentum, -40, 100) / 140;
-  return Math.max(0, base * (0.35 + 0.65 * reach) * hype * Math.max(0.4, promo));
+  return Math.max(0, base * (0.35 + 0.65 * reach) * hype * Math.max(0.4, promo) * clamp(season, 0.5, 1.5));
 }
 
 export function computeDemand(input: DemandInput): DemandResult {
-  const fairPrice = perceivedTicketPrice(input.fame);
+  const fairPrice = perceivedTicketPrice(input.fame, input.cityCountry);
   const ratio = fairPrice / Math.max(1, input.price);
   const elasticity = clamp(Math.pow(ratio, PRICE_ELASTICITY), 0.02, 1);
   const saturation = clamp(1 / (1 + input.fatigue * SATURATION_WEIGHT), 0.25, 1);
   return {
-    draw: fairDraw(input.fame, input.momentum, input.artistCountry, input.cityCountry, input.promo),
+    draw: fairDraw(input.fame, input.momentum, input.artistCountry, input.cityCountry, input.promo, input.presence ?? 0, input.season ?? 1),
     elasticity,
     saturation,
     fairPrice,
@@ -416,6 +524,8 @@ export interface CostInput {
   logisticsMult: number;
   /** Venue owner's effect on the rental terms. Below 1 is a good one. */
   venueHireMult: number;
+  /** A manager who works abroad gets the paperwork done for less. */
+  visaMult?: number;
 }
 
 export interface CostResult {
@@ -430,6 +540,30 @@ export interface CostResult {
  * The spec is explicit that costs scale with the event, and the settlement has
  * to itemise them or the player cannot see where a good night went.
  */
+// ─── VISAS AND WORK PERMITS ────────────────────────────────────────────────
+// Performing abroad is paperwork before it is a plane. ECOWAS and the East
+// African Community travel free; the US wants a performer visa for everybody;
+// most of Europe, the Gulf and the big Asian markets want a work permit from
+// artists coming from outside.
+
+const ECOWAS = new Set(['Ghana', 'Nigeria', 'Ivory Coast', 'Senegal', 'Mali', 'Burkina Faso']);
+const EAC = new Set(['Kenya', 'Tanzania', 'Uganda', 'Rwanda']);
+const PERMIT_MARKETS = new Set(['UK', 'Ireland', 'France', 'Germany', 'Netherlands', 'Sweden', 'Spain', 'Italy', 'Portugal', 'Poland', 'Belgium', 'Norway', 'Denmark', 'Switzerland', 'Canada', 'Australia', 'New Zealand', 'Japan', 'South Korea', 'China', 'UAE', 'Saudi Arabia', 'Russia']);
+const RICH_PASSPORTS = new Set(['USA', 'UK', 'Ireland', 'France', 'Germany', 'Netherlands', 'Sweden', 'Spain', 'Italy', 'Portugal', 'Poland', 'Belgium', 'Norway', 'Denmark', 'Switzerland', 'Canada', 'Australia', 'New Zealand', 'Japan', 'South Korea']);
+const PEOPLE: Record<VenueClass, number> = { club: 2, theatre: 4, hall: 7, arena: 12, stadium: 18 };
+
+/** What the paperwork costs to take this show to that country, for the whole party. 0 when none is needed. */
+export function visaCost(artistCountry: string, cityCountry: string, cls: VenueClass): number {
+  if (artistCountry === cityCountry) return 0;
+  const people = PEOPLE[cls];
+  if (ECOWAS.has(artistCountry) && ECOWAS.has(cityCountry)) return 0;
+  if (EAC.has(artistCountry) && EAC.has(cityCountry)) return 0;
+  if (cityCountry === 'USA') return Math.round((1200 + people * 450) / 50) * 50;
+  if (PERMIT_MARKETS.has(cityCountry)) return RICH_PASSPORTS.has(artistCountry) ? Math.round((200 + people * 60) / 50) * 50 : Math.round((500 + people * 250) / 50) * 50;
+  if (RICH_PASSPORTS.has(artistCountry)) return 0;
+  return Math.round((150 + people * 60) / 50) * 50;
+}
+
 export function computeCosts(input: CostInput): CostResult {
   const cap = input.venue.capacity;
   const reach = affinity(input.artistCountry, input.cityCountry);
@@ -437,20 +571,24 @@ export function computeCosts(input: CostInput): CostResult {
   // it is the tour manager's whole job to keep it from being worse.
   const travel = (input.cityCountry === input.artistCountry ? 350 : 900 + (1 - reach) * 5200)
     * input.logisticsMult;
+  // Staff, power and stewards cost what they cost in that city.
+  const local = ticketPriceIndex(input.cityCountry);
+  const visa = visaCost(input.artistCountry, input.cityCountry, input.venue.cls) * (input.visaMult ?? 1);
 
   const lines: ShowCostLine[] = [
     {
       key: 'venue',
       label: 'Venue hire',
-      amount: Math.round(input.venue.hireCost * input.venueHireMult / 50) * 50,
+      amount: Math.round(input.venue.hireCost * input.venueHireMult * local / 50) * 50,
       to: input.venue.name,
     },
-    { key: 'production', label: 'Production & staging', amount: Math.round(cap * 5.2) },
-    { key: 'crew', label: 'Crew, sound & lighting', amount: Math.round(cap * 3.4) },
-    { key: 'security', label: 'Security & stewarding', amount: Math.round(cap * 2.3) },
+    { key: 'production', label: 'Production & staging', amount: Math.round(cap * 5.2 * local) },
+    { key: 'crew', label: 'Crew, sound & lighting', amount: Math.round(cap * 3.4 * local) },
+    { key: 'security', label: 'Security & stewarding', amount: Math.round(cap * 2.3 * local) },
     { key: 'travel', label: 'Travel & freight', amount: Math.round(travel) },
-    { key: 'insurance', label: 'Insurance & licences', amount: Math.round(cap * 0.9 + 250) },
+    { key: 'insurance', label: 'Insurance & licences', amount: Math.round((cap * 0.9 + 250) * local) },
   ];
+  if (visa > 0) lines.push({ key: 'visa', label: 'Visas & work permits', amount: Math.round(visa / 50) * 50 });
 
   const relief = clamp(input.cutRelief, 0, 0.6);
 
@@ -491,6 +629,7 @@ export interface ShowPlanInput extends DemandInput {
   cutRelief: number;
   logisticsMult: number;
   venueHireMult: number;
+  visaMult?: number;
 }
 
 export interface ShowPlan {
@@ -567,6 +706,7 @@ export function settleShow(input: ShowPlanInput, roll: number): ShowSettlement {
     cutRelief: input.cutRelief,
     logisticsMult: input.logisticsMult,
     venueHireMult: input.venueHireMult,
+    visaMult: input.visaMult,
   });
   return {
     tickets,
@@ -608,6 +748,7 @@ export function settleSoldShow(
     cutRelief: input.cutRelief,
     logisticsMult: input.logisticsMult,
     venueHireMult: input.venueHireMult,
+    visaMult: input.visaMult,
   });
   const lines = [...costs.lines, ...prepaid.filter((l) => l.amount > 0)];
   const total = lines.reduce((sum, l) => sum + l.amount, 0);
@@ -644,6 +785,7 @@ export function planShow(input: ShowPlanInput): ShowPlan {
     cutRelief: input.cutRelief,
     logisticsMult: input.logisticsMult,
     venueHireMult: input.venueHireMult,
+    visaMult: input.visaMult,
   });
 
   // Merch is not in the fixed cost base, so the range moves only with tickets.
@@ -680,6 +822,8 @@ export function planShow(input: ShowPlanInput): ShowPlan {
     { label: 'City memory', value: `${Math.round(demand.saturation * 100)}%` },
     { label: 'Promotion', value: `${Math.round(input.promo * 100)}%` },
   ];
+  if ((input.presence ?? 0) > 0.05) drivers.push({ label: 'Your music there', value: `${Math.round((input.presence ?? 0) * 100)}%` });
+  if ((input.season ?? 1) !== 1) drivers.push({ label: 'Time of year', value: `${(input.season ?? 1) > 1 ? '+' : ''}${Math.round(((input.season ?? 1) - 1) * 100)}%` });
 
   return {
     venue: input.venue,

@@ -19,6 +19,14 @@ export interface StoryEvent {
   priority: number;
   /** Dedupe key: the store remembers when each story last ran. */
   key?: string;
+  /** The record the story is about, when it is about one. */
+  songId?: string;
+  /**
+   * What the store actually does about it, beyond the headline. A story that
+   * says "X wants a collab" has to put a real ask in your inbox, and "X takes a
+   * shot" has to start a real beef — otherwise the news and the game disagree.
+   */
+  special?: 'start_beef' | 'collab_ask' | 'revive' | 'intl_buzz';
 }
 
 /** How long before the same story can run again, in days. Milestones never repeat. */
@@ -64,32 +72,21 @@ function scanTriggers(state: GameState): StoryEvent[] {
   // Every story carries its key so it isn't told again tomorrow.
   const add = (key: string, kind: string, e: StoryEvent) => { if (ready(key, kind)) push({ ...e, key }); };
 
-  // Fame threshold events
-  if (player.career.localFame >= 30 && released.length > 0 && !openThreads.some(t => t.type === 'label' && !t.resolved)) {
-    add('label_interest', 'label_interest', {
-      id: uuidv4(),
-      type: 'label_interest',
-      headline: 'Local Label Shows Interest',
-      description: 'A local label has noticed your growing local fame and wants to discuss a deal.',
-      involvedNPCIds: ['manager_player'],
-      effectType: 'none',
-      effectValue: 0,
-      priority: 6,
-      openThread: { type: 'label', description: 'Local label interested in signing you', priority: 6 },
-    });
-  }
+  // Label interest is not a story the director tells: labels send real offers
+  // (see the LABEL INTEREST block in the tick), and a headline about a label
+  // that never writes is the game contradicting itself.
 
+  // Big at home, invisible nationally: advice, not free fame.
   if (player.career.localFame >= 50 && player.career.nationalFame < 20) {
     add('national_push', 'national_push', {
       id: uuidv4(),
       type: 'national_push',
-      headline: 'Fans Want More',
-      description: 'Your local fanbase is buzzing. Time to push nationally or they will plateau.',
+      headline: 'Your City Knows You. The Country Doesn\'t — Yet',
+      description: 'You run your city, but national radio and the big stages have not caught on. A show in another city, a national interview or a feature with a bigger name would carry you further.',
       involvedNPCIds: [],
-      effectType: 'fame',
-      effectValue: 3,
+      effectType: 'none',
+      effectValue: 0,
       priority: 4,
-      openThread: { type: 'deal', description: 'National push opportunity', priority: 4 },
     });
   }
 
@@ -99,7 +96,7 @@ function scanTriggers(state: GameState): StoryEvent[] {
       id: uuidv4(),
       type: 'money_crisis',
       headline: 'Running Low on Funds',
-      description: 'Your funds are critically low. Time to book a show or release something.',
+      description: 'Your funds are critically low. Book a show, take a feature, or cut what you spend every month.',
       involvedNPCIds: [],
       effectType: 'none',
       effectValue: 0,
@@ -107,24 +104,24 @@ function scanTriggers(state: GameState): StoryEvent[] {
     });
   }
 
-  // NPC rival trigger — one pass over the roster, keeping a random rival
-  // rather than materialising an array of every hostile artist just to use one.
-  const rival = sampleMatching(npcs, n => n.relationshipScore < -30 && n.role === 'artist');
-  if (rival && Math.random() < 0.15) {
+  // A rival who already dislikes you takes a public shot — and it starts a real
+  // beef, with the ladder and the fan war, not just a line in the news.
+  const rival = released.length > 0 ? sampleMatching(npcs, n => n.relationshipScore < -30 && n.role === 'artist' && Math.abs(n.fame - player.career.localFame) < 40) : undefined;
+  if (rival && Math.random() < 0.12 && !(state.beefs ?? []).some((b) => b.npcId === rival.id && !b.resolution)) {
     add(`beef:${rival.id}`, 'beef', {
       id: uuidv4(),
       type: 'beef',
       headline: `${rival.name} Takes a Shot`,
       description: generateStoryEvent('beef', rival.name, player.artistName ?? ''),
       involvedNPCIds: [rival.id],
-      effectType: 'reputation',
-      effectValue: -2,
+      effectType: 'none',
+      effectValue: 0,
       priority: 7,
-      openThread: { type: 'beef', description: `Beef with ${rival.name}`, involvedNPCIds: [rival.id], priority: 7 },
+      special: 'start_beef',
     });
   }
 
-  // Feature offer from allied NPC
+  // An artist who rates you wants you on their record — and actually asks.
   const ally = sampleMatching(
     npcs,
     n => n.relationshipScore > 50 && n.role === 'artist' && n.tier !== 'international',
@@ -139,7 +136,7 @@ function scanTriggers(state: GameState): StoryEvent[] {
       effectType: 'none',
       effectValue: 0,
       priority: 6,
-      openThread: { type: 'feature', description: `Feature opportunity with ${ally.name}`, involvedNPCIds: [ally.id], priority: 6 },
+      special: 'collab_ask',
     });
   }
 
@@ -152,48 +149,38 @@ function scanTriggers(state: GameState): StoryEvent[] {
       type: 'song_milestone',
       headline: `"${hitSong.title}" Crosses 100K Streams!`,
       description: `Your track "${hitSong.title}" just crossed 100,000 streams. The blogs are taking notice.`,
-      involvedNPCIds: ['blog_kojo'],
+      involvedNPCIds: [],
       effectType: 'fame',
-      effectValue: 3,
+      effectValue: 2,
       priority: 7,
+      songId: hitSong.id,
     });
   }
 
-  // Wildcard events (small chance per turn)
+  // Wildcards: each one is about a real record of yours, and does what it says.
   if (Math.random() < 0.08 && released.length > 0) {
-    const oldEnough = released.some((s) => s.releaseDate && today - dateToSerial(parseLooseDate(s.releaseDate)) >= 60);
-    const wildcards = [
-      {
-        type: 'wildcard',
-        headline: 'Fan Edit Goes Viral',
-        description: 'A fan made an edit of your song that\'s taking off on Clip. Unexpected streams incoming.',
-        effectType: 'fame' as const,
-        effectValue: 2,
-      },
-      {
-        type: 'wildcard',
-        headline: 'Old Verse Gets Attention',
-        description: 'A freestyle you dropped months ago is getting shared again. People are replaying it.',
-        effectType: 'reputation' as const,
-        effectValue: 2,
-      },
-      {
-        type: 'wildcard',
-        headline: 'International Blog Features You',
-        description: 'An international music blog included you in their "Artists to Watch" list.',
-        effectType: 'fame' as const,
-        effectValue: 4,
-      },
-    ];
-    // "A freestyle you dropped months ago" needs something dropped months ago.
-    const pool = wildcards.filter((w) => w.headline !== 'Old Verse Gets Attention' || oldEnough);
-    const wildcard = pool[Math.floor(Math.random() * pool.length)];
-    add(`wildcard:${wildcard.headline}`, 'wildcard', {
-      id: uuidv4(),
-      ...wildcard,
-      involvedNPCIds: [],
-      priority: 5,
-    });
+    const ageOf = (x: (typeof released)[number]) => (x.releaseDate ? today - dateToSerial(parseLooseDate(x.releaseDate)) : 0);
+    const streamed = released.filter((x) => x.totalStreams >= 5_000);
+    const old = released.filter((x) => ageOf(x) >= 60 && x.quality >= 55);
+    const fame = player.career.localFame * 0.5 + player.career.nationalFame * 0.32 + player.career.internationalFame * 0.18;
+    const strong = released.filter((x) => x.quality >= 72 && x.totalStreams >= 50_000);
+    const options: StoryEvent[] = [];
+    const pickOf = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+    if (streamed.length) {
+      const sng = pickOf(streamed);
+      options.push({ id: uuidv4(), type: 'wildcard', headline: 'Fan Edit Goes Viral', description: `A fan made an edit to "${sng.title}" and it's taking off on Clip. People are finding the song through it.`, involvedNPCIds: [], effectType: 'none', effectValue: 0, priority: 5, songId: sng.id, special: 'revive' });
+    }
+    if (old.length) {
+      const sng = pickOf(old);
+      options.push({ id: uuidv4(), type: 'wildcard', headline: 'An Old One Comes Back', description: `"${sng.title}" is getting shared again months after it came out. People are replaying it.`, involvedNPCIds: [], effectType: 'none', effectValue: 0, priority: 5, songId: sng.id, special: 'revive' });
+    }
+    if (fame >= 25 || strong.length) {
+      options.push({ id: uuidv4(), type: 'wildcard', headline: 'International Blog Features You', description: `An international music blog put you on its "Artists to Watch" list${strong.length ? ` on the back of "${strong[0].title}"` : ''}.`, involvedNPCIds: [], effectType: 'none', effectValue: 0, priority: 5, special: 'intl_buzz' });
+    }
+    if (options.length) {
+      const wildcard = pickOf(options);
+      add(`wildcard:${wildcard.headline}`, 'wildcard', wildcard);
+    }
   }
 
   // Open thread escalation — if an existing thread hasn't been resolved

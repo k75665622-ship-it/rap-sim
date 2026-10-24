@@ -61,6 +61,8 @@ import {
   type GearSlotId,
 } from '../../sim/room';
 import { StudioVault } from './StudioVault';
+import { dateToSerial } from '../../sim/gameClock';
+import { termsWarnings } from '../../store/gameStore';
 import { FeaturesPanel } from '../studio/FeaturesPanel';
 import { GENRE_LIST, GENRE_BY_ID, FAMILY_LABEL, type GenreFamily } from '../../data/genres';
 import { RemixDialog } from './RemixDialog';
@@ -517,6 +519,8 @@ export function StudioScreen() {
   const setScreen = useGameStore(s => s.setScreen);
 
   const [tab, setTab] = useState<Tab>('lyrics');
+  /** A record the album builder asked the vault to open for editing. */
+  const [vaultFocus, setVaultFocus] = useState<string | null>(null);
   // Three jobs live in this room: cutting a single, assembling a body of work
   // out of the singles you already have, and going back to something you
   // recorded and never put out.
@@ -988,7 +992,7 @@ export function StudioScreen() {
       ) : mode === 'beats' ? (
         <BeatsPanel key={beatsView} initialView={beatsView} onUseBeat={pickLibraryBeat} />
       ) : mode === 'album' ? (
-        <ProjectBuilder />
+        <ProjectBuilder onEditSong={(id) => { setVaultFocus(id); setMode('vault'); }} />
       ) : mode === 'room' ? (
         <div className="space-y-6">
         <BuildingPanel onFlash={(r) => { if (r.ok) { setNotice(r.message); setError(null); } else { setError(r.message); } }} />
@@ -1007,7 +1011,7 @@ export function StudioScreen() {
         />
         </div>
       ) : mode === 'vault' ? (
-        <StudioVault onRelease={setReleaseDialog} onMix={setMixDialog} />
+        <StudioVault onRelease={setReleaseDialog} onMix={setMixDialog} focusSongId={vaultFocus ?? undefined} />
       ) : mode === 'remix' ? (
         <RemixPanel />
       ) : mode === 'guest' ? (
@@ -2103,6 +2107,16 @@ export function StudioScreen() {
               Once it is out you cannot take it back. Pick where it goes, and set a budget if you
               want to push it.
             </p>
+            {(() => {
+              const warn = termsWarnings(useGameStore.getState(), releaseSong.id, false);
+              return warn.length ? (
+                <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 mb-4">
+                  <div className="text-xs text-red-200 font-semibold mb-1">⚠️ This release breaks a feature deal</div>
+                  {warn.map((w) => <div key={w} className="text-[11px] text-red-200/90 leading-snug">• {w}</div>)}
+                  <div className="text-[11px] text-gray-400 mt-1">They will hear it when it comes out. Some let it go; some want their verse back, more money, or a lawyer.</div>
+                </div>
+              ) : null;
+            })()}
 
             {(videosAll ?? []).some(v => v.isPlayer && v.songId === releaseSong.id && v.awaitingRelease && !v.removed) && (
               <div className="rounded-xl border border-gray-700 bg-gray-800/40 p-3 mb-4">
@@ -2261,8 +2275,18 @@ const EP_MIN = MIN_PROJECT_TRACKS.ep;
 const ALBUM_MIN = MIN_PROJECT_TRACKS.album;
 const MIXTAPE_MIN = MIN_PROJECT_TRACKS.mixtape;
 
-function ProjectBuilder() {
+function ProjectBuilder({ onEditSong }: { onEditSong?: (songId: string) => void } = {}) {
   const player = useGameStore(s => s.player);
+  const drafts = useGameStore(s => s.albumDrafts ?? []);
+  const saveAlbumDraft = useGameStore(s => s.saveAlbumDraft);
+  const deleteAlbumDraft = useGameStore(s => s.deleteAlbumDraft);
+  const releaseAlbumDraft = useGameStore(s => s.releaseAlbumDraft);
+  const today = useGameStore(s => dateToSerial(s.gameDate));
+  const managerName = useGameStore(s => { const c = s.contracts.find((x) => x.type === 'management' && x.active); return c ? c.npcName : null; });
+  const producerName = useGameStore(s => s.crew.find((c) => c.role === 'producer')?.npcName ?? null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [planDays, setPlanDays] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const songs = useGameStore(s => s.songs);
   const albums = useGameStore(s => s.albums);
   const globalAlbums = useGameStore(s => s.globalAlbums);
@@ -2310,10 +2334,55 @@ function ProjectBuilder() {
     [songs, usedIds],
   );
 
+  // The tracklist, in running order.
   const pickedSongs = useMemo(
-    () => available.filter(s => picked.includes(s.id)),
+    () => picked.map((id) => available.find((s) => s.id === id)).filter((s): s is NonNullable<typeof s> => !!s),
     [available, picked],
   );
+  const addable = useMemo(() => available.filter((s) => !picked.includes(s.id)), [available, picked]);
+  const otherDraftsOf = (songId: string) => drafts.filter((d) => d.id !== draftId && d.songIds.includes(songId)).map((d) => d.title);
+  const formatShort = (serial: number) => new Date(serial * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const move = (i: number, dir: -1 | 1) => setPicked((prev) => {
+    const ids = pickedSongs.map((s) => s.id);
+    const j = i + dir;
+    if (j < 0 || j >= ids.length) return prev;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    return ids;
+  });
+  const newDraft = () => { setDraftId(null); setTitle(''); setPicked([]); setType('ep'); setPlanDays(null); setError(null); };
+  const openDraft = (id: string) => {
+    const d = drafts.find((x) => x.id === id);
+    if (!d) return;
+    setDraftId(d.id); setTitle(d.title); setType(d.type); setPicked(d.songIds);
+    setPlanDays(d.plannedSerial ? Math.max(1, d.plannedSerial - today) : null);
+    setError(null); setNotice(null);
+  };
+  const handleSave = () => {
+    setNotice(null);
+    const r = saveAlbumDraft({ id: draftId ?? undefined, title, type, songIds: pickedSongs.map((s) => s.id), plannedSerial: planDays === null ? null : today + planDays });
+    if (!r.ok) { setError(r.message); return; }
+    setError(null);
+    setNotice(r.message);
+    if (r.id) setDraftId(r.id);
+  };
+  // What the team thinks of the tracklist, from the songs on it.
+  const teamRead = useMemo(() => {
+    if (pickedSongs.length < 2) return null;
+    const who = managerName ?? producerName ?? 'Your gut';
+    const qs = pickedSongs.map((s) => s.quality);
+    const avg = qs.reduce((x, y) => x + y, 0) / qs.length;
+    const weakest = pickedSongs.reduce((w, s) => (s.quality < w.quality ? s : w), pickedSongs[0]);
+    const strongest = pickedSongs.reduce((w, s) => (s.quality > w.quality ? s : w), pickedSongs[0]);
+    const unmixed = pickedSongs.filter((s) => !isSongReleased(s) && s.masterStatus === 'recorded').length;
+    const genres = new Set(pickedSongs.map((s) => s.genre)).size;
+    const bits: string[] = [];
+    if (weakest.quality < avg - 10 && pickedSongs.length > MIN_PROJECT_TRACKS[type]) bits.push(`"${weakest.title}" (${Math.round(weakest.quality)}) drags it down — I'd cut it`);
+    if (pickedSongs[0].id !== strongest.id && strongest.quality >= 65) bits.push(`open with "${strongest.title}", it's the strongest thing here`);
+    if (unmixed) bits.push(`${unmixed} track${unmixed > 1 ? 's are' : ' is'} not mixed yet — get that done first`);
+    if (genres >= 4) bits.push('it jumps between a lot of sounds — it may not feel like one body of work');
+    if (!bits.length) bits.push(avg >= 70 ? 'this is strong front to back. Drop it on a Friday and give it a single first' : avg >= 58 ? 'solid. One more great record would make it' : 'not ready yet. A few of these need more work');
+    return { who: who.split(' ')[0], text: `Average ${Math.round(avg)}. ${bits.join('; ')}.` };
+  }, [pickedSongs, managerName, producerName, type]);
 
   const combinedWeek = pickedSongs.reduce((sum, s) => sum + (s.weeklyStreams ?? 0), 0);
   const combinedLifetime = pickedSongs.reduce((sum, s) => sum + (s.totalStreams ?? 0), 0);
@@ -2336,22 +2405,26 @@ function ProjectBuilder() {
 
   const handleCreate = useCallback(() => {
     setNotice(null);
+    const order = picked.filter((id) => available.some((s) => s.id === id));
     // A mixtape has its own store action — the loose format has different
     // commercial weight, and routing it through `createAlbum` would lose that.
     const res =
       type === 'mixtape'
-        ? createMixtape({ title, songIds: picked })
-        : createAlbum({ title, songIds: picked, type });
+        ? createMixtape({ title, songIds: order })
+        : createAlbum({ title, songIds: order, type });
     if (!res.ok) {
       setError(res.error);
       return;
     }
     setError(null);
     setNotice(`"${title.trim()}" is out — it charts from this week.`);
+    // Out of the vault: it is a released project now.
+    if (draftId) deleteAlbumDraft(draftId);
+    setDraftId(null);
     setTitle('');
     setPicked([]);
     setType('ep');
-  }, [createAlbum, createMixtape, title, picked, type]);
+  }, [createAlbum, createMixtape, title, picked, type, available, draftId, deleteAlbumDraft]);
 
   // ── Deluxe: which projects can be reopened, and what can go on them ──────
   const deluxeCandidates = useMemo(
@@ -2390,22 +2463,55 @@ function ProjectBuilder() {
 
   const canCreate =
     title.trim().length > 0 &&
-    picked.length >= MIN_PROJECT_TRACKS[type];
+    pickedSongs.length >= MIN_PROJECT_TRACKS[type];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
       <div className="lg:col-span-2 space-y-4">
+        {/* ── THE ALBUM VAULT ───────────────────────────────────────────────
+            Projects you are still putting together. Save a tracklist, come
+            back to it, change it, schedule it — nothing comes out until you
+            say so. */}
         <Card>
-          <h2 className="text-white font-black mb-1">Build a project</h2>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h2 className="text-white font-black">💽 Album vault</h2>
+            <button onClick={newDraft} className="text-[12px] font-semibold text-yellow-400 hover:text-yellow-300">+ New project</button>
+          </div>
+          {drafts.length === 0 ? (
+            <p className="text-xs text-gray-500">No saved projects. Build a tracklist below and press “Save to vault” — you can keep editing it, add and remove songs, and release it when it's ready.</p>
+          ) : (
+            <div className="space-y-2">
+              {drafts.map((d) => {
+                const ts = d.songIds.map((id) => songs.find((x) => x.id === id)).filter(Boolean) as typeof songs;
+                const avg = ts.length ? Math.round(ts.reduce((x, y) => x + y.quality, 0) / ts.length) : 0;
+                const enough = ts.length >= MIN_PROJECT_TRACKS[d.type];
+                return (
+                  <div key={d.id} className={`rounded-xl border px-3 py-2.5 ${draftId === d.id ? 'border-yellow-500/60 bg-yellow-500/[0.06]' : 'border-gray-800 bg-gray-900/40'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-white font-semibold truncate flex-1">{d.title}</span>
+                      <span className="text-[10px] text-gray-500 shrink-0">{projectTypeLabel(d.type)} · {ts.length} tracks{avg ? ` · avg ${avg}` : ''}</span>
+                    </div>
+                    <div className="text-[11px] text-gray-500 mt-0.5">{d.plannedSerial ? `📅 Comes out ${formatShort(d.plannedSerial)}` : enough ? 'Ready when you are' : PROJECT_TRACK_RULE[d.type]}</div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <button onClick={() => openDraft(d.id)} className="h-7 px-2.5 rounded-lg bg-gray-800 text-[11px] font-semibold text-gray-200 hover:bg-gray-700">✏️ Open & edit</button>
+                      <button disabled={!enough} onClick={() => { const r = releaseAlbumDraft(d.id); if (r.ok) { setNotice(r.message); if (draftId === d.id) newDraft(); } else setError(r.message); }} className="h-7 px-2.5 rounded-lg bg-yellow-500 text-black text-[11px] font-bold disabled:opacity-30">💿 Release now</button>
+                      <button onClick={() => { if (confirmDelete === d.id) { deleteAlbumDraft(d.id); setConfirmDelete(null); if (draftId === d.id) newDraft(); } else setConfirmDelete(d.id); }} className="h-7 px-2.5 rounded-lg text-[11px] text-red-300 hover:bg-red-500/10">{confirmDelete === d.id ? 'Tap again to delete' : '🗑️ Delete'}</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <h2 className="text-white font-black mb-1">{draftId ? `Editing “${drafts.find((d) => d.id === draftId)?.title ?? title}”` : 'Build a project'}</h2>
           <p className="text-xs text-gray-500 mb-4">
-            Put your records onto one album or EP. Its chart units come from the tracks
-            themselves, so a project is exactly as big as the songs on it. Unreleased masters
-            are welcome here — anything not out yet comes out with the project.
+            Put your records onto one album, EP or mixtape and set the running order. Save it to the vault and keep working on it,
+            or put it out now. Unreleased masters come out with the project.
           </p>
 
-          <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">
-            Project title
-          </label>
+          <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">Project title</label>
           <input
             className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-yellow-500 transition-colors mb-4"
             placeholder="What is the body of work called?"
@@ -2413,128 +2519,109 @@ function ProjectBuilder() {
             onChange={e => setTitle(e.target.value)}
           />
 
-          <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">
-            Format
-          </label>
+          <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">Format</label>
           <div className="flex gap-2 mb-4">
             {([
-              ['ep', `EP · ${EP_MIN}+ tracks`],
-              ['mixtape', `Mixtape · ${MIXTAPE_MIN}+ tracks`],
-              ['album', `Album · ${ALBUM_MIN}+ tracks`],
-            ] as const).map(([id, label]) => {
-              const blocked = picked.length < MIN_PROJECT_TRACKS[id];
-              return (
-                <button
-                  key={id}
-                  onClick={() => setType(id)}
-                  disabled={blocked}
-                  title={blocked ? PROJECT_TRACK_RULE[id] : undefined}
-                  className={`flex-1 px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
-                    type === id
-                      ? 'border-yellow-500 bg-yellow-500/10 text-yellow-300'
-                      : blocked
-                        ? 'border-gray-800 bg-gray-800/40 text-gray-700 cursor-not-allowed'
-                        : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
+              ['ep', `EP · ${EP_MIN}+`],
+              ['mixtape', `Mixtape · ${MIXTAPE_MIN}+`],
+              ['album', `Album · ${ALBUM_MIN}+`],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setType(id)}
+                className={`flex-1 px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
+                  type === id ? 'border-yellow-500 bg-yellow-500/10 text-yellow-300' : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
+
+          <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wider">Tracklist ({pickedSongs.length})</label>
+          {pickedSongs.length === 0 ? (
+            <p className="text-xs text-gray-600 mb-4">Add songs from the list below. The order here is the order on the record.</p>
+          ) : (
+            <div className="space-y-1.5 mb-4">
+              {pickedSongs.map((s, i) => (
+                <div key={s.id} className="flex items-center gap-2 rounded-xl border border-gray-800 bg-gray-900/50 px-2.5 py-2">
+                  <span className="w-6 text-center text-xs text-gray-500 num shrink-0">{i + 1}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-white truncate">{s.title}</span>
+                    <span className={`block text-[11px] ${s.quality >= 70 ? 'text-green-400' : s.quality < 55 ? 'text-red-300' : 'text-gray-500'}`}>
+                      {Math.round(s.quality)}/100 · {isSongReleased(s) ? 'already out' : s.masterStatus === 'recorded' ? 'not mixed yet' : 'unreleased'}
+                    </span>
+                  </span>
+                  <button aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)} className="w-7 h-7 rounded-lg text-gray-300 hover:bg-gray-800 disabled:opacity-25">↑</button>
+                  <button aria-label="Move down" disabled={i === pickedSongs.length - 1} onClick={() => move(i, 1)} className="w-7 h-7 rounded-lg text-gray-300 hover:bg-gray-800 disabled:opacity-25">↓</button>
+                  {!isSongReleased(s) && onEditSong && <button onClick={() => onEditSong(s.id)} className="h-7 px-2 rounded-lg text-[11px] text-gray-300 hover:bg-gray-800">Edit</button>}
+                  <button aria-label="Remove" onClick={() => setPicked((prev) => prev.filter((x) => x !== s.id))} className="w-7 h-7 rounded-lg text-red-300 hover:bg-red-500/10">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {teamRead && (
+            <div className="mb-4 rounded-xl border border-gray-800 bg-black/30 px-3 py-2 text-xs text-gray-300">
+              <span className="text-gray-500">{teamRead.who}:</span> “{teamRead.text}”
+            </div>
+          )}
+          {(() => {
+            const warns = pickedSongs.filter((x) => !isSongReleased(x)).flatMap((x) => termsWarnings(useGameStore.getState(), x.id, true).map((w) => `"${x.title}" — ${w}`));
+            return warns.length ? (
+              <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2">
+                <div className="text-xs text-red-200 font-semibold">⚠️ Putting these out on a project breaks a feature deal</div>
+                {warns.map((w) => <div key={w} className="text-[11px] text-red-200/90 mt-0.5">• {w}</div>)}
+              </div>
+            ) : null;
+          })()}
 
           <div className="flex items-center justify-between mb-2">
-            <label className="text-xs text-gray-400 uppercase tracking-wider">
-              Tracks ({picked.length} selected)
-            </label>
-            {available.length > 0 && (
-              <button
-                onClick={() =>
-                  setPicked(
-                    picked.length === available.length ? [] : available.map(s => s.id),
-                  )
-                }
-                className="text-[11px] text-gray-400 hover:text-white transition-colors"
-              >
-                {picked.length === available.length ? 'Clear all' : 'Select all'}
-              </button>
-            )}
+            <label className="text-xs text-gray-400 uppercase tracking-wider">Add songs ({addable.length})</label>
           </div>
-
-          {available.length === 0 ? (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-6 text-center">
-              <p className="text-sm text-gray-400">Nothing available to put on a project.</p>
-              <p className="text-xs text-gray-600 mt-1">
-                Record a few masters first — or everything you have is already on one of your
-                projects.
-              </p>
+          {addable.length === 0 ? (
+            <div className="rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-4 text-center">
+              <p className="text-sm text-gray-400">Nothing else to add.</p>
+              <p className="text-xs text-gray-600 mt-1">Record more masters — everything else is already on this or a released project.</p>
             </div>
           ) : (
-            <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-              {available.map(s => {
-                const on = picked.includes(s.id);
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() =>
-                      setPicked(prev => (prev.includes(s.id) ? prev.filter(x => x !== s.id) : [...prev, s.id]))
-                    }
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl border text-left transition-colors ${
-                      on
-                        ? 'border-yellow-500/50 bg-yellow-500/10'
-                        : 'border-gray-800 bg-gray-800/40 hover:border-gray-700'
-                    }`}
-                  >
-                    <span
-                      className={`w-4 h-4 rounded-[5px] border flex items-center justify-center text-[10px] shrink-0 ${
-                        on ? 'border-yellow-500 bg-yellow-500 text-black' : 'border-gray-600'
-                      }`}
-                    >
-                      {on ? '✓' : ''}
+            <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+              {addable.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setPicked(prev => [...prev, s.id])}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-800 bg-gray-800/40 hover:border-gray-700 text-left transition-colors"
+                >
+                  <span className="w-5 h-5 rounded-md border border-gray-600 flex items-center justify-center text-[12px] text-gray-400 shrink-0">+</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm truncate text-gray-300">{s.title}</span>
+                    <span className="block text-[11px] text-gray-600">
+                      {isSongReleased(s) ? `${s.releaseDate} · ${s.genre.replace('_', ' ')}` : `unreleased · ${Math.round(s.quality)}/100 · ${s.genre.replace('_', ' ')}`}
+                      {otherDraftsOf(s.id).length ? ` · also in “${otherDraftsOf(s.id)[0]}”` : ''}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className={`block text-sm truncate ${on ? 'text-white' : 'text-gray-300'}`}>
-                        {s.title}
-                      </span>
-                      <span className="block text-[11px] text-gray-600">
-                        {isSongReleased(s)
-                          ? `${s.releaseDate} · ${s.genre.replace('_', ' ')}`
-                          : `unreleased · comes out with this · ${s.genre.replace('_', ' ')}`}
-                      </span>
-                    </span>
-                    <span className="text-right shrink-0">
-                      <span className="block text-xs text-gray-300 num">
-                        {isSongReleased(s) ? compact(s.weeklyStreams ?? 0) : '—'}
-                      </span>
-                      <span className="block text-[10px] text-gray-600">
-                        {isSongReleased(s) ? 'this week' : 'not out'}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+                  </span>
+                  <span className="text-right shrink-0">
+                    <span className="block text-xs text-gray-300 num">{isSongReleased(s) ? compact(s.weeklyStreams ?? 0) : '—'}</span>
+                    <span className="block text-[10px] text-gray-600">{isSongReleased(s) ? 'this week' : 'not out'}</span>
+                  </span>
+                </button>
+              ))}
             </div>
           )}
 
-          {error && (
-            <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-              {error}
-            </div>
-          )}
-          {notice && (
-            <div className="mt-3 rounded-xl border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-300">
-              {notice}
-            </div>
-          )}
+          {error && <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</div>}
+          {notice && <div className="mt-3 rounded-xl border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-300">{notice}</div>}
 
-          <Button
-            variant="gold"
-            className="w-full justify-center mt-4"
-            onClick={handleCreate}
-            disabled={!canCreate}
-          >
-            💿 Release the {projectTypeLabel(type)}
-          </Button>
+          <div className="mt-4 flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-gray-500">Release date:</span>
+            {[null, 7, 14, 30].map((dd) => (
+              <button key={String(dd)} onClick={() => setPlanDays(dd)} className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border ${planDays === dd ? 'border-yellow-500 bg-yellow-500/10 text-yellow-300' : 'border-gray-700 text-gray-400'}`}>{dd === null ? 'Not set' : `In ${dd} days`}</button>
+            ))}
+          </div>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Button variant="secondary" className="justify-center" onClick={handleSave} disabled={!title.trim()}>💾 Save to vault</Button>
+            <Button variant="gold" className="justify-center" onClick={handleCreate} disabled={!canCreate}>💿 Release the {projectTypeLabel(type)} now</Button>
+          </div>
         </Card>
       </div>
 

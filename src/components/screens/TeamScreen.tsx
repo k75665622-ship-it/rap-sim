@@ -51,6 +51,9 @@ import {
   type TeamDepartment,
 } from '../../sim/roles';
 import { VISIBLE_TRAITS } from '../../sim/traits';
+import { workStyleOf, WORK_STYLE, gradeOf, weeksOf } from '../../sim/crewWork';
+import { specialtyOf, managerReach } from '../../sim/managerStyle';
+import { charterOf, policyOf, policyLines, WEEKDAY, type TeamPolicy } from '../../sim/teamRules';
 
 /** How many people the hiring list will show at once. */
 const SHORTLIST = 24;
@@ -342,6 +345,27 @@ export function TeamScreen() {
             <p className="text-[12px] text-ink3 mt-2 leading-relaxed">
               {managerJobLine(manager)}
             </p>
+            {(() => {
+              const sp = specialtyOf(manager);
+              if (!sp) return null;
+              return (
+                <div className="mt-3 rounded-[12px] border border-amber/30 bg-amber/[0.05] p-3">
+                  <div className="text-[13px] font-semibold text-ink">{sp.emoji} {sp.label} <span className="text-[11px] font-normal text-ink3">· {managerReach(manager).label}</span></div>
+                  <div className="text-[12px] text-ink2 mt-1 leading-snug">{sp.purpose}</div>
+                  <div className="grid sm:grid-cols-2 gap-3 mt-2">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-rise mb-1">Good at</div>
+                      <ul className="space-y-0.5">{sp.strengths.map((x) => <li key={x} className="text-[11px] text-ink2 leading-snug">• {x}</li>)}</ul>
+                      <div className="text-[11px] text-ink3 mt-1">Weak spot: {sp.weakness}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-amber mb-1">Their rules</div>
+                      <ul className="space-y-0.5">{sp.rules.map((x) => <li key={x} className="text-[11px] text-ink2 leading-snug">• {x}</li>)}</ul>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="mt-4 flex items-center gap-3 flex-wrap">
               {confirmManager ? (
@@ -397,6 +421,8 @@ export function TeamScreen() {
         )}
       </section>
 
+      <TeamRules hasManager={!!manager} hasAccountant={crew.some((c) => c.role === 'accountant')} />
+
       {/* ── THE TEAM ───────────────────────────────────────────────────── */}
       <section>
         <SectionTitle
@@ -444,6 +470,20 @@ export function TeamScreen() {
                       <div className="text-[11px] text-ink3 mt-0.5 leading-snug">
                         {filled.length > 0 ? filled[0].line : spec.effect}
                       </div>
+                      <details className="mt-0.5">
+                        <summary className="text-[10px] text-ink3 cursor-pointer hover:text-ink2">Purpose &amp; rules</summary>
+                        {(() => {
+                          const ch = charterOf(spec.role);
+                          return (
+                            <div className="mt-1 text-[11px] text-ink2 leading-snug space-y-0.5">
+                              <div>{ch.purpose}</div>
+                              {ch.duties.map((d) => <div key={d} className="text-ink3">• {d}</div>)}
+                              {ch.rules.map((r) => <div key={r} className="text-amber/80">⚑ {r}</div>)}
+                              <div className="text-ink3 italic">Needs from you: {ch.needs}</div>
+                            </div>
+                          );
+                        })()}
+                      </details>
                     </div>
                   </div>
                 ))}
@@ -778,6 +818,14 @@ function CrewRow({
   const ceiling = npc ? npcCeiling(npc) : member.skill;
   const growing = npc ? stillGrowing(npc) : false;
   const visible = member.visible ?? [];
+  const warn = useGameStore((s) => s.warnCrew);
+  const praise = useGameStore((s) => s.praiseCrew);
+  const [said, setSaid] = useState<string | null>(null);
+  const style = workStyleOf(member);
+  const ws = WORK_STYLE[style];
+  const month = member.perf?.month;
+  const sofar = month && weeksOf(month) >= 2 ? gradeOf(month) : null;
+  const strikes = member.strikes ?? 0;
   return (
     <div className="rounded-[10px] border border-line bg-cardhover/40 px-3 py-2.5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -815,6 +863,26 @@ function CrewRow({
           {(() => { const sp = specialSkillOf(member.npcId, member.role, member.skill); return sp ? (
             <div className="mt-1.5 text-[11px] leading-snug"><span className="text-amber font-semibold">{sp.emoji} {sp.label}</span> <span className="text-ink3">— {sp.blurb}</span></div>
           ) : null; })()}
+          {/* How they actually work: you find out by working with them. */}
+          <div className="mt-1.5 text-[11px] leading-snug">
+            {member.styleKnown
+              ? <><span className="font-semibold text-ink">{ws.emoji} {ws.label}</span> <span className="text-ink3">— {ws.line}</span></>
+              : <span className="text-ink3">🔎 Work style: you'll know after a month together.</span>}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap mt-1.5">
+            {member.lastReview && <Tag tone={member.lastReview.grade <= 'B' ? 'up' : member.lastReview.grade >= 'D' ? 'down' : 'muted'}>Last month: {member.lastReview.grade}</Tag>}
+            {sofar && <Tag tone="muted">This month so far: {sofar.grade}</Tag>}
+            {member.perf?.last === 'none' && <Tag tone="down">Nothing last week</Tag>}
+            {member.perf?.last === 'extra' && <Tag tone="up">Went beyond last week</Tag>}
+            {member.perf?.last === 'clutch' && <Tag tone="up">Came through when it mattered</Tag>}
+            {strikes >= 2 && <Tag tone="down">⚠️ Underperforming {strikes} months</Tag>}
+          </div>
+          {member.lastReview && <div className="text-[11px] text-ink3 mt-1 leading-snug">{member.lastReview.text}</div>}
+          <div className="flex items-center gap-1.5 mt-2">
+            <button onClick={() => setSaid(praise(member.id).message)} className="h-7 px-2.5 rounded-full border border-rise/40 text-rise text-[11px] font-semibold hover:bg-rise/10">👏🏾 Praise</button>
+            <button onClick={() => setSaid(warn(member.id).message)} className="h-7 px-2.5 rounded-full border border-amber/40 text-amber text-[11px] font-semibold hover:bg-amber/10">⚠️ Warn</button>
+          </div>
+          {said && <div className="text-[11px] text-ink2 mt-1 leading-snug">{said}</div>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-[12px] font-semibold text-ink num">{money(member.monthlyWage)}/mo</span>
@@ -866,5 +934,70 @@ function JobPicker({ member }: { member: CrewMember }) {
       {current ? <div className="text-[11px] text-ink2 mt-1.5 leading-snug">{current.blurb}</div> : null}
       {member.lastWork ? <div className="text-[11px] text-ink3 mt-1 leading-snug">Last week: {member.lastWork}</div> : null}
     </div>
+  );
+}
+
+/**
+ * The rules YOU set. The manager follows them on every offer, and the
+ * accountant guards the cash floor. Changing one is instant.
+ */
+function TeamRules({ hasManager, hasAccountant }: { hasManager: boolean; hasAccountant: boolean }) {
+  const raw = useGameStore((s) => s.teamPolicy);
+  const setPolicy = useGameStore((s) => s.setTeamPolicy);
+  const pol = policyOf(raw);
+  const set = (patch: Partial<TeamPolicy>) => setPolicy(patch);
+  return (
+    <section>
+      <SectionTitle>Team rules</SectionTitle>
+      <Panel className="p-4 space-y-3">
+        <p className="text-[12px] text-ink3 -mt-1">How your team works when you&apos;re not watching. {hasManager ? 'Your manager follows these on every offer.' : 'Sign a manager and they will follow these on every offer.'}{hasAccountant ? ' Your accountant guards the cash floor.' : ''}</p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="flex items-start gap-2.5 rounded-[12px] border border-line p-3 cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={pol.autoTake} onChange={(e) => set({ autoTake: e.target.checked })} />
+            <span><span className="block text-[12px] font-semibold text-ink">Manager can say yes for me</span><span className="block text-[11px] text-ink3">Show offers they recommend are accepted automatically if they fit the rules below.</span></span>
+          </label>
+          <div className="rounded-[12px] border border-line p-3">
+            <div className="text-[12px] font-semibold text-ink">Lowest show fee</div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[12px] text-ink3">$</span>
+              <input type="number" min={0} step={50} value={pol.minShowFee} onChange={(e) => set({ minShowFee: Number(e.target.value) })} className="w-28 h-8 rounded-[8px] bg-white/[0.05] border border-line px-2 text-[12px] text-ink" />
+              <span className="text-[11px] text-ink3">0 = any</span>
+            </div>
+          </div>
+          <div className="rounded-[12px] border border-line p-3">
+            <div className="text-[12px] font-semibold text-ink">Where they can send me</div>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {(['home', 'continent', 'anywhere'] as const).map((t) => (
+                <button key={t} onClick={() => set({ travel: t })} className={cn('h-7 px-2.5 rounded-full border text-[11px] font-semibold', pol.travel === t ? 'border-amber bg-amber/15 text-amber' : 'border-line text-ink2')}>{t === 'home' ? 'Home only' : t === 'continent' ? 'This continent' : 'Anywhere'}</button>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-[12px] border border-line p-3">
+            <div className="text-[12px] font-semibold text-ink">Rest day — nobody books it</div>
+            <select value={pol.restDay} onChange={(e) => set({ restDay: Number(e.target.value) })} className="mt-1.5 h-8 rounded-[8px] bg-white/[0.05] border border-line px-2 text-[12px] text-ink">
+              <option value={-1}>No rest day</option>
+              {WEEKDAY.map((d, i) => <option key={d} value={i}>{d}</option>)}
+            </select>
+          </div>
+          <div className="rounded-[12px] border border-line p-3">
+            <div className="text-[12px] font-semibold text-ink">When artists ask me for a verse</div>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {(['ask_me', 'auto_good', 'decline_all'] as const).map((t) => (
+                <button key={t} onClick={() => set({ featureAsks: t })} className={cn('h-7 px-2.5 rounded-full border text-[11px] font-semibold', pol.featureAsks === t ? 'border-amber bg-amber/15 text-amber' : 'border-line text-ink2')}>{t === 'ask_me' ? 'Ask me' : t === 'auto_good' ? 'Take the good ones' : 'Decline all'}</button>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-[12px] border border-line p-3">
+            <div className="text-[12px] font-semibold text-ink">Cash floor</div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[12px] text-ink3">$</span>
+              <input type="number" min={0} step={100} value={pol.cashFloor} onChange={(e) => set({ cashFloor: Number(e.target.value) })} className="w-28 h-8 rounded-[8px] bg-white/[0.05] border border-line px-2 text-[12px] text-ink" />
+              <span className="text-[11px] text-ink3">The team won&apos;t spend you under this.</span>
+            </div>
+          </div>
+        </div>
+        <ul className="space-y-0.5">{policyLines(pol).map((l) => <li key={l} className="text-[11px] text-ink2">✓ {l}</li>)}</ul>
+      </Panel>
+    </section>
   );
 }

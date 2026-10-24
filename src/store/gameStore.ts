@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { setAutoFreeze, current, isDraft } from 'immer';
+import { setAutoFreeze, current, isDraft, original } from 'immer';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   Headline,
@@ -23,7 +23,7 @@ import type {
   LabelSession, Genre as LabelGenre, LineupAct, ShowGuest, Moment, MomentEffect,
   FanWar, SocialComment, SocialActivity, ManagerBrief, InterviewInvite, InterviewRecord, CasinoState, Appointment,
 } from '../types/game';
-import { rollMoment, resolveMoment, expireMoment, buildFollowUp, buildFeatureTwist, type MomentWorld } from '../sim/moments';
+import { rollMoment, resolveMoment, expireMoment, buildFollowUp, buildFeatureTwist, buildBreachMoment, buildBirthdayPlan, buildNpcBirthday, type MomentWorld } from '../sim/moments';
 import { chatReply, detectIntent } from '../sim/chat';
 import {
   SOCIAL_APPS, APP_META, kindDef, seedFollowers, postReach, generateComments as socialComments, tagResponse,
@@ -172,7 +172,7 @@ import { buildRealArtists } from '../data/realArtists';
 import { ghostwriterById } from '../sim/ghostwriter';
 import { generateNPCs } from '../data/npcGenerator';
 import { getBaseStats, applyBackground, getStartingCareer } from '../data/backgrounds';
-import { getChartMarkets } from '../data/locations';
+import { getChartMarkets, getCountry } from '../data/locations';
 import { getUnitsForCertification } from '../sim/songQuality';
 import {
   runStoryDirector,
@@ -234,6 +234,9 @@ import {
   SHOW_CITIES,
   venuesInCity,
   accessTier,
+  seasonalDemand,
+  fairDraw,
+  SHOW_COUNTRIES,
   type Venue,
   type ShowPlan,
   type ShowPlanInput,
@@ -320,6 +323,7 @@ import {
   parseGameDate,
   serialToDate,
   formatWeekEnding,
+  serialWeekday,
 } from '../sim/gameClock';
 import {
   buildSongChart,
@@ -388,6 +392,7 @@ import {
   counterFeatureFee,
   decideFeatureResponse,
   featureDisposition,
+  featureFee,
   featureResponseDays,
   managerSkillOf,
   MAX_NEGOTIATION_ROUNDS,
@@ -411,17 +416,27 @@ import { newMarket, stepMarket, holdingValue, STOCK_FEE, COIN_FEE, type MarketSt
 import { VENTURE_BY_TYPE, newVenture, ventureMonth, ventureValue, dropCost, resolveDrop, resolveSpecial, type Venture, type VentureCtx, type VentureType, type PricePoint, type DropPlan } from '../sim/ventures';
 import { zoneOf, buildOf, buildCostFor, projectValue, monthlyRent, buildMonth, type Zone, type BuildType } from '../sim/realestate';
 import { creditScore, personalOffer, mortgageOffer, paymentFor, LENDERS } from '../sim/bank';
-import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, type HomeState, type HomeTier } from '../sim/home';
+import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, costIndex, type HomeState, type HomeTier } from '../sim/home';
+import { GENRE_BY_ID } from '../data/genres';
 import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, rollDice, playFixture, tableLimit, vipTier, type BlackjackHand, type RouletteBet, type DiceBet } from '../sim/casino';
 import { assignmentsFor, weekOfWork } from '../sim/assignments';
+import { workStyleOf, weekEffort, effortLine, recordWeek, gradeOf, reviewLine, knowsStyle, warnOutcome, praiseOutcome, WORK_STYLE } from '../sim/crewWork';
+import { cypherSpecFor, playRound, finishCypher as finishCypherNight, MOVES as CYPHER_MOVES, ROUNDS as CYPHER_ROUNDS, VERDICT_LABEL, type CypherMove } from '../sim/freestyle';
+import { npcBirthday, birthdayOf, daysUntil, partyCost, dinnerCost, partyNight, wishLine, teamWish, fanWish, type Guest } from '../sim/birthdays';
+import { pitchChoices, resolvePitch, introPitchLine } from '../sim/starIntro';
 import { specialSkillOf, crewWithSkill, personaOf } from '../sim/persona';
 import { isSilentOption, playerLine, npcReply, toneOf, followUpFor, outcomeChips } from '../sim/dmVoice';
 import { mixCraft, decideMix } from '../sim/studio';
-import { teamUpdates, teamReply, type Snapshot as TeamSnapshot, type TeamLine } from '../sim/teamChat';
+import { teamUpdates, teamReply, teamActions, disputeChance, draftDispute, settleDispute, lapseDispute, type Snapshot as TeamSnapshot, type TeamLine, type TeamAction, type Member as TeamMember } from '../sim/teamChat';
+import { policyLines } from '../sim/teamRules';
+import { managerSpecialty, SPECIALTIES, managerReach, reachIncludes, foreignMarkets, monthPitches, pitchBlocked, bigFeatureOdds, managerFeatureDiscount, craftScore, pickBrand, brandFee, syncFee, syncPlace, radioSlot, playlistSlot, PITCH_LABEL, type PitchKind } from '../sim/managerStyle';
+import { policyOf, showBreaksPolicy, type TeamPolicy } from '../sim/teamRules';
+import { conditionsFor, sceneRivalsOf, enforcementOf, breachOf, type FeatureCondition } from '../sim/featureTerms';
+import { seededRivalries } from '../data/rivalries';
 import { everydayPost, sceneFanPost } from '../sim/everyday';
 import { nearDuplicate, impliedPlan, soundsLikeYes } from '../sim/dmGuard';
 import { replyStorm, fanScream, type BuzzWhere } from '../sim/buzz';
-import { defaultSlot, whenLabel, placeFor, KIND_LABEL, lateness, sceneChoices, resolveScene, noShow, type SceneResult } from '../sim/appointments';
+import { defaultSlot, whenLabel, placeFor, KIND_LABEL, lateness, sceneChoices, resolveScene, noShow, fmtMinute, type SceneResult } from '../sim/appointments';
 import { aiActiveFor } from '../sim/ai';
 import { newBrand, weekTick, unitCostFor, fairPrice, rollDesign, MATERIALS, SUPPLIERS, PRODUCT_NAMES, type BrandState, type Product, type ProductKind, type Material, type SupplierId, type WeekCtx } from '../sim/clothing';
 import { defaultLook, lookFor, type Look, type Slot, type TattooSpot, type TattooDesign, type HairStyle, type FacialHair, type Wearable } from '../sim/look';
@@ -429,7 +444,7 @@ import { newDrip, runDrops, dripScore, dripReach, resaleValue, tattooQuote, remo
 import { addMemory, type Memory, type MemoryKind } from '../sim/memories';
 import { payTermsFor, upfrontShare, planDelivery, planPayment, refundResponse, suesForUndelivered, chaseLine, lateExcuse, TERMS_LABEL, VERSE_DEADLINE_DAYS, GRACE_DAYS } from '../sim/deals';
 import { CASE_LABEL, lawyerOptions, opposingLawyer, courtFor, nextCourtDate, npcAnswer, npcSettlement, npcAcceptsOffer, plaintiffOdds, testimonyEffect, judgment, newsworthy, type LegalCase, type CaseKind, type Lawyer } from '../sim/court';
-import { awardBodies, nextCalendar, nominate, voteDay, decide, winRewards, carpetVerdict, type AwardBody, type CategoryState, type World as AwardWorld, type Entrant, type SongEntry, type Calendar } from '../sim/awardSeasons';
+import { awardBodies, nextCalendar, nominate, voteDay, decide, winRewards, carpetVerdict, inRegion, sceneSingle, type AwardBody, type CategoryState, type World as AwardWorld, type Entrant, type SongEntry, type Calendar } from '../sim/awardSeasons';
 import { MODES, COMEBACK_DAYS, comebackHype, reaches, producerIncome, type CareerMode } from '../sim/careerMode';
 import { newFootball, fixturesForDay, selectionWon, addToTable, addRow, finalScore, pickLabel, koWinner, seasonYearOf, seasonInfo, seasonLabel, sortRows, MATCH_LENGTH, LEAGUE_BY_ID, type FootballState, type Match as FootballMatch, type Market, type Pick as BetPick } from '../sim/football';
 import { isRealId } from '../sim/realPeople';
@@ -637,6 +652,60 @@ function liveSongs(songs: Song[]): Song[] {
 }
 
 /**
+ * A great record can blow up when nobody planned it — the way real hits do.
+ * The better it is (and the hotter you are), the likelier; the surge lands a
+ * few days after release, not on the day. A project that is great as a whole
+ * lifts its best tracks with it.
+ */
+function rollBreakout(state: GameState, songs: Song[], project?: string): void {
+  const p = state.player;
+  if (!p || !songs.length) return;
+  const serial = dateToSerial(state.gameDate);
+  const flags = state.lifeFlags ?? (state.lifeFlags = {});
+  const heat = 1 + (p.career.momentum ?? 0) / 200;
+  const avg = songs.reduce((a, x) => a + x.quality, 0) / songs.length;
+  const ranked = [...songs].sort((a, b) => b.quality - a.quality);
+  const picks = project ? ranked.slice(0, avg >= 78 ? 2 : 1) : ranked.slice(0, 1);
+  for (const song of picks) {
+    const q = project ? Math.max(song.quality, avg + 4) : song.quality;
+    const chance = (q >= 88 ? 0.38 : q >= 80 ? 0.24 : q >= 72 ? 0.11 : q >= 62 ? 0.04 : 0.01) * heat;
+    if (Math.random() >= chance) continue;
+    // How big: a good record doubles, a classic goes everywhere.
+    const power = Math.round((0.6 + (q - 60) / 22 + Math.random() * 1.4) * 100) / 100;
+    flags[`breakout:${song.id}`] = serial + 2 + Math.floor(Math.random() * 6);
+    flags[`breakpow:${song.id}`] = Math.max(0.6, Math.min(3, power));
+    if (project) flags[`breakproj:${song.id}`] = 1;
+  }
+}
+
+/** Daily: a record that was going to blow up does. */
+function breakoutTick(state: GameState, serial: number): void {
+  const p = state.player;
+  const flags = state.lifeFlags;
+  if (!p || !flags) return;
+  for (const key of Object.keys(flags)) {
+    if (!key.startsWith('breakout:') || flags[key] > serial) continue;
+    const id = key.slice(9);
+    const power = flags[`breakpow:${id}`] ?? 1;
+    const viaProject = !!flags[`breakproj:${id}`];
+    delete flags[key]; delete flags[`breakpow:${id}`]; delete flags[`breakproj:${id}`];
+    const song = state.songs.find((x) => x.id === id);
+    if (!song || !isSongReleased(song)) continue;
+    const why = pickLine(['a clip of it went viral', 'every DJ in the city is running it', 'it hit the big playlists', 'people would not stop sharing it', 'a dance to it took over the timeline'], `${id}|why`);
+    pushSong(state, song.id, power, 21, `It blew up — ${why}`);
+    addMomentum(state, Math.round(6 + power * 4), `"${song.title}" blew up`);
+    p.career.fanbase += Math.round((800 + blendedFame(p) * 120) * power);
+    p.career.localFame = Math.min(100, p.career.localFame + 1.5 * power);
+    p.career.nationalFame = Math.min(100, p.career.nationalFame + 1 * power);
+    state.headlines.unshift({ id: uuidv4(), text: `${p.artistName}'s "${song.title}" is blowing up`, fullStory: `Nobody planned this one: ${why}. ${viaProject ? 'It is pulling the whole project up with it.' : 'The numbers are climbing every day.'}`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 8, category: 'chart' });
+    pushNotification(state, { kind: 'milestone', title: `🔥 "${song.title}" is blowing up`, body: `Out of nowhere — ${why}. Watch the numbers in your Catalog.`, artSeed: `song|${song.id}`, action: { type: 'song', id: song.id } });
+    remember(state, 'music', `"${song.title}" blew up out of nowhere — ${why}.`, { weight: 5, tone: 'good' });
+    const mgr = managerOf(state);
+    if (mgr) pushTeamLines(state, [{ from: mgr.id, name: mgr.name, role: 'manager', text: `Are you seeing "${song.title}"?? ${why[0].toUpperCase()}${why.slice(1)}. This is the moment — let's feed it: a video, a remix, shows.`, key: `breakout:${id}` }], serial);
+  }
+}
+
+/**
  * Put a vault master out as a track on a project.
  *
  * A project is not a new thing the game invents, but it IS the moment its
@@ -652,6 +721,7 @@ function liveSongs(songs: Song[]): Song[] {
 function releaseAsProjectTrack(state: GameState, song: Song): void {
   song.masterStatus = 'released';
   song.releaseDate = formatGameDate(state.gameDate);
+  checkFeatureTerms(state, song.id, true, true);
   song.weeksOut = 0;
   song.marketingBudget = 0;
   // `undefined` means everywhere — a project is not a platform decision.
@@ -724,16 +794,227 @@ const MAX_CLOCK_CATCHUP_DAYS = 2;
  *
  * Called from inside a `set()` producer, because it assigns.
  */
-function saveToActiveSlot(state: GameState, payload: Partial<GameState>): void {
-  if (!state.activeSlotId) {
-    state.saveError =
-      'This career is not attached to a save slot, so nothing is being written. ' +
-      'Start a new career, or open one from the careers list.';
-    return;
-  }
-  const result = writeSlot(state.activeSlotId, payload);
-  state.saveError = result.ok ? null : result.error;
+/**
+ * Everything a save holds. ONE list, used by the autosave and by Save now —
+ * there used to be two, and the autosave's was missing the videos, the chart
+ * history, the streaming state and the notifications, so a reload after any
+ * day on the clock quietly lost them.
+ */
+function buildSavePayload(state: GameState): Partial<GameState> {
+  return {
+        albumDrafts: state.albumDrafts,
+        initialized: state.initialized,
+        player: state.player,
+        songs: state.songs,
+        albums: state.albums,
+        npcDeltas: collectNPCDeltas(raw(state.npcs) as NPC[]),
+        dmThreads: state.dmThreads,
+        socialPosts: feedForSave(state.socialPosts),
+        mailbox: state.mailbox,
+        contracts: state.contracts,
+        crew: state.crew,
+        shows: state.shows,
+        cityMarkets: state.cityMarkets,
+        tours: state.tours,
+          scheduledShows: state.scheduledShows,
+          showOffers: state.showOffers,
+          bookedGigs: state.bookedGigs,
+        studio: state.studio,
+        beefs: state.beefs,
+        feedRefreshedAt: state.feedRefreshedAt,
+        tagQuota: state.tagQuota,
+        socialStats: state.socialStats,
+        fanbaseName: state.fanbaseName,
+        fanWars: (state.fanWars ?? []).slice(0, 10),
+        postsToday: state.postsToday,
+        beats: state.beats,
+        following: state.following,
+        followedBy: state.followedBy,
+        blocked: state.blocked,
+        socialActivity: (state.socialActivity ?? []).slice(0, 60),
+        stories: (state.stories ?? []).slice(0, 30),
+        lastLive: state.lastLive,
+        verified: state.verified,
+        interviewInvites: (state.interviewInvites ?? []).slice(0, 12),
+        activeInterview: state.activeInterview ?? null,
+        interviewLog: (state.interviewLog ?? []).slice(0, 30),
+        outletRel: state.outletRel,
+        lastPitchSerial: state.lastPitchSerial,
+        managerDesk: (state.managerDesk ?? []).slice(0, 30),
+        teamChat: (state.teamChat ?? []).slice(-80),
+        teamChatUnread: state.teamChatUnread,
+        teamPolicy: state.teamPolicy,
+        lifeFlags: state.lifeFlags,
+        managerPush: state.managerPush,
+        teamDispute: state.teamDispute ?? null,
+        lastDisputeSerial: state.lastDisputeSerial,
+        birthday: state.birthday,
+        birthdaysSeen: (state.birthdaysSeen ?? []).slice(-200),
+        starIntros: state.starIntros,
+        starPulseWeek: state.starPulseWeek,
+        market: state.market,
+        portfolio: state.portfolio,
+        ventures: state.ventures,
+        devProjects: state.devProjects,
+        casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
+        wealthHistory: state.wealthHistory,
+        pendingDMs: state.pendingDMs,
+        football: state.football,
+        drip: state.drip,
+        memories: state.memories,
+        memoryCursor: state.memoryCursor,
+        cases: (state.cases ?? []).slice(0, 60),
+        storyFired: state.storyFired,
+        home: state.home,
+        homes: state.homes,
+        loans: state.loans,
+        credit: state.credit,
+        earningsMarks: state.earningsMarks,
+        npcUpcoming: state.npcUpcoming,
+        awardSeasons: state.awardSeasons,
+        awardFollows: state.awardFollows,
+        activeCeremony: null,
+        activeHearing: null,
+        appointments: (state.appointments ?? []).slice(-40),
+        activeAppointment: null,
+        investments: state.investments,
+        businesses: state.businesses,
+        label: state.label ?? null,
+        moments: (state.moments ?? []).slice(0, 40),
+        ownedAssets: state.ownedAssets,
+        awards: state.awards,
+        certifications: state.certifications,
+        openThreads: state.openThreads,
+        interviews: state.interviews,
+        headlines: state.headlines.slice(0, 50),
+        charts: state.charts,
+        weeklyStatements: state.weeklyStatements.slice(0, 20),
+        gameDate: state.gameDate,
+        clockMinute: state.clockMinute,
+        clockPaused: state.clockPaused,
+        clockSpeed: state.clockSpeed,
+        turnCount: state.turnCount,
+        lastEventLog: state.lastEventLog,
+        cityFame: state.cityFame,
+        sampleClearances: state.sampleClearances,
+        payolaCampaigns: state.payolaCampaigns,
+        scoutMissions: state.scoutMissions,
+        industryNotices: state.industryNotices.slice(0, 40),
+        family: state.family,
+        legacy: state.legacy,
+        npcSongs: state.npcSongs,
+        trending: state.trending,
+        featureRequests: state.featureRequests,
+        inboundRequests: state.inboundRequests,
+        workItems: state.workItems,
+        jobBoard: state.jobBoard,
+        jobShifts: state.jobShifts,
+        jobBoardTurn: state.jobBoardTurn,
+        // Tax. A reload mid-year must not wipe the liability, and a reload
+        // mid-month must not re-bill the month.
+        taxYear: state.taxYear,
+        taxMonth: state.taxMonth,
+        taxYearIncome: state.taxYearIncome,
+        taxPaidThisYear: state.taxPaidThisYear,
+        taxPaidLifetime: state.taxPaidLifetime,
+        // ── Streaming, charts and video ──────────────────────────────────
+        platformStats: state.platformStats,
+        streamCursor: state.streamCursor,
+        chartWeekCursor: state.chartWeekCursor,
+        globalSongs: state.globalSongs,
+        globalAlbums: state.globalAlbums,
+        chartRuns: state.chartRuns,
+        chartMilestones: state.chartMilestones,
+        globalCerts: state.globalCerts,
+        npcAlbums: state.npcAlbums,
+        screenCountry: state.screenCountry,
+        recentCountries: state.recentCountries,
+        subscriptions: state.subscriptions,
+        notifications: state.notifications,
+        videos: state.videos,
+        videoComments: state.videoComments,
+        videoReactions: state.videoReactions,
+        commentReactions: state.commentReactions,
+        watchHistory: state.watchHistory,
+  };
 }
+
+// ─── THE SECOND HALF OF MIDNIGHT ───────────────────────────────────────────
+// When the clock crosses midnight, the day change does the essentials at once
+// (date, streams, money, charts, the team's work) and hands the world's
+// chatter — award nights, moments, the feed, interviews, the group chat — to
+// the next frame. The browser paints the new day in between, so midnight no
+// longer freezes the screen. Anything that starts another day first flushes
+// the pending half, so the order of the world never changes.
+
+let pendingSide: { serial: number } | null = null;
+let sideTimer: number | null = null;
+
+function runSideTicksNow(): void {
+  const job = pendingSide;
+  pendingSide = null;
+  if (sideTimer !== null) { window.clearTimeout(sideTimer); sideTimer = null; }
+  if (!job) return;
+  useGameStore.setState((state) => {
+    if (!state.player) return;
+    const npcs = raw(state.npcs) as NPC[];
+    const npcSongs = raw(state.npcSongs) as Song[];
+    awardsTick(state, job.serial, npcs, npcSongs);
+    momentsTick(state, npcs, job.serial, 1);
+    socialTick(state, npcs, job.serial, 1);
+    interviewTick(state, job.serial, 1, npcs);
+    teamChatTick(state, job.serial);
+    birthdaysTick(state, npcs, job.serial, 1);
+    starPulseTick(state, npcs, job.serial);
+    breakoutTick(state, job.serial);
+  });
+}
+
+function scheduleSideTicks(): void {
+  if (sideTimer !== null) return;
+  sideTimer = window.setTimeout(runSideTicksNow, 30);
+}
+
+/** Run the deferred half of the last day now (before the next one, or for a test). */
+export function flushSideTicks(): void {
+  if (pendingSide) runSideTicksNow();
+}
+
+// ─── AUTOSAVE, OFF THE CRITICAL PATH ───────────────────────────────────────
+// A day change used to serialise the whole career while the clock was frozen
+// on midnight. Now it asks for a save and the browser does it when it is idle
+// (or within a second and a half at most). Leaving the page flushes it.
+
+let autosaveHandle: { kind: 'idle' | 'timeout'; id: number } | null = null;
+
+function runAutosave(): void {
+  autosaveHandle = null;
+  try { useGameStore.getState().saveGame(); } catch { /* the next day tries again */ }
+}
+
+function scheduleAutosave(): void {
+  if (typeof window === 'undefined') { runAutosave(); return; }
+  if (autosaveHandle) return;
+  const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+  autosaveHandle = w.requestIdleCallback
+    ? { kind: 'idle', id: w.requestIdleCallback(runAutosave, { timeout: 1500 }) }
+    : { kind: 'timeout', id: window.setTimeout(runAutosave, 400) };
+}
+
+/** Write a pending autosave now (the page is going away, or a test wants it). */
+export function flushAutosave(): void {
+  if (!autosaveHandle) return;
+  const h = autosaveHandle;
+  const w = window as unknown as { cancelIdleCallback?: (id: number) => void };
+  if (h.kind === 'idle') w.cancelIdleCallback?.(h.id); else window.clearTimeout(h.id);
+  runAutosave();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushAutosave);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAutosave(); });
+}
+
 
 /** Load a slot's payload into state. Shared by `loadGame` and `loadSlot`. */
 function applySlotPayload(state: GameState, saved: Partial<GameState>): void {
@@ -1223,7 +1504,7 @@ function contextForSong(opts: {
  * needs. Built once per turn — the per-day loop reuses it.
  */
 function buildStreamActors(state: GameState, npcs: NPC[]): StreamActor[] {
-  const npcById = new Map(npcs.map((n) => [n.id, n]));
+  const npcById = npcIndex(npcs);
   const actors: StreamActor[] = [];
 
   const player = state.player;
@@ -1395,11 +1676,16 @@ interface VideoActor {
  * Built once per turn; the per-day loop reuses it and refreshes the numbers that
  * change as the days pass.
  */
-function buildVideoActors(state: GameState, npcs: NPC[], videos: Video[]): VideoActor[] {
-  const npcById = new Map(npcs.map((n) => [n.id, n]));
-  const songById = new Map<string, Song>();
-  for (const s of state.songs) songById.set(s.id, s);
-  for (const s of state.npcSongs) songById.set(s.id, s);
+function buildVideoActors(state: GameState, npcs: NPC[], videos: Video[], stats?: Record<string, SongPlatformState>, songIndex?: Map<string, Song>): VideoActor[] {
+  const npcById = npcIndex(npcs);
+  // Read the plain copy the engine is running on — through the draft every
+  // property read is a proxy trap, and this runs for every video every day.
+  const statsOf = stats ?? state.platformStats ?? {};
+  const songById = songIndex ?? new Map<string, Song>();
+  if (!songIndex) {
+    for (const s of state.songs) songById.set(s.id, s);
+    for (const s of state.npcSongs) songById.set(s.id, s);
+  }
 
   const player = state.player;
   const out: VideoActor[] = [];
@@ -1407,7 +1693,7 @@ function buildVideoActors(state: GameState, npcs: NPC[], videos: Video[]): Video
   for (const video of videos) {
     if (video.removed) continue;
     const song = songById.get(video.songId);
-    const st = state.platformStats?.[video.songId];
+    const st = statsOf[video.songId];
     const lifetimeStreams = st ? songTotals(st).lifetime : 0;
 
     let popularity: number;
@@ -1481,7 +1767,12 @@ function advanceStreamingDays(
   if (toSerial < fromSerial) return empty;
 
   const actors = buildStreamActors(state, npcs);
-  const videoActors = buildVideoActors(state, npcs, videos);
+  // One index of every record, built once — this used to be two linear
+  // searches per record per day, which is quadratic in the catalogue.
+  const songIndex = new Map<string, Song>();
+  for (const x of state.songs) songIndex.set(x.id, x);
+  for (const x of state.npcSongs) if (!songIndex.has(x.id)) songIndex.set(x.id, x);
+  const videoActors = buildVideoActors(state, npcs, videos, stats, songIndex);
   const nowSerial = dateToSerial(state.gameDate);
 
   // Make sure every actor has a state record, seeding new ones from the
@@ -1489,9 +1780,7 @@ function advanceStreamingDays(
   for (const actor of actors) {
     let st = stats[actor.songId];
     if (!st) {
-      const song =
-        state.songs.find((s) => s.id === actor.songId) ??
-        state.npcSongs.find((s) => s.id === actor.songId);
+      const song = songIndex.get(actor.songId);
       st = song
         ? seedStreamState(song, actor.ctx, nowSerial)
         : newSongPlatformState(actor.songId, nowSerial, 0);
@@ -1501,9 +1790,7 @@ function advanceStreamingDays(
     // streaming state is rebuilt from the seed on every load, so without this
     // a remix the player paid for would quietly disappear the next time the
     // page was opened.
-    const owner =
-      state.songs.find((s) => s.id === actor.songId) ??
-      state.npcSongs.find((s) => s.id === actor.songId);
+    const owner = songIndex.get(actor.songId);
     if (owner?.revivals?.length) {
       st.revivals = owner.revivals.map((r) => ({ ...r }));
     }
@@ -1805,9 +2092,19 @@ function openInboundAsk(
   };
   state.inboundRequests.push(req);
 
-  // With a manager, the ask goes to their desk and they brief you.
+  // With a manager, the ask goes to their desk and they brief you — by the
+  // rules you set for them.
   if (managerOf(state)) {
-    fileBrief(state, featureBrief(state, req, npc));
+    const pol = policyOf(state.teamPolicy);
+    if (pol.featureAsks === 'decline_all') {
+      req.status = 'declined';
+      const b = fileBrief(state, { ...featureBrief(state, req, npc), advice: 'pass', reason: 'You told me to turn feature asks down for now, so I did — politely.' });
+      b.status = 'done';
+      b.outcome = 'Declined for you — your rule.';
+      return req;
+    }
+    const b = fileBrief(state, featureBrief(state, req, npc));
+    if (pol.featureAsks === 'auto_good' && b.advice === 'take') b.auto = true;
     pushNotification(state, { kind: 'feature', title: `${npc.name} wants you on a record`, body: 'Your manager has the details and a recommendation.', artSeed: `npc|${npc.id}`, action: { type: 'inbound', id: req.id } });
     return req;
   }
@@ -2394,11 +2691,17 @@ function updateCharts(
   charts: Record<string, ChartEntry[]>,
   songs: Song[],
   npcs: NPC[],
-  player: Player | null
+  player: Player | null,
+  /**
+   * A new chart week. The chart is recomputed every day so it moves with the
+   * streams, but "weeks on chart" and last week's position only roll over once
+   * a week — on the clock they used to tick up every day.
+   */
+  newWeek = true,
 ): Record<string, ChartEntry[]> {
   const countries = getChartMarkets();
   const updatedCharts: Record<string, ChartEntry[]> = {};
-  const npcById = new Map(npcs.map(n => [n.id, n]));
+  const npcById = npcIndex(npcs);
 
   // Previous positions, so we can show movement and weeks-on-chart.
   const priorByMarket: Record<string, Record<string, ChartEntry>> = {};
@@ -2458,8 +2761,8 @@ function updateCharts(
         artistId,
         artistName,
         position: 0,
-        lastPosition: previous?.position ?? 0,
-        weeksOnChart: (previous?.weeksOnChart ?? 0) + 1,
+        lastPosition: newWeek ? previous?.position ?? 0 : previous?.lastPosition ?? 0,
+        weeksOnChart: previous ? (newWeek ? previous.weeksOnChart + 1 : previous.weeksOnChart) : 1,
         country: market,
         peakPosition: previous?.peakPosition ?? 0,
         __weight: weighted,
@@ -2564,6 +2867,14 @@ interface GameActions {
   mixMasterSong: (songId: string, producerId: string, deal?: { fee: number }) => MixResult | null;
   askToMix: (npcId: string, songId: string) => FeatureActionResult;
   postTeamChat: (text: string) => void;
+  /** The AI wrote the team's answer. */
+  applyAITeamChat: (payload: { replies: { from: string; text: string }[]; actions?: { from: string; kind: string; song?: string }[] }) => void;
+  /** No AI (or it failed): the built-in team answers. */
+  fallbackTeamChat: () => void;
+  /** The AI wrote some of today's group chat. */
+  applyAITeamChatter: (lines: { from: string; text: string }[]) => void;
+  /** A line in the group from one of the team. */
+  noteTeam: (from: string, text: string) => void;
   readTeamChat: () => void;
   answerMixOffer: (npcId: string, accept: boolean) => FeatureActionResult;
   /** Put a recorded master out into the world. */
@@ -2658,6 +2969,11 @@ interface GameActions {
     title: string;
     songIds: string[];
   }) => { ok: true; albumId: string } | { ok: false; error: string };
+  /** Save (or update) a project in the album vault. Nothing comes out. */
+  saveAlbumDraft: (d: { id?: string; title: string; type: 'album' | 'ep' | 'mixtape'; songIds: string[]; plannedSerial?: number | null; note?: string }) => { ok: boolean; message: string; id?: string };
+  deleteAlbumDraft: (id: string) => void;
+  /** Put a saved project out now. */
+  releaseAlbumDraft: (id: string) => { ok: boolean; message: string };
 
   /** Push a finished video to the platform. */
   publishVideo: (videoId: string) => VaultActionResult;
@@ -2726,6 +3042,8 @@ interface GameActions {
 
   // Award seasons
   followAward: (bodyId: string, on: boolean) => void;
+  /** Submit your own entries for an award body's season. */
+  enterAwards: (key: string) => { ok: boolean; message: string };
   /** Spend on an academy campaign (radio, press, a full push). */
   campaignAward: (key: string, tier: 'radio' | 'press' | 'full') => FeatureActionResult;
   /** Post to get the fans voting (once a day). */
@@ -2858,6 +3176,14 @@ interface GameActions {
   // The manager's desk & PingChat housekeeping
   /** Act on something the manager briefed you about: take it, pass, or counter at their number. */
   actOnBrief: (briefId: string, action: 'accept' | 'decline' | 'counter') => { ok: boolean; message: string };
+  /** Take something the manager went out and got (a verse, a brand, a sync, a producer). */
+  acceptPitch: (briefId: string) => { ok: boolean; message: string };
+  /** Anything the team rules say the manager may accept on their own. Runs after each day. */
+  runAutopilot: () => void;
+  /** Change the rules the team works by. */
+  setTeamPolicy: (patch: Partial<TeamPolicy>) => void;
+  /** Tell the manager to push one thing for the next few weeks. */
+  pushManager: (kind: 'shows' | 'features' | 'deals') => { ok: boolean; message: string };
   markDeskSeen: () => void;
   deleteThread: (npcId: string) => void;
   clearReadThreads: () => void;
@@ -2937,6 +3263,12 @@ interface GameActions {
   cancelAppointment: (id: string) => FeatureActionResult;
   /** What you do when the plan is happening. */
   attendAppointment: (choiceId: string) => FeatureActionResult;
+  /** One round in the cypher you're standing in. */
+  cypherRound: (move: CypherMove) => { ok: boolean; message: string };
+  /** The cypher is over: what the room remembers, and what you learnt. */
+  cypherFinish: () => FeatureActionResult;
+  /** Settle an argument in the team group. */
+  settleTeamDispute: (optionId: 'a' | 'b' | 'calm') => FeatureActionResult;
   /** Don't go: text an excuse, or just don't show up. */
   bailAppointment: (mode?: 'excuse' | 'ghost') => FeatureActionResult;
   /** Leave an invite on read. How that lands depends on who sent it. */
@@ -2960,7 +3292,7 @@ interface GameActions {
   /** Answer an invite somebody sent you (optionally at a different time). */
   respondToPlan: (appointmentId: string, accept: boolean, atMinute?: number) => FeatureActionResult;
   // The AI writes back (see ai/bridge.ts)
-  applyAIChat: (npcId: string, payload: { reply: string; rel?: number; action?: string; time?: string }) => void;
+  applyAIChat: (npcId: string, payload: { reply: string; rel?: number; action?: string; time?: string; song?: string }) => void;
   applyAIMomentReply: (npcId: string, momentId: string, text: string) => void;
   fallbackAI: (npcId: string) => void;
   applyAIDirector: (events: { npcId: string; type: string; text?: string; kind?: string; time?: string; app?: string }[]) => number;
@@ -3110,6 +3442,10 @@ interface GameActions {
   hireCrew: (npcId: string) => TeamActionResult;
   /** Let somebody go. Costs a month's severance and some goodwill. */
   fireCrew: (crewId: string) => TeamActionResult;
+  /** Tell somebody to pick it up. How it lands depends on who they are. */
+  warnCrew: (crewId: string) => TeamActionResult;
+  /** Tell somebody they're doing well. */
+  praiseCrew: (crewId: string) => TeamActionResult;
   /** End the management deal. Exclusive by nature — there is only ever one. */
   fireManager: () => TeamActionResult;
 
@@ -3499,6 +3835,12 @@ function clonePlain<T>(value: T): T {
   return structuredClone(value);
 }
 
+/** The roster as it stood when this change began — no clone, for reading only. */
+function baseNpcs(state: GameState): NPC[] {
+  const list = state.npcs as NPC[];
+  return isDraft(list) ? ((original(list) as NPC[] | undefined) ?? (raw(list) as NPC[])) : list;
+}
+
 function raw<T>(value: T): T {
   // GUARD REQUIRED. immer 11 changed `current()` to THROW on a value that is
   // not a draft (`die(10)` — "Cannot use a proxy that has been revoked");
@@ -3678,7 +4020,19 @@ function rollShowOffers(
   // Nobody books an act with nothing out and no name.
   const out0 = songs.filter((s) => isSongReleased(s)).length;
   if (out0 === 0 && fame < 15) return [];
-  let perDay = 0.08 + fame / 400 + (hasManager ? 0.05 : 0) + (hasPromoter ? 0.04 : 0);
+  // What kind of manager you have decides how often the phone rings for
+  // bookings, and from where.
+  const mgr = managerOf(state, npcs);
+  const spec = mgr ? SPECIALTIES[managerSpecialty(mgr)] : null;
+  const reach = mgr ? managerReach(mgr) : null;
+  const travelOk = (country: string) => {
+    if (country === player.country) return true;
+    // Nobody abroad books a name nobody abroad knows.
+    if (player.career.nationalFame < 30 && marketPresence(state, country) < 0.25) return false;
+    if (mgr && reach && !reachIncludes(reach, mgr.country, player.country, country)) return false;
+    return true;
+  };
+  let perDay = 0.08 + fame / 400 + (hasManager ? 0.05 : 0) + (hasPromoter ? 0.04 : 0) + (spec?.showRate ?? 0);
   if (!hasManager) perDay *= 0.6;
   const chance = 1 - Math.pow(1 - perDay, Math.min(days, 14));
   const attempts = days >= 14 ? 2 : 1;
@@ -3692,20 +4046,37 @@ function rollShowOffers(
     if (Math.random() > chance) continue;
     if (open.length + out.length >= 5) break;
 
+    // WHERE first, then who. Most nights are at home; a date abroad needs a
+    // name that travels there — national standing, your music charting in
+    // that country, or a manager who works abroad. The country is weighted by
+    // how well your music crosses into it, so a Ghanaian act gets Lagos and
+    // London long before Seoul.
+    const wantAbroad = !!spec && Math.random() < spec.abroad && player.career.nationalFame >= 30;
+    const abroadChance = wantAbroad ? 0.75 : Math.min(0.3, Math.max(0, (player.career.nationalFame - 25) / 120));
+    let where = player.country;
+    if (Math.random() < abroadChance) {
+      const cands = SHOW_COUNTRIES.filter((c) => c !== player.country && travelOk(c));
+      const weights = cands.map((c) => Math.pow(Math.max(affinity(player.country, c), marketPresence(state, c)), 2));
+      const total = weights.reduce((x, y) => x + y, 0);
+      if (total > 0) {
+        let r = Math.random() * total;
+        for (let i = 0; i < cands.length; i++) { r -= weights[i]; if (r <= 0) { where = cands[i]; break; } }
+      }
+    }
     // Sample the roster rather than sort it — 11k NPCs, one pass, cheap.
     let host: NPC | undefined;
     // Friends in the scene bring you out first. An artist who rates you is the
     // most likely person in the world to put you on their show.
     if (Math.random() < 0.45) {
-      const friends = npcs.filter((n) => n.role === 'artist' && n.relationshipScore >= 20 && !hostsOpen.has(n.id) && n.fame >= 8 && n.fame - fame <= 45);
+      const friends = npcs.filter((n) => n.role === 'artist' && n.relationshipScore >= 20 && !hostsOpen.has(n.id) && n.fame >= 8 && n.fame - fame <= 45 && (n.country === player.country || travelOk(n.country)));
       host = pickFrom(friends);
     }
-    for (let tries = 0; tries < 80 && !host; tries++) {
-      const n = npcs[Math.floor(Math.random() * npcs.length)];
-      if (!n || !HOST_ROLES.includes(n.role) || hostsOpen.has(n.id)) continue;
+    // The scene in that country: one pass, then random picks from it.
+    const local = host ? [] : npcs.filter((n) => n.country === where && HOST_ROLES.includes(n.role) && !hostsOpen.has(n.id));
+    for (let tries = 0; tries < 60 && !host && local.length; tries++) {
+      const n = local[Math.floor(Math.random() * local.length)];
       // Artists put on most of the nights in a scene.
       if (n.role !== 'artist' && Math.random() < 0.5) continue;
-      if (n.country !== player.country && Math.random() > 0.25) continue;
       if (n.role === 'artist') {
         if (n.fame < 8) continue;
         const gap = n.fame - fame;
@@ -3716,14 +4087,17 @@ function rollShowOffers(
     }
     if (!host) continue;
 
-    // The room.
+    // The room: in the host's own city.
     const place =
       SHOW_CITIES.find((c) => c.city === host!.city && c.country === host!.country) ??
+      pickFrom(SHOW_CITIES.filter((c) => c.country === host!.country)) ??
       pickFrom(SHOW_CITIES.filter((c) => c.country === player.country)) ??
       SHOW_CITIES[0];
     const venues = venuesInCity(place.city, place.country);
-    const cap = host.role === 'artist' ? accessTier(host.fame) : accessTier(fame);
-    const allowed = venues.filter((v) => VENUE_CLASSES[v.cls].tier <= cap && (host!.role === 'artist' || !venueLockReason(v, fame)));
+    // A road manager with a real network gets you one size of room up.
+    const bump = spec?.id === 'booker' && mgr && managerNetwork(mgr) >= 55 ? 15 : 0;
+    const cap = host.role === 'artist' ? accessTier(host.fame) : accessTier(fame + bump);
+    const allowed = venues.filter((v) => VENUE_CLASSES[v.cls].tier <= cap && (host!.role === 'artist' || !venueLockReason(v, fame + bump)));
     const venue = allowed[allowed.length - 1] ?? venues[0];
 
     // The night.
@@ -4206,6 +4580,24 @@ function applyShowOutcome(
   return { attendance, fameGained, daysOff };
 }
 
+/**
+ * How much your music is actually playing in a country: your best position on
+ * its chart, and whether you have played there before. 0 = nobody there has
+ * heard of you beyond what distance allows; 1 = you are on top of their chart.
+ */
+function marketPresence(state: GameState, country: string): number {
+  const p = state.player;
+  if (!p) return 0;
+  const chart = state.charts?.[country] ?? [];
+  let best = 0;
+  for (const e of chart) {
+    if (e.artistId !== p.id) continue;
+    best = Math.max(best, 1 - (Math.max(1, e.position) - 1) / 50);
+  }
+  const played = (state.shows ?? []).some((sh) => findVenue(sh.venueId ?? '')?.country === country) ? 0.12 : 0;
+  return Math.max(0, Math.min(1, best + played));
+}
+
 /** Everything the show engine needs, read off the live state. */
 /**
  * Everything the show engine needs, read off the live state.
@@ -4224,7 +4616,14 @@ function showInputFrom(
 ): ShowPlanInput {
   const p = state.player!;
   const bonuses = crewBonuses(raw(state.crew) as CrewMember[]);
+  const night = atSerial ?? dateToSerial(state.gameDate);
+  const season = seasonalDemand(venue.country, venue.city, night, venue.cls, getCountry(venue.country)?.continent);
+  const mgr = activeManager(raw(state.contracts) as ActiveContract[], raw(state.npcs) as NPC[]);
   return {
+    presence: venue.country === p.country ? 0 : marketPresence(state, venue.country),
+    season: season.mult,
+    // A manager who works abroad gets the visas done for less.
+    visaMult: mgr && managerSpecialty(mgr) === 'global' ? 0.6 : mgr ? 0.85 : 1,
     venue,
     price,
     fame: blendedFame(p),
@@ -5368,7 +5767,8 @@ function momentWorld(state: GameState, npcs: NPC[], serial: number): MomentWorld
     bloggers: sampleNpcs(npcs, 2, (n) => (n.role === 'blogger' || n.role === 'media') && generated(n) && n.country === home),
     promoters: sampleNpcs(npcs, 2, (n) => (n.role === 'promoter' || n.role === 'venue_owner') && generated(n) && n.country === home),
     producers: sampleNpcs(npcs, 2, (n) => n.role === 'producer' && generated(n) && n.country === home && n.fame <= fame + 30),
-    fans: sampleNpcs(npcs, 1, (n) => n.role === 'fan_account'),
+    // A fan page from home writes to you; one from the other side of the world is rare.
+    fans: (() => { const local = sampleNpcs(npcs, 1, (n) => n.role === 'fan_account' && n.country === home); return local.length ? local : sampleNpcs(npcs, 1, (n) => n.role === 'fan_account' && fame >= 40); })(),
     stars: sampleNpcs(npcs, 3, (n) => n.role === 'artist' && generated(n) && n.fame >= fame + 8 && n.fame <= fame + 40 && n.relationshipScore >= 0),
     unreleased: (state.songs ?? []).filter((s) => !isSongReleased(s) && !s.archivedAt).slice(0, 3),
     hasUpcomingShow: state.scheduledShows.some((s) => s.serial - serial > 3),
@@ -5377,6 +5777,23 @@ function momentWorld(state: GameState, npcs: NPC[], serial: number): MomentWorld
     hasPlayedShow: (state.shows ?? []).length > 0,
     ownsCar: (state.ownedAssets ?? []).some((a) => a.category === 'car'),
     releasedTitles: (state.songs ?? []).filter((s) => isSongReleased(s)).slice(-3).reverse().map((s) => s.title),
+    released: (state.songs ?? []).filter((s) => isSongReleased(s)).map((s) => {
+      const beat = (state.beats?.library ?? []).find((b) => b.usedOnSongId === s.id);
+      return { id: s.id, title: s.title, quality: s.quality, streams: s.totalStreams ?? 0, age: Math.max(0, serial - releaseSerialOf(state, s, serial)), lease: beat?.license === 'lease', producerId: beat?.producerId, producerName: beat?.producerName };
+    }),
+    manager: (() => { const m = managerOf(state, npcs); return m ? { id: m.id, name: m.name, skill: managerNetwork(m), specialty: SPECIALTIES[managerSpecialty(m)].label } : undefined; })(),
+    nextAward: (() => {
+      // Presenters are asked by the ceremonies that are about you: home, your region, the global ones.
+      const mineIds = new Set(bodiesFor(state).filter((b) => b.scope === 'global' || b.country === p.country || (b.scope === 'continental' && inRegion(b, p.country))).map((b) => b.id));
+      const s0 = Object.values(state.awardSeasons ?? {}).filter((x) => x.phase !== 'done' && mineIds.has(x.bodyId) && x.cal.ceremony > serial).sort((a, b) => a.cal.ceremony - b.cal.ceremony)[0];
+      const b = s0 ? bodiesFor(state).find((x) => x.id === s0.bodyId) : undefined;
+      return s0 && b ? { name: b.name, daysOut: s0.cal.ceremony - serial, city: b.city, ceremonyMinute: s0.cal.ceremonyMinute } : undefined;
+    })(),
+    flags: { ...(state.lifeFlags ?? {}) },
+    djs: sampleNpcs(npcs, 1, (n) => n.role === 'dj' && generated(n) && n.country === home),
+    genre: p.genre,
+    city: p.city,
+    fanbase: p.career.fanbase,
   };
 }
 
@@ -5535,6 +5952,104 @@ function applyMomentEffects(state: GameState, effects: MomentEffect[], serial: n
         if (!item) break;
         d.wardrobe.unshift({ ...item, bought: serial, paid: 0 });
         pushNotification(state, { kind: 'business', title: `🎁 ${item.name} is in your wardrobe`, body: `A gift from ${e.from}. Wear it in Drip & Ink.`, artSeed: `drip|${item.id}` });
+        break;
+      }
+      case 'revival':
+        pushSong(state, e.songId, e.power, e.width, e.reason);
+        break;
+      case 'removeVerse':
+        removeVerseFromSong(state, e.songId, e.npcId, e.requestId);
+        break;
+      case 'sueBreach': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        const r = state.featureRequests.find((x) => x.id === e.requestId);
+        if (n && !isRealId(n.id)) {
+          const c = npcSues(state, n as NPC, 'breach_feature', e.claim, 72, [
+            `You agreed to their terms on "${r?.songTitle ?? 'the record'}".`,
+            ...(r?.breaches ?? []).slice(-1).map((b) => b.text),
+            'They say the record went out in breach of that deal.',
+          ], e.requestId);
+          if (r) r.caseId = c.id;
+        }
+        break;
+      }
+      case 'settleBreach': {
+        const r = state.featureRequests.find((x) => x.id === e.requestId);
+        for (const b of r?.breaches ?? []) b.settled = true;
+        break;
+      }
+      case 'cypher': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        if (!n) break;
+        const at = Math.max(e.atMinute, nowMinuteOf(state) + 60);
+        const fame = blendedFame(p);
+        const pool = sampleNpcs(baseNpcs(state), 5, (x) => x.role === 'artist' && !isRealId(x.id) && x.id !== n.id && x.country === p.country && Math.abs(x.fame - fame) <= 22);
+        const spec = cypherSpecFor({ host: n as NPC, city: p.city, playerFame: fame, pool, seed: `${n.id}|${at}` });
+        createAppointment(state, n as NPC, 'cypher', at, 'npc', 'confirmed', { place: e.place, title: `Cypher at ${e.place}`, cypher: spec });
+        break;
+      }
+      case 'birthdayPlan': {
+        const b = state.birthday && state.birthday.year === state.gameDate.year ? state.birthday : (state.birthday = { year: state.gameDate.year });
+        b.plan = e.plan;
+        break;
+      }
+      case 'starFeature': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        const song = state.songs.find((x) => x.id === e.songId);
+        if (!n || !song || isSongReleased(song)) break;
+        if (state.featureRequests.some((r) => r.songId === song.id && r.npcId === n.id && r.status !== 'declined' && r.status !== 'ignored')) break;
+        const mgr = managerOf(state);
+        const fee = Math.max(500, Math.round(featureFee(n as unknown as FeatureCandidate, song.quality) * managerFeatureDiscount(mgr ? managerNetwork(mgr) : 40) / 100) * 100);
+        const req: FeatureRequest = {
+          id: uuidv4(), songId: song.id, songTitle: song.title, npcId: n.id, npcName: n.name, status: 'terms',
+          sentDate: formatGameDate(state.gameDate), dueDate: formatGameDate(state.gameDate), fee, freeVerse: false,
+          reason: `${isRealId(n.id) ? `${n.name}'s team` : n.name} came back after the meeting: a verse for $${fee.toLocaleString()}.`, originalFee: fee,
+        };
+        state.featureRequests.push(req);
+        attachTerms(state, req, n as NPC, baseNpcs(state), serial);
+        pushNotification(state, { kind: 'feature', title: `${n.name} is open to a verse on "${song.title}"`, body: `$${fee.toLocaleString()} — the terms are in Studio → Features.`, artSeed: `npc|${n.id}`, action: { type: 'features', id: song.id } });
+        remember(state, 'career', `After the meeting, ${isRealId(n.id) ? `${n.name}'s team` : n.name} agreed a verse on "${song.title}" could happen.`, { npcIds: [n.id], weight: 4, tone: 'good' });
+        break;
+      }
+      case 'cosign': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        if (!n) break;
+        const song = e.songId ? state.songs.find((x) => x.id === e.songId) : undefined;
+        addMomentum(state, 6, `${n.name} shared your music`);
+        p.career.fanbase += Math.round(400 + n.fame * 60);
+        p.career.localFame = Math.min(100, p.career.localFame + 1.2);
+        p.career.nationalFame = Math.min(100, p.career.nationalFame + 0.8);
+        if (song && isSongReleased(song)) pushSong(state, song.id, 0.35, 12, `${n.name} shared it`);
+        state.headlines.unshift({ id: uuidv4(), text: `${n.name} shares ${p.artistName}'s ${song ? `"${song.title}"` : 'music'}`, fullStory: `${n.name} posted ${p.artistName}'s ${song ? `"${song.title}"` : 'music'} to their story. Fans noticed within the hour.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id, n.id], priority: 7, category: 'feature' });
+        pushNotification(state, { kind: 'milestone', title: `👀 ${n.name} shared your ${song ? `"${song.title}"` : 'music'}`, body: 'Your phone is going crazy.', artSeed: `npc|${n.id}` });
+        remember(state, 'career', `${n.name} shared your ${song ? `"${song.title}"` : 'music'} — a real co-sign.`, { npcIds: [n.id], weight: 4, tone: 'good' });
+        break;
+      }
+      case 'introDone': {
+        const list = state.starIntros ?? (state.starIntros = []);
+        list.unshift({ npcId: e.npcId, serial, outcome: e.outcome });
+        if (list.length > 20) list.length = 20;
+        break;
+      }
+      case 'extendTerms': {
+        const r = state.featureRequests.find((x) => x.id === e.requestId);
+        const c = r?.conditions?.find((x) => x.kind === 'release_window');
+        if (r && c) {
+          c.bySerial = serial + e.days;
+          c.extended = (c.extended ?? 0) + 1;
+          // The clock starts again: miss this one and it's a new breach.
+          r.breaches = (r.breaches ?? []).filter((b) => b.kind !== 'release_window');
+        }
+        break;
+      }
+      case 'dropTerm': {
+        const r = state.featureRequests.find((x) => x.id === e.requestId);
+        if (r?.conditions) r.conditions = r.conditions.filter((x) => x.kind !== e.kind);
+        break;
+      }
+      case 'flag': {
+        const flags = state.lifeFlags ?? (state.lifeFlags = {});
+        flags[e.id] = e.v;
         break;
       }
       case 'gig': {
@@ -6297,6 +6812,32 @@ function promoPosts(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'fame'>, ti
   const p = state.player;
   if (!p) return;
   const tag = [{ id: 'player', name: p.artistName }];
+  // Who tags you depends on who they are: their manager and their label post
+  // too — and somebody with a big ego might "forget" the tag altogether.
+  if (theirs && !isRealId(npc.id)) {
+    const full = state.npcs.find((x) => x.id === npc.id) as NPC | undefined;
+    const persona = full ? personaOf(full) : null;
+    const handle = p.artistName.replace(/\s+/g, '');
+    const now0 = new Date().toISOString();
+    if (persona && persona.ego > 0.78 && persona.warmth < 0.35) {
+      state.socialPosts.unshift({ id: uuidv4(), platform: 'chirp', authorId: npc.id, authorName: npc.name, content: `"${title}" OUT NOW 🔥`, likes: 0, shares: 0, comments: [], timestamp: now0, isPlayerPost: false, trendingScore: 55, daySerial: serial, relatedSongId: songId, kind: 'announce' } as SocialPost);
+      livenPost(state, state.socialPosts[0]);
+      pushNotification(state, { kind: 'feature', title: `${npc.name} dropped "${title}" — no tag`, body: 'Your verse is on it. Your name isn\'t in the post. People noticed.', artSeed: `song|${songId}`, action: { type: 'song', id: songId } });
+      if (full) full.relationshipScore = Math.max(-100, full.relationshipScore - 2);
+      return;
+    }
+    const mgrName = full?.team?.managerName;
+    if (mgrName && !(full?.team?.managerId && isRealId(full.team.managerId))) {
+      state.socialPosts.unshift({ id: uuidv4(), platform: 'chirp', authorId: full?.team?.managerId ?? `mgr:${npc.id}`, authorName: mgrName, content: `${npc.name} x @${handle} — "${title}" is out now. Proud of this one 🙏🏾`, likes: 0, shares: 0, comments: [], timestamp: now0, isPlayerPost: false, trendingScore: 45, daySerial: serial, relatedSongId: songId, tags: tag, kind: 'announce' } as SocialPost);
+      livenPost(state, state.socialPosts[0]);
+    }
+    const label = full?.team?.label;
+    if (label) {
+      state.socialPosts.unshift({ id: uuidv4(), platform: 'snapgram', authorId: `label:${label}`, authorName: label, content: `New music: ${npc.name} — "${title}" ft. @${handle} 💿 Streaming everywhere.`, likes: 0, shares: 0, comments: [], timestamp: now0, isPlayerPost: false, trendingScore: 50, daySerial: serial, relatedSongId: songId, tags: tag, kind: 'cover' } as SocialPost);
+      livenPost(state, state.socialPosts[0]);
+    }
+    pushNotification(state, { kind: 'feature', title: `🏷️ ${npc.name} tagged you — "${title}" is out`, body: `${label ? `${label} and ` : ''}${mgrName ? `${mgrName.split(' ')[0]} posted it too. ` : ''}It's in your Catalog under Featured on.`, artSeed: `song|${songId}`, action: { type: 'song', id: songId } });
+  }
   const now = new Date().toISOString();
   const minute = gameMinute(state);
   const made: SocialPost[] = [];
@@ -6358,12 +6899,322 @@ function managerOf(state: GameState, npcs?: NPC[]): NPC | undefined {
   return npcIndex(npcs ?? (raw(state.npcs) as NPC[])).get(c.npcId);
 }
 
+/** Whatever happened to an offer, the brief about it on the manager's desk is closed. */
+function closeBriefs(state: GameState, refId: string, outcome: string): void {
+  for (const b of state.managerDesk ?? []) if (b.refId === refId && b.status !== 'done') { b.status = 'done'; b.outcome = outcome; }
+}
+
 function fileBrief(state: GameState, b: Omit<ManagerBrief, 'id' | 'status' | 'createdSerial'>): ManagerBrief {
   const desk = state.managerDesk ?? (state.managerDesk = []);
   const brief: ManagerBrief = { ...b, id: uuidv4(), status: 'new', createdSerial: dateToSerial(state.gameDate) };
   desk.unshift(brief);
   if (desk.length > 40) state.managerDesk = desk.filter((x, i) => x.status !== 'done' || i < 25);
   return brief;
+}
+
+// ─── WHAT THE MANAGER WENT OUT AND GOT ─────────────────────────────────────
+// Once a month a manager works the phones in their specialty: a connector
+// chases a verse from somebody above you, a road manager a festival slot, a
+// dealmaker a brand, a creative director a producer, a hype machine the radio,
+// a global operator a date abroad. What lands goes on the desk; what doesn't
+// is reported, with the reason — which is usually advice.
+
+function releaseSerialOf(state: GameState, song: Song, fallback: number): number {
+  return state.platformStats?.[song.id]?.release ?? serialOfGameDate(song.releaseDate, fallback);
+}
+
+/** A second wind on a released record, from today. */
+function pushSong(state: GameState, songId: string, power: number, width: number, reason: string): void {
+  const song = state.songs.find((x) => x.id === songId);
+  if (!song) return;
+  const serial = dateToSerial(state.gameDate);
+  const age = Math.max(0, serial - releaseSerialOf(state, song, serial));
+  plantRevival(state, songId, { power, width, reason }, age + 2);
+}
+
+/** A date the manager found: a festival at home, or a show abroad. */
+function managerShowOffer(state: GameState, npcs: NPC[], mgr: NPC, abroad: boolean, serial: number, pol: TeamPolicy): ShowOffer | null {
+  const p = state.player!;
+  const fame = blendedFame(p);
+  const reach = managerReach(mgr);
+  const myCont = getCountry(p.country)?.continent;
+  let countries: string[] = [p.country];
+  if (abroad) {
+    countries = foreignMarkets(reach, mgr.country, p.country)
+      .filter((c) => pol.travel === 'anywhere' || (pol.travel === 'continent' && getCountry(c)?.continent === myCont))
+      // Where your music already plays first.
+      .sort((a, b) => (marketPresence(state, b) + affinity(p.country, b)) - (marketPresence(state, a) + affinity(p.country, a)))
+      .slice(0, 6);
+    if (pol.travel === 'home') countries = [];
+  }
+  if (!countries.length) return null;
+  const country = countries[Math.floor(Math.random() * countries.length)];
+  const cities = SHOW_CITIES.filter((c) => c.country === country);
+  if (!cities.length) return null;
+  // Festivals and big dates happen in the big cities.
+  const ranked = [...cities].sort((a, b) => venuesInCity(b.city, b.country).length - venuesInCity(a.city, a.country).length);
+  const place = ranked[abroad ? 0 : Math.floor(Math.random() * Math.min(2, ranked.length))];
+  const hosts = npcs.filter((n) => (n.role === 'promoter' || n.role === 'venue_owner') && n.country === country && !isBlocked(state, n.id));
+  const host = hosts.length ? hosts[Math.floor(Math.random() * hosts.length)] : null;
+  if (!host) return null;
+  // A room you can at least half-fill — the road manager's rule.
+  const presence = marketPresence(state, country);
+  const draw = fairDraw(fame, p.career.momentum, p.country, country, 1, presence, 1);
+  const rooms = venuesInCity(place.city, place.country);
+  const fits = rooms.filter((v) => !venueLockReason(v, fame + 15) && v.capacity <= draw * 2.2).sort((a, b) => b.capacity - a.capacity);
+  const venue = fits[0] ?? rooms[0];
+  if (!venue) return null;
+  const lead = abroad ? 24 : MIN_LEAD_DAYS[venue.cls] + 5;
+  let night = -1;
+  for (let t = 0; t < 16; t++) {
+    const sv = serial + lead + Math.floor(Math.random() * 40);
+    if (pol.restDay >= 0 && serialWeekday(sv) === pol.restDay) continue;
+    if (isNightFree(venue, sv) && !playerBusyOn(state, sv) && !state.showOffers.some((o) => o.status === 'open' && o.serial === sv)) { night = sv; break; }
+  }
+  if (night < 0) return null;
+  const billing: OfferBilling = venue.capacity > draw * 1.3 ? 'support' : fame >= 45 ? 'headliner' : 'co_headliner';
+  const o = buildOffer({
+    id: uuidv4(), host, venueId: venue.id, venueName: venue.name, city: venue.city, country: venue.country, capacity: venue.capacity,
+    serial: night, nowSerial: serial, playerFame: fame, relationship: host.relationshipScore, billing, kind: abroad ? 'headline' : 'festival',
+    reason: abroad ? `${mgr.name} has been talking to promoters in ${country}. Your records are getting played there${presence > 0.2 ? ' — you are on their chart' : ''}.` : `${mgr.name} got you on the bill for the season's big night in ${venue.city}.`,
+    hasManager: true, roll: Math.random(),
+  });
+  // A manager with a network opens higher, and every promoter knows it.
+  o.terms.fee = Math.round(Math.min(o.ceiling, o.terms.fee * (1 + managerNetwork(mgr) / 400)) / 10) * 10;
+  if (showBreaksPolicy(pol, { fee: o.terms.fee, weekday: serialWeekday(night), abroad, sameContinent: getCountry(country)?.continent === myCont })) return null;
+  o.lineup = buildLineup({ host, kind: o.kind, capacity: venue.capacity, playerFame: fame, playerBilling: billing, pool: npcs, beefIds: activeBeefIds(state), friendIds: friendIdsOf(npcs), seed: o.id });
+  return o;
+}
+
+function managerPitchTick(state: GameState, npcs: NPC[], mgr: NPC, serial: number, log: string[]): void {
+  const p = state.player;
+  if (!p) return;
+  const specId = managerSpecialty(mgr);
+  const spec = SPECIALTIES[specId];
+  const net = managerNetwork(mgr);
+  const fame = blendedFame(p);
+  const pol = policyOf(state.teamPolicy);
+  const vault = state.songs.filter((x) => isVaultMaster(x)).sort((a, b) => b.quality - a.quality);
+  const released = state.songs.filter((x) => isSongReleased(x));
+  const newest = [...released].sort((a, b) => releaseSerialOf(state, b, serial) - releaseSerialOf(state, a, serial))[0];
+  const bestOut = [...released].sort((a, b) => b.quality - a.quality)[0];
+  const gate = {
+    playerFame: fame, nationalFame: p.career.nationalFame, fanbase: p.career.fanbase,
+    bestUnreleased: vault[0]?.quality, bestReleased: bestOut?.quality,
+    daysSinceRelease: newest ? serial - releaseSerialOf(state, newest, serial) : undefined,
+  };
+  const kinds = monthPitches(specId, net, Math.random(), Math.floor(serial / 30));
+  // What you told them to push gets a try of its own.
+  if (state.managerPush && state.managerPush.until >= serial) {
+    const extra: PitchKind = state.managerPush.kind === 'shows' ? (specId === 'global' ? 'abroad_show' : 'festival') : state.managerPush.kind === 'features' ? 'big_feature' : 'brand';
+    if (!kinds.includes(extra)) kinds.push(extra);
+  }
+  const beefIds = activeBeefIds(state);
+  const fam = GENRE_BY_ID[p.genre]?.family ?? 'rap';
+  const costIdx = costIndex(p.country);
+  const notes: string[] = [];
+  const landed: string[] = [];
+  for (const kind of kinds) {
+    const blocked = pitchBlocked(kind, gate);
+    if (blocked) { notes.push(blocked); continue; }
+    switch (kind) {
+      case 'big_feature':
+      case 'abroad_feature': {
+        const song = vault[0];
+        const abroad = kind === 'abroad_feature';
+        const reach = managerReach(mgr);
+        if ((song.featuredArtists ?? []).length >= 2) { notes.push(`"${song.title}" already has two guests on it. Finish it before I add a third.`); break; }
+        const busy = new Set(state.featureRequests.filter((f) => f.songId === song.id && f.status !== 'declined' && f.status !== 'ignored').map((f) => f.npcId));
+        const maxUp = spec.reachUp + (net >= 70 ? 12 : 0) + ((bestOut?.quality ?? 0) >= 75 ? 8 : 0);
+        const cands = sampleNpcs(npcs, 30, (n) => n.role === 'artist' && n.fame >= fame + 5 && n.fame <= fame + maxUp && !beefIds.has(n.id)
+          && (n.relationshipScore ?? 0) > -20 && !busy.has(n.id) && !(song.featuredArtists ?? []).includes(n.id) && !isBlocked(state, n.id)
+          && (abroad ? n.country !== p.country && reachIncludes(reach, mgr.country, p.country, n.country) : (n.country === p.country || (n.tier === 'international' && net >= 60))));
+        if (!cands.length) { notes.push(`I went through my phone for "${song.title}" and nobody at the right level could take it this month.`); break; }
+        const score = (n: NPC) => (GENRE_BY_ID[n.genre as Genre]?.family === fam ? 15 : 0) + n.fame;
+        cands.sort((a, b) => score(b) - score(a));
+        const t = cands[Math.floor(Math.random() * Math.min(4, cands.length))];
+        const sameGenre = GENRE_BY_ID[t.genre as Genre]?.family === fam;
+        const odds = bigFeatureOdds({ net, gap: t.fame - fame, songQuality: song.quality, craft: craftScore(p.stats, fam), relationship: t.relationshipScore ?? 0, sameGenre, real: isRealId(t.id) });
+        if (Math.random() >= odds) {
+          notes.push(`I played "${song.title}" for ${t.name}'s camp. They passed this time${t.fame - fame > 25 ? ' — the gap between you is still big' : song.quality < 65 ? ' — they want a stronger record' : ''}.`);
+          break;
+        }
+        const fee = Math.max(300, Math.round(featureFee(t as unknown as FeatureCandidate, song.quality) * managerFeatureDiscount(net) / 100) * 100);
+        const afford = p.career.money - pol.cashFloor >= fee;
+        const b = fileBrief(state, {
+          kind: 'pitch', pitch: kind, refId: t.id,
+          title: `${t.name} will jump on "${song.title}"`,
+          details: [
+            `${t.name}${t.country !== p.country ? ` (${t.country})` : ''} — fame ${Math.round(t.fame)}${isRealId(t.id) ? ', agreed through their team' : ''}`,
+            `"${song.title}" scores ${Math.round(song.quality)}. A bigger name on it carries the record further.`,
+            `$${fee.toLocaleString()} for the verse — I got it down from their usual rate.`,
+          ],
+          advice: afford ? 'take' : 'your call',
+          reason: afford ? `This is the kind of name that moves a record. Say yes and I'll send the money and the session files today.` : `It's a great look, but it takes you under your cash floor. Your call.`,
+          data: { npcId: t.id, songId: song.id, fee },
+        });
+        b.expiresSerial = serial + 10;
+        landed.push(`${t.name} said yes to "${song.title}"`);
+        break;
+      }
+      case 'festival':
+      case 'abroad_show': {
+        const o = managerShowOffer(state, npcs, mgr, kind === 'abroad_show', serial, pol);
+        if (!o) { notes.push(kind === 'abroad_show' ? 'I chased dates abroad — nothing fit your calendar, your rules or the paperwork this month.' : 'The lineups I called this month were already full.'); break; }
+        state.showOffers.push(o);
+        const b = fileBrief(state, { ...showBrief(state, o), title: `${PITCH_LABEL[kind].emoji} ${o.venueName}, ${o.city}${o.country !== p.country ? ` (${o.country})` : ''}` });
+        if (pol.autoTake && b.advice === 'take') b.auto = true;
+        landed.push(kind === 'abroad_show' ? `a date in ${o.city}, ${o.country} — $${o.terms.fee.toLocaleString()}` : `a slot at ${o.venueName}, ${o.city} — $${o.terms.fee.toLocaleString()}`);
+        break;
+      }
+      case 'brand': {
+        const careful = specId === 'dealmaker' || !traitsFor(mgr).visible.includes('ruthless');
+        const flags = state.lifeFlags ?? {};
+        let brand = pickBrand(p.genre, Math.random(), careful);
+        // One ambassador deal per category at a time — exclusivity is the whole point of a deal.
+        if ((flags[`brand:${brand.kind}`] ?? -1) > serial) brand = pickBrand(p.genre, Math.random(), true);
+        if ((flags[`brand:${brand.kind}`] ?? -1) > serial) { notes.push(`You're already the face of a ${brand.kind}. I'm not going to break that.`); break; }
+        const fee = brandFee({ fame, fanbase: p.career.fanbase, net, costIndex: costIdx, dealmaker: specId === 'dealmaker', roll: Math.random() });
+        const clash = brand.clash.includes(p.genre);
+        const months = 6 + Math.floor(Math.random() * 7);
+        const b = fileBrief(state, {
+          kind: 'pitch', pitch: 'brand',
+          title: `${brand.name} wants you as an ambassador`,
+          details: [
+            `${brand.name} — ${brand.kind}. $${fee.toLocaleString()} for ${months} months: posts and one appearance.`,
+            `Exclusive: no other ${brand.kind} while it runs.`,
+            clash || brand.shady ? `Careful: a ${brand.kind} sits badly with your audience. Expect some backlash.` : 'Fits your image.',
+          ],
+          advice: clash || brand.shady ? 'your call' : 'take',
+          reason: clash || brand.shady ? `The money is real. So is what your fans will say. I'm only bringing it because you'd want to know.` : `Clean money for the audience you already have. I'd sign.`,
+          data: { brand: brand.name, kind: brand.kind, fee, rep: brand.rep - (clash ? 3 : 0), months },
+        });
+        b.expiresSerial = serial + 10;
+        landed.push(`${brand.name} (${brand.kind}) — $${fee.toLocaleString()}`);
+        break;
+      }
+      case 'sync': {
+        const pool = released.filter((x) => x.quality >= 58).sort((a, b) => b.quality - a.quality);
+        const song = pool[Math.floor(Math.random() * Math.min(3, pool.length))];
+        if (!song) break;
+        const odds = 0.35 + net / 250 + (song.quality - 58) / 100;
+        if (Math.random() >= odds) { notes.push(`I sent "${song.title}" to music supervisors. Nothing yet — these take time.`); break; }
+        const fee = syncFee({ fame, quality: song.quality, costIndex: costIdx, roll: Math.random() });
+        const where = syncPlace(Math.random());
+        const b = fileBrief(state, {
+          kind: 'pitch', pitch: 'sync', title: `"${song.title}" in ${where}`,
+          details: [`$${fee.toLocaleString()} licence fee.`, 'A sync puts the record in front of people who have never heard you — expect a second wind on the streams.'],
+          advice: 'take', reason: 'Money now and new ears on an old record. Easy yes.',
+          data: { songId: song.id, fee, where },
+        });
+        b.expiresSerial = serial + 8;
+        landed.push(`a sync for "${song.title}"`);
+        break;
+      }
+      case 'producer': {
+        const target = Math.max(58, fame + 12);
+        const cands = sampleNpcs(npcs, 25, (n) => n.role === 'producer' && producerSkillOf(n) >= target - 6 && !beefIds.has(n.id) && !isBlocked(state, n.id) && (n.country === p.country || net >= 55));
+        if (!cands.length) { notes.push('I tried to get you in a room with a bigger producer. Nobody had a slot.'); break; }
+        cands.sort((a, b) => producerSkillOf(b) - producerSkillOf(a));
+        const t = cands[Math.floor(Math.random() * Math.min(3, cands.length))];
+        const q = orderQuote(producerSkillOf(t), false);
+        const fee = Math.max(100, Math.round(q.fee * Math.max(0.5, 0.75 - net / 400) / 10) * 10);
+        if (p.career.money - pol.cashFloor < fee) { notes.push(`I can get you a beat from ${t.name}, but it's $${fee.toLocaleString()} and that's more than you can spend right now.`); break; }
+        const b = fileBrief(state, {
+          kind: 'pitch', pitch: 'producer', refId: t.id, title: `${t.name} will build you a beat`,
+          details: [`${t.name} — producer, skill ${Math.round(producerSkillOf(t))}.`, `Custom beat to your brief for $${fee.toLocaleString()} (they usually charge $${q.fee.toLocaleString()}). Ready in about ${q.days} days.`],
+          advice: 'take', reason: 'A better beat is the cheapest way to a better record.',
+          data: { npcId: t.id, fee, days: q.days },
+        });
+        b.expiresSerial = serial + 10;
+        landed.push(`a beat from ${t.name}`);
+        break;
+      }
+      case 'radio':
+      case 'playlist': {
+        const song = newest;
+        if (!song) break;
+        const odds = kind === 'radio' ? 0.4 + net / 200 + (song.quality - 50) / 200 : 0.3 + net / 300 + (song.quality - 50) / 80;
+        if (Math.random() >= odds) { notes.push(kind === 'radio' ? `I pushed "${song.title}" to radio. The programmers want to see it grow first.` : `Pitched "${song.title}" to playlists. No placement this month.`); break; }
+        const slot = kind === 'radio' ? radioSlot(Math.random()) : playlistSlot(Math.random());
+        pushSong(state, song.id, kind === 'radio' ? 0.22 + net / 450 : 0.3 + (song.quality - 50) / 160, kind === 'radio' ? 16 : 12, `${kind === 'radio' ? 'Radio' : 'Playlist'}: ${slot}`);
+        p.career.localFame = Math.min(100, p.career.localFame + (kind === 'radio' ? 0.8 : 0.4) + net / 120);
+        p.career.nationalFame = Math.min(100, p.career.nationalFame + (kind === 'radio' ? 0.4 : 0.3));
+        addMomentum(state, kind === 'radio' ? 3 : 2);
+        const b = fileBrief(state, { kind: 'fyi', pitch: kind, title: `${PITCH_LABEL[kind].emoji} "${song.title}" — ${slot}`, details: ['Done. No cost to you.', 'Expect the streams to pick up over the next two weeks.'], advice: 'take', reason: "That one's handled." });
+        b.status = 'done';
+        b.outcome = 'Handled by your manager.';
+        landed.push(`"${song.title}" on ${slot}`);
+        break;
+      }
+      case 'intro': {
+        const reach = managerReach(mgr);
+        const met = new Set((state.starIntros ?? []).filter((x) => serial - x.serial < 240).map((x) => x.npcId));
+        const pending = new Set((state.managerDesk ?? []).filter((x) => x.pitch === 'intro' && x.status !== 'done').map((x) => x.refId));
+        const minFame = Math.max(fame + 18, 55);
+        const cands = npcs.filter((n) => (n.role === 'artist' || (n.role === 'label_ceo' && isRealId(n.id))) && n.fame >= minFame && !met.has(n.id) && !pending.has(n.id)
+          && !beefIds.has(n.id) && !isBlocked(state, n.id) && (n.isAvailable !== false || net >= 80)
+          && (n.country === p.country || reachIncludes(reach, mgr.country, p.country, n.country)));
+        if (!cands.length) { notes.push('I tried to get you in a room with somebody big. Nobody I can reach is taking meetings this month.'); break; }
+        // Real stars first when the manager can reach them — those are the rooms that change a career.
+        const score = (n: NPC) => n.fame + (isRealId(n.id) ? 18 : 0) + (n.country === p.country ? 10 : 0) + (GENRE_BY_ID[n.genre as Genre]?.family === fam ? 6 : 0) - Math.max(0, n.fame - fame - 45) * 1.5;
+        cands.sort((a, b) => score(b) - score(a));
+        const t = cands[Math.floor(Math.random() * Math.min(3, cands.length))];
+        const odds = Math.max(0.12, Math.min(0.85, 0.3 + net / 180 - Math.max(0, t.fame - fame - 30) / 120 + ((bestOut?.quality ?? vault[0]?.quality ?? 50) - 60) / 200));
+        if (Math.random() >= odds) { notes.push(`I asked ${isRealId(t.id) ? `${t.name}'s team` : t.name} for a meeting. ${t.fame - fame > 40 ? 'The gap between you is still big — they said "later".' : 'They\'re busy this month. I\'ll ask again.'}`); break; }
+        let day = serial + 3 + Math.floor(Math.random() * 6);
+        if (serialWeekday(day) === 0) day += 1;
+        const atMinute = day * MINUTES_PER_DAY + (13 + Math.floor(Math.random() * 4)) * 60;
+        const pitch = { starId: t.id, starName: t.name, real: isRealId(t.id), fame: Math.round(t.fame) };
+        const b = fileBrief(state, {
+          kind: 'pitch', pitch: 'intro', refId: t.id,
+          title: `A room with ${pitch.real ? `${t.name}'s team` : t.name}`,
+          details: [
+            `${t.name} — ${t.country}, fame ${pitch.fame}${pitch.real ? '. Their team takes the meeting.' : ''}`,
+            `${formatGameDate(serialToDate(day))}, ${fmtMinute(atMinute)} · fifteen minutes.`,
+            'Bring your best record. You get one shot at a room like this.',
+          ],
+          advice: 'take',
+          reason: introPitchLine(pitch),
+          data: { npcId: t.id, atMinute },
+        });
+        b.expiresSerial = day - 1;
+        landed.push(`a meeting with ${pitch.real ? `${t.name}'s team` : t.name}`);
+        break;
+      }
+      case 'opener': {
+        // A star from home is playing a big room and needs a support act.
+        const stars = npcs.filter((n) => n.role === 'artist' && n.country === p.country && n.fame >= fame + 12 && n.fame <= fame + 50 && !beefIds.has(n.id) && !isBlocked(state, n.id)).sort((a, b) => b.fame - a.fame);
+        if (!stars.length) { notes.push('No big shows at home need an opener this month.'); break; }
+        const star = stars[Math.floor(Math.random() * Math.min(5, stars.length))];
+        const o = managerShowOffer(state, npcs, mgr, false, serial, pol);
+        if (!o) { notes.push(`${star.name} needs an opener, but the dates clash with your calendar or your rules.`); break; }
+        // The star's crowd, in the biggest room that night allows.
+        const big = venuesInCity(o.city, o.country).filter((v) => v.capacity > o.capacity && isNightFree(v, o.serial)).sort((a, b) => b.capacity - a.capacity)[0];
+        if (big) { o.venueId = big.id; o.venueName = big.name; o.capacity = big.capacity; }
+        o.terms.billing = 'support';
+        o.terms.fee = Math.max(150, Math.round(o.terms.fee * 0.7 / 10) * 10);
+        o.reason = `${star.name} is headlining ${o.venueName} and needs an opener. ${mgr.name} put your name forward — it's their crowd, not yours. Win them.`;
+        o.lineup = [{ npcId: star.id, name: star.name, fame: Math.round(star.fame), slot: 'headliner' }, ...(o.lineup ?? []).filter((x) => x.slot !== 'headliner' && x.npcId !== star.id).slice(0, 2)];
+        state.showOffers.push(o);
+        const b = fileBrief(state, { ...showBrief(state, o), title: `${PITCH_LABEL.opener.emoji} Opening for ${star.name} at ${o.venueName}`, reason: `${star.name}'s crowd, ${o.capacity.toLocaleString()} people who have never heard you. Money's small; the room is the point.`, advice: playerBusyOn(state, o.serial) ? 'pass' : 'take' });
+        if (pol.autoTake && b.advice === 'take') b.auto = true;
+        landed.push(`an opening slot for ${star.name}`);
+        break;
+      }
+      case 'interview': {
+        const before = (state.interviewInvites ?? []).filter((x) => x.status === 'open').length;
+        interviewTick(state, serial, 21, npcs);
+        const after = (state.interviewInvites ?? []).filter((x) => x.status === 'open').length;
+        if (after > before) landed.push('an interview request');
+        else notes.push('I pitched you to a few shows. Nobody has bitten yet.');
+        break;
+      }
+    }
+  }
+  const msg = [landed.length ? `Got you ${landed.join('; ')}.${landed.some((x) => !x.includes(' on ')) ? ' Details on my desk.' : ''}` : '', ...notes].filter(Boolean).join(' ');
+  if (msg) pushDM(state, mgr.id, { fromPlayer: false, content: `📋 ${spec.emoji} This month: ${msg}` });
+  if (landed.length) log.push(`📋 ${mgr.name} (${spec.label}) landed ${landed.length} thing${landed.length > 1 ? 's' : ''}: ${landed.join(', ')}.`);
 }
 
 /** Once a day the manager sends one message about everything new. */
@@ -6767,28 +7618,102 @@ function teamPosts(state: GameState, manager: string, n: number, serial: number)
   }
 }
 
-/** Weekly: everybody on the payroll does what you have them on. */
+/** A week that matters: a release just out, a show coming, an award night close. */
+function bigWeekFor(state: GameState, serial: number): boolean {
+  if (state.songs.some((x) => isSongReleased(x) && serial - releaseSerialOf(state, x, -999) <= 7)) return true;
+  if (state.scheduledShows.some((x) => x.serial >= serial && x.serial - serial <= 7)) return true;
+  if ((state.bookedGigs ?? []).some((g) => g.serial >= serial && g.serial - serial <= 7)) return true;
+  return Object.values(state.awardSeasons ?? {}).some((x) => x.phase !== 'done' && !x.quiet && x.cal.ceremony >= serial && x.cal.ceremony - serial <= 7 && x.categories.some((c) => c.nominees.some((n) => n.isPlayer)));
+}
+
+/** Weekly: everybody on the payroll does what you have them on — or doesn't. Monthly: the review. */
 function teamWorkTick(state: GameState, serial: number, days: number, weeklyStreamIncome: number, log: string[]): void {
   const p = state.player;
   if (!p) return;
-  if (Math.floor(serial / 7) === Math.floor((serial - days) / 7)) return;
+  const newWeek = Math.floor(serial / 7) !== Math.floor((serial - days) / 7);
+  const newMonth = serialToDate(serial).month !== serialToDate(serial - days).month;
+  if (!newWeek && !newMonth) return;
+  if (newMonth) crewReviewTick(state, serial);
+  if (!newWeek) return;
   const lines: string[] = [];
+  const big = bigWeekFor(state, serial);
   for (const c of state.crew ?? []) {
-    const res = weekOfWork(c.role, c.assignment, c.skill, c.morale ?? 70, { fame: blendedFame(p), weeklyStreamIncome, studioLevel: buildingLevel(state.studio?.levels), npcName: c.npcName, special: specialSkillOf(c.npcId, c.role, c.skill)?.id });
-    if (!res) continue;
-    if (res.money) { p.career.money += res.money; p.career.totalEarnings += res.money; ledgerAdd('team_work', res.money); }
-    if (res.momentum) addMomentum(state, res.momentum);
-    if (res.rep) p.career.reputation = Math.min(100, p.career.reputation + res.rep);
-    if (res.followers) { const st = socialStatsOf(state); st.snapgram.followers += Math.round(res.followers * 0.5); st.clip.followers += Math.round(res.followers * 0.3); st.chirp.followers += Math.round(res.followers * 0.2); }
-    if (res.posts) teamPosts(state, c.npcName, res.posts, serial);
-    for (const [k, v] of Object.entries(res.stats ?? {})) {
-      const stats = p.stats as unknown as Record<string, number>;
-      if (typeof stats[k] === 'number') stats[k] = Math.min(100, stats[k] + v);
+    const style = workStyleOf(c);
+    const warned = c.warnedSerial !== undefined && serial - c.warnedSerial <= 45;
+    const effort = weekEffort(style, c.morale ?? 70, Math.random(), big, warned);
+    c.perf = recordWeek(c.perf, effort.kind);
+    const special = effortLine(c.npcName, effort.kind, style, `${c.id}|${serial}`);
+    // Finding out who they are: a month in, you know.
+    if (!c.styleKnown && knowsStyle(c.perf, c.monthsServed ?? 0)) {
+      c.styleKnown = true;
+      const ws = WORK_STYLE[style];
+      pushNotification(state, { kind: 'business', title: `🔎 You know ${c.npcName.split(' ')[0]} now: ${ws.emoji} ${ws.label}`, body: ws.line, artSeed: `npc|${c.npcId}`, action: { type: 'team' } });
+      remember(state, 'people', `${c.npcName} turned out to be ${ws.label.toLowerCase()}: ${ws.line}`, { npcIds: [c.npcId], weight: 2 });
     }
-    c.lastWork = res.line;
-    lines.push(res.line);
+    if (effort.kind === 'none') {
+      c.lastWork = special ?? `${c.npcName.split(' ')[0]} did nothing this week.`;
+      lines.push(c.lastWork);
+      continue;
+    }
+    const res = weekOfWork(c.role, c.assignment, c.skill, c.morale ?? 70, { fame: blendedFame(p), weeklyStreamIncome, studioLevel: buildingLevel(state.studio?.levels), npcName: c.npcName, special: specialSkillOf(c.npcId, c.role, c.skill)?.id });
+    if (!res) { if (special) c.lastWork = special; continue; }
+    const k = effort.mult;
+    const scaled = (v: number | undefined) => (v ? Math.round(v * k * 10) / 10 : 0);
+    const money = Math.round(scaled(res.money));
+    if (money) { p.career.money += money; p.career.totalEarnings += money; ledgerAdd('team_work', money); }
+    const mom = scaled(res.momentum);
+    if (mom) addMomentum(state, mom);
+    const rep = scaled(res.rep);
+    if (rep) p.career.reputation = Math.min(100, p.career.reputation + rep);
+    const fame = scaled(res.fame);
+    if (fame) p.career.localFame = Math.min(100, p.career.localFame + fame);
+    const followers = Math.round(scaled(res.followers));
+    if (followers) { const st = socialStatsOf(state); st.snapgram.followers += Math.round(followers * 0.5); st.clip.followers += Math.round(followers * 0.3); st.chirp.followers += Math.round(followers * 0.2); }
+    const posts = res.posts ? Math.max(1, Math.round(res.posts * Math.min(1.5, k))) : 0;
+    if (posts) teamPosts(state, c.npcName, posts, serial);
+    for (const [key, v] of Object.entries(res.stats ?? {})) {
+      const stats = p.stats as unknown as Record<string, number>;
+      if (typeof stats[key] === 'number') stats[key] = Math.min(100, stats[key] + v * k);
+    }
+    c.lastWork = special ? `${special} ${res.line}` : res.line;
+    lines.push(c.lastWork);
   }
   if (lines.length) log.push(`👥 Team week: ${lines.slice(0, 2).join(' ')}${lines.length > 2 ? ` (+${lines.length - 2} more on the Team page)` : ''}`);
+}
+
+/**
+ * The first of the month: every hire's month is graded. Two bad months in a
+ * row and the manager (or whoever is most senior) says it in the group.
+ */
+function crewReviewTick(state: GameState, serial: number): void {
+  const p = state.player;
+  if (!p || !(state.crew ?? []).length) return;
+  const graded: { c: CrewMember; grade: string }[] = [];
+  for (const c of state.crew) {
+    if (!c.perf) continue;
+    const g = gradeOf(c.perf.month);
+    if (!g) continue;
+    const style = workStyleOf(c);
+    c.lastReview = { serial, grade: g.grade, text: reviewLine(c.npcName, c.perf.month, g.grade, style, !!c.styleKnown) };
+    c.perf = { ...c.perf, grades: [g.grade, ...c.perf.grades].slice(0, 6), month: { none: 0, low: 0, normal: 0, extra: 0, clutch: 0 } };
+    c.strikes = g.grade === 'D' || g.grade === 'F' ? (c.strikes ?? 0) + 1 : g.grade === 'A' || g.grade === 'B' ? Math.max(0, (c.strikes ?? 0) - 1) : (c.strikes ?? 0);
+    // How the month went is how they feel about it.
+    c.morale = Math.max(0, Math.min(100, (c.morale ?? 70) + (g.grade === 'A' ? 3 : g.grade === 'F' ? -3 : 0)));
+    graded.push({ c, grade: g.grade });
+  }
+  if (!graded.length) return;
+  const mgr = managerOf(state);
+  const speaker = mgr ? { from: mgr.id, name: mgr.name, role: 'manager' } : (() => { const top = [...state.crew].sort((a, b) => b.skill - a.skill)[0]; return { from: top.npcId, name: top.npcName, role: top.role }; })();
+  const best = graded.filter((x) => x.grade === 'A').map((x) => x.c.npcName.split(' ')[0]);
+  const worst = graded.filter((x) => x.grade === 'D' || x.grade === 'F');
+  const summary = `Month review — ${graded.map((x) => `${x.c.npcName.split(' ')[0]} ${x.grade}`).join(', ')}.${best.length ? ` ${best.join(' and ')} carried us.` : ''}${worst.length ? ` ${worst.map((x) => x.c.npcName.split(' ')[0]).join(' and ')} need${worst.length === 1 ? 's' : ''} to step up.` : ''}`;
+  pushTeamLines(state, [{ ...speaker, text: summary, key: `review:${serial}` }], serial);
+  for (const x of worst) {
+    if ((x.c.strikes ?? 0) < 2) continue;
+    const n = x.c.npcName.split(' ')[0];
+    pushTeamLines(state, [{ ...speaker, text: pickLine([`Real talk, ${p.artistName.split(' ')[0]}: ${n} has let us down two months running. Warn them properly or let them go — the rest of the team sees it.`, `I'll say what everybody's thinking: ${n} isn't pulling their weight. Your call, but I'd make a change.`], `${x.c.id}|${serial}`), key: `fire:${x.c.id}` }], serial);
+    pushNotification(state, { kind: 'business', title: `⚠️ ${x.c.npcName} is underperforming`, body: `${x.c.lastReview?.text ?? ''} Warn them, or let them go on the Team page.`, artSeed: `npc|${x.c.npcId}`, action: { type: 'team' } });
+  }
 }
 
 /** Every bet goes through here: the money, the VIP points, the headlines. */
@@ -6905,7 +7830,7 @@ function deliverPendingDMs(state: GameState, now: number): void {
 }
 
 /** Put a plan in the diary, with a card in your chat with them. */
-function createAppointment(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'city'>, kind: Appointment['kind'], atMinute: number, from: Appointment['from'], status: Appointment['status'] = 'confirmed', extra: Partial<Pick<Appointment, 'place' | 'title' | 'fee' | 'bringOut'>> = {}): Appointment {
+function createAppointment(state: GameState, npc: Pick<NPC, 'id' | 'name' | 'city'>, kind: Appointment['kind'], atMinute: number, from: Appointment['from'], status: Appointment['status'] = 'confirmed', extra: Partial<Pick<Appointment, 'place' | 'title' | 'fee' | 'bringOut' | 'cypher' | 'pitch'>> = {}): Appointment {
   const list = state.appointments ?? (state.appointments = []);
   const a: Appointment = {
     id: uuidv4(), npcId: npc.id, npcName: npc.name, kind,
@@ -7149,6 +8074,35 @@ function autoAttendOrMiss(state: GameState, a: Appointment, reason: 'slept' | 's
   finishAppointment(state, a, res, 'missed');
 }
 
+const STAT_NAME = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+
+/** Practice shows: a stat that moved up a whole point gets a line, a round number gets a notification. */
+function statUps(state: GameState, before: ArtistStats, why: string): void {
+  const p = state.player;
+  if (!p) return;
+  const ups: string[] = [];
+  let milestone = '';
+  for (const k of Object.keys(before) as (keyof ArtistStats)[]) {
+    const a = Math.floor(before[k] ?? 0);
+    const b = Math.floor(p.stats[k] ?? 0);
+    if (b > a) {
+      ups.push(`${STAT_NAME(k)} ${a} → ${b}`);
+      if (Math.floor(b / 5) > Math.floor(a / 5)) milestone = `${STAT_NAME(k)} hit ${b}`;
+    }
+  }
+  if (!ups.length) return;
+  state.lastEventLog.unshift(`📈 ${ups.join(', ')} — from ${why}.`);
+  state.lastEventLog = state.lastEventLog.slice(0, 12);
+  if (milestone) pushNotification(state, { kind: 'milestone', title: `📈 ${milestone}`, body: `Practice pays: ${ups.join(', ')} — from ${why}.`, artSeed: `stat|${milestone}` });
+}
+
+/** What you can play a big name's team: your best record out, and your best one in the vault. */
+export function pitchSongs(state: Pick<GameState, 'songs'>): { best?: Song; fresh?: Song } {
+  const best = state.songs.filter((x) => isSongReleased(x)).sort((a, b) => b.quality - a.quality)[0];
+  const fresh = state.songs.filter((x) => isVaultMaster(x)).sort((a, b) => b.quality - a.quality)[0];
+  return { best, fresh };
+}
+
 function finishAppointment(state: GameState, a: Appointment, res: SceneResult & { post?: string }, status: Appointment['status'], prefix = ''): void {
   const serial = dateToSerial(state.gameDate);
   applyMomentEffects(state, res.effects, serial);
@@ -7180,6 +8134,147 @@ function receipt(state: GameState, npcId: string, amount: number, text: string, 
   pushDM(state, npcId, { fromPlayer: false, system: true, content: text });
   if (opts.notify !== false) pushNotification(state, { kind: 'business', title: amount > 0 ? `💰 +$${amount.toLocaleString()}` : `💸 -$${Math.abs(amount).toLocaleString()}`, body: text.replace(/^[^\p{L}\p{N}$]+/u, ''), artSeed: `pay|${npcId}|${amount}` });
   if (opts.memory) remember(state, 'money', opts.memory, { npcIds: [npcId], weight: Math.abs(amount) >= 5000 ? 3 : 2 });
+}
+
+// ─── THE TERMS ON A VERSE ──────────────────────────────────────────────────
+// Who an artist won't share a record with, the terms they set when they agree,
+// and what happens when a release breaks them. See `sim/featureTerms.ts`.
+
+function rivalsOf(npc: NPC, npcs: NPC[]): { id: string; name: string }[] {
+  if (isRealId(npc.id)) {
+    const idx = npcIndex(npcs);
+    return seededRivalries(npcs).filter((r) => r.a === npc.id || r.b === npc.id).map((r) => idx.get(r.a === npc.id ? r.b : r.a)).filter((n): n is NPC => !!n).map((n) => ({ id: n.id, name: n.name }));
+  }
+  return sceneRivalsOf(npc, npcs).map((n) => ({ id: n.id, name: n.name }));
+}
+
+function attachTerms(state: GameState, req: FeatureRequest, npc: NPC, npcs: NPC[], serial: number): void {
+  if (req.conditions || !state.player) return;
+  const conds = conditionsFor({ npc, persona: personaOf(npc), playerFame: blendedFame(state.player), serial, rivals: rivalsOf(npc, npcs), real: isRealId(npc.id), seed: req.id });
+  if (!conds.length) return;
+  req.conditions = conds;
+  pushDM(state, npc.id, { fromPlayer: false, system: true, content: `📜 Terms on "${req.songTitle}": ${conds.map((c) => c.text.replace(/^📨[^:]+: /, '')).join(' · ')}` });
+}
+
+/** The terms this release would break, in sentences — for the release screens. */
+export function termsWarnings(state: GameState, songId: string, viaProject: boolean): string[] {
+  const song = state.songs.find((x) => x.id === songId);
+  if (!song) return [];
+  const out: string[] = [];
+  const idx = npcIndex(state.npcs as NPC[]);
+  const featured = (song.featuredArtists ?? []).map((id) => idx.get(id)).filter((n): n is NPC => !!n);
+  for (const r of state.featureRequests) {
+    if (r.songId !== songId || r.status !== 'added' || !r.conditions?.length) continue;
+    const others = featured.filter((n) => n.id !== r.npcId).map((n) => ({ id: n.id, name: n.name, fame: n.fame }));
+    for (const c of r.conditions) {
+      const b = breachOf(c, { others, viaProject, serial: dateToSerial(state.gameDate), released: true });
+      if (b && c.kind !== 'release_window') out.push(`${r.npcName}: ${b}`);
+    }
+  }
+  return out;
+}
+
+/** Take a guest's verse off one of your records. */
+function removeVerseFromSong(state: GameState, songId: string, npcId: string, requestId: string): void {
+  const song = state.songs.find((x) => x.id === songId);
+  const req = state.featureRequests.find((x) => x.id === requestId);
+  if (song) {
+    const ids = song.featuredArtists ?? [];
+    const names = song.featureArtistNames ?? [];
+    const i = ids.indexOf(npcId);
+    if (i >= 0) {
+      song.featuredArtists = ids.filter((_, k) => k !== i);
+      if (names.length === ids.length) song.featureArtistNames = names.filter((_, k) => k !== i);
+      else song.featureArtistNames = names.filter((nm) => nm !== req?.npcName);
+      // A verse was part of what made the record; without it it is a little less.
+      song.quality = Math.max(1, Math.round((song.quality - 3) * 10) / 10);
+    }
+  }
+  if (req) req.status = 'removed';
+  const n = state.npcs.find((x) => x.id === npcId);
+  pushNotification(state, { kind: 'feature', title: `${n?.name ?? 'Their'} verse is off "${song?.title ?? 'the record'}"`, body: 'The record carries on without it.', artSeed: `verse|${requestId}` });
+}
+
+/**
+ * A record just came out (or a deadline passed): check every deal on it.
+ * Broken terms reach the artist a few days later, the way news does.
+ */
+function checkFeatureTerms(state: GameState, songId: string, viaProject: boolean, released: boolean, npcsIn?: NPC[]): void {
+  // Most records carry no deal at all: nothing to read.
+  if (!state.featureRequests.some((r) => r.songId === songId && r.status === 'added')) return;
+  const song = state.songs.find((x) => x.id === songId);
+  const p = state.player;
+  if (!song || !p) return;
+  const npcs = npcsIn ?? (raw(state.npcs) as NPC[]);
+  const serial = dateToSerial(state.gameDate);
+  const idx = npcIndex(npcs);
+  const featured = (song.featuredArtists ?? []).map((id) => idx.get(id)).filter((n): n is NPC => !!n);
+  const relay = (() => { const law = state.crew.find((c) => c.role === 'lawyer'); const mgr = managerOf(state, npcs); return mgr ? { name: mgr.name, role: 'manager' } : law ? { name: law.npcName, role: 'lawyer' } : undefined; })();
+  for (const r of state.featureRequests) {
+    if (r.songId !== songId || r.status !== 'added') continue;
+    const npc = idx.get(r.npcId);
+    if (!npc) continue;
+    const others = featured.filter((n) => n.id !== r.npcId).map((n) => ({ id: n.id, name: n.name, fame: n.fame }));
+    const conds: FeatureCondition[] = [...(r.conditions ?? [])];
+    // An artist with bad blood doesn't need a clause to mind sharing a record.
+    const rivals = rivalsOf(npc, npcs);
+    if (released && !conds.some((c) => c.kind === 'no_rival') && rivals.some((x) => others.some((o) => o.id === x.id)) && Math.random() < 0.55) {
+      conds.push({ kind: 'no_rival', text: '', rivalIds: rivals.map((x) => x.id), rivalNames: rivals.map((x) => x.name) });
+    }
+    for (const c of conds) {
+      // Still in the vault: only a deadline can be broken.
+      if (!released && c.kind !== 'release_window') continue;
+      const what = breachOf(c, { others, viaProject, serial, released });
+      if (!what) continue;
+      const list = r.breaches ?? (r.breaches = []);
+      if (list.some((b) => b.kind === c.kind)) continue;
+      const persona = personaOf(npc);
+      const real = isRealId(npc.id);
+      const how = enforcementOf(persona, real, r.fee, Math.random());
+      list.push({ kind: c.kind, serial, how, text: what });
+      remember(state, 'beef', `You broke ${npc.name}'s terms on "${song.title}": ${what}`, { npcIds: [npc.id], weight: 3, tone: 'bad' });
+      const ask = Math.max(500, Math.round(((r.fee || featureFee(npc as unknown as FeatureCandidate, song.quality) * 0.4) * (how === 'renegotiate' ? 0.8 : 1.2)) / 100) * 100);
+      const due = serial + 1 + Math.floor(Math.random() * 5);
+      if (c.kind === 'release_window') {
+        // Nobody has heard it — it's a deadline, not a release. They either let
+        // it ride, or want the song out, money for the wait, or the verse back.
+        const again = (c.extended ?? 0) > 0;
+        if (how === 'ignore' && !again) {
+          if (!real) scheduleDM(state, npc.id, pickLine([`"${song.title}" still isn't out, huh. Not what we said — but I won't chase it.`, `Four months and "${song.title}" is still sitting. Your call. I'm not going to fight about it.`], r.id), nowMinuteOf(state) + 60 * 24 * (due - serial));
+          list[list.length - 1].settled = true;
+          continue;
+        }
+        list[list.length - 1].how = again ? 'remove' : 'window';
+        deliverMoment(state, buildBreachMoment({ requestId: r.id, songId, songTitle: song.title, npcId: npc.id, npcName: npc.name, real, how: again ? 'remove' : 'window', what: again ? 'You said two weeks, and it still isn\'t out.' : what, fee: r.fee, ask, litigious: persona.litigious, warmth: persona.warmth, relay }, due), serial, 'scheduled', due);
+        continue;
+      }
+      if (how === 'ignore') {
+        const live = state.npcs.find((x) => x.id === npc.id);
+        if (live) live.relationshipScore = Math.max(-100, live.relationshipScore - 4);
+        if (!real) scheduleDM(state, npc.id, pickLine([`Heard "${song.title}". Not what we agreed, but I'll let it go this once.`, `Saw what you did on "${song.title}". We move — but I noticed.`], r.id), nowMinuteOf(state) + 60 * 24 * (due - serial));
+        list[list.length - 1].settled = true;
+        continue;
+      }
+      if (how === 'sue') {
+        deliverMoment(state, {
+          kind: 'feature_breach', channel: 'team', npcName: relay?.name ?? 'Court registry', crewRole: relay?.role,
+          title: `${npc.name} is taking "${song.title}" to court`,
+          body: `${relay ? `"${npc.name}'s lawyers have been in touch about "${song.title}". ` : ''}${what} They are filing for breach of the feature deal.${relay ? '"' : ''}`,
+          options: [{ id: 'remove', label: 'Take the verse off and settle' }, { id: 'refuse', label: 'Let them sue' }],
+          expiresSerial: due + 4,
+          data: { requestId: r.id, songId, npcId: npc.id, fee: r.fee, ask, real, name: npc.name, how: 'remove', litigious: 1, warmth: persona.warmth },
+        }, serial, 'scheduled', due);
+        continue;
+      }
+      if (how === 'public' && !real) {
+        // They say it where everybody can see it.
+        state.socialPosts.unshift({ id: uuidv4(), platform: 'chirp', authorId: npc.id, authorName: npc.name, content: pickLine([`Some people don't respect a deal. "${song.title}" — we'll talk.`, `Funny how terms don't matter once the song is out. Noted.`, `I said one thing about "${song.title}". ONE thing.`], r.id), likes: Math.round(400 + npc.fame * 120), shares: Math.round(40 + npc.fame * 15), comments: [], timestamp: new Date().toISOString(), isPlayerPost: false, trendingScore: 55, daySerial: serial, tags: [{ id: 'player', name: p.artistName }] } as SocialPost);
+        livenPost(state, state.socialPosts[0]);
+        p.career.reputation = Math.max(0, p.career.reputation - 1);
+      }
+      deliverMoment(state, buildBreachMoment({ requestId: r.id, songId, songTitle: song.title, npcId: npc.id, npcName: npc.name, real, how: how === 'public' && real ? 'remove' : how, what, fee: r.fee, ask, litigious: persona.litigious, warmth: persona.warmth, relay }, due), serial, 'scheduled', due);
+    }
+  }
 }
 
 // ─── FEATURE DEALS ─────────────────────────────────────────────────────────
@@ -7542,6 +8637,14 @@ export interface AwardSeason {
   phase: 'upcoming' | 'nominations' | 'done';
   categories: CategoryState[];
   campaign: { academy: number; rally: number; spent: number; lastRally?: number };
+  /** Your entries are in. Seasons from before entries existed count as entered. */
+  entered?: boolean;
+  /** Who put them in: 'team' (manager, publicist, label) or 'you'. */
+  enteredBy?: 'team' | 'you';
+  /** You were reminded to enter. */
+  entryReminded?: boolean;
+  /** A body that has nothing to do with you runs quietly: no posts, no headlines. */
+  quiet?: boolean;
   /** invited (nominee or famous), performer, or bought a ticket. */
   invite?: 'invited' | 'performer' | 'ticket';
   rsvp?: boolean;
@@ -7550,8 +8653,37 @@ export interface AwardSeason {
   told?: { tonight?: boolean };
 }
 
+let bodiesCache: { country: string; list: AwardBody[] } | null = null;
 function bodiesFor(state: GameState): AwardBody[] {
-  return awardBodies(state.player?.country ?? 'Ghana');
+  const c = state.player?.country ?? 'Ghana';
+  if (!bodiesCache || bodiesCache.country !== c) bodiesCache = { country: c, list: awardBodies(c) };
+  return bodiesCache.list;
+}
+
+/**
+ * Does this ceremony concern the player? Home, their region, the global ones,
+ * anything they follow, and any country where their music is charting. The
+ * rest of the world's awards still happen — quietly.
+ */
+function awardRelevant(state: GameState, body: AwardBody): boolean {
+  const p = state.player;
+  if (!p) return false;
+  if (body.scope === 'global') return true;
+  if (body.scope === 'country' && body.country === p.country) return true;
+  if (body.scope === 'continental' && inRegion(body, p.country)) return true;
+  if ((state.awardFollows ?? []).includes(body.id)) return true;
+  if (body.scope === 'country' && body.country && marketPresence(state, body.country) >= 0.2) return true;
+  return false;
+}
+
+/** Whoever handles your paperwork puts your entries in. */
+function entriesHandler(state: GameState): string | null {
+  const mgr = managerOf(state);
+  if (mgr) return mgr.name;
+  const pub = (state.crew ?? []).find((c) => c.role === 'publicist' || c.role === 'personal_assistant');
+  if (pub) return pub.npcName;
+  if ((state.contracts ?? []).some((c) => c.type === 'label' && c.active)) return 'Your label';
+  return null;
 }
 
 /** Everything the academy looks at, from the world as it is today. */
@@ -7566,8 +8698,34 @@ export function awardWorld(state: GameState, npcs: NPC[], npcSongs: Song[]): Awa
   const mine = (state.songs ?? []).filter((s) => isSongReleased(s));
   entrants.set(p.id, { id: p.id, name: p.artistName, country: p.country, genre: p.genre, gender: p.gender, fame: blendedFame(p), isPlayer: true, real: false, debutSerial: mine.length ? Math.min(...mine.map(relOf)) : undefined });
   const vids = new Map((state.videos ?? []).map((v) => [v.songId, v.quality]));
+  const sceneAlbums: AwardWorld['albums'] = [];
   const toEntry = (s: Song, owner: string): SongEntry => ({ id: s.id, title: s.title, ownerId: owner, genre: s.genre, quality: s.quality, streams: s.totalStreams, release: relOf(s), features: s.featuredArtists ?? [], hasVideo: !!s.hasVideo || vids.has(s.id), videoQuality: vids.get(s.id) });
   const songs: SongEntry[] = [...npcSongs.filter((s) => s.ownerId && entrants.has(s.ownerId)).map((s) => toEntry(s, s.ownerId!)), ...mine.map((s) => toEntry(s, p.id))];
+  // Every country's scene, not just the few hundred artists on the global
+  // charts: fictional local acts with a name are credited with the year's best
+  // single (see `sceneSingle`). Real artists only appear with their real records.
+  {
+    const year = new Date(serial * 86400000).getUTCFullYear();
+    const recent = new Set(songs.filter((x) => serial - x.release < 365).map((x) => x.ownerId));
+    const byCountry = new Map<string, NPC[]>();
+    for (const n of npcs) {
+      if (n.role !== 'artist' || n.fame < 18 || isRealId(n.id) || recent.has(n.id)) continue;
+      const list = byCountry.get(n.country) ?? [];
+      list.push(n);
+      byCountry.set(n.country, list);
+    }
+    for (const list of byCountry.values()) {
+      const top = list.sort((a, b) => b.fame - a.fame).slice(0, 30);
+      for (const n of top) {
+        const single = sceneSingle(n, year, serial, top);
+        songs.push(single);
+        const e = entrants.get(n.id);
+        // A newcomer's first record is this one; an established act has been around.
+        if (e && e.debutSerial === undefined) e.debutSerial = n.fame < 35 ? single.release : serial - 1500 - (single.quality * 13) % 900;
+        if (n.fame >= 45 && single.quality % 3 === 0) sceneAlbums.push({ id: `scene-lp:${n.id}:${year}`, title: `${single.title} (The Album)`, ownerId: n.id, release: single.release - 20, streams: single.streams * 4, quality: Math.min(95, single.quality + 2) });
+      }
+    }
+  }
   const albums = [...(state.npcAlbums ?? []), ...(state.albums ?? [])].filter((a) => a.ownerId && entrants.has(a.ownerId === 'player' ? p.id : a.ownerId)).map((a) => {
     const owner = a.ownerId === 'player' || !a.ownerId ? p.id : a.ownerId;
     const qs = a.songs.map((id) => [...npcSongs, ...(state.songs ?? [])].find((x) => x.id === id)?.quality ?? 50);
@@ -7576,7 +8734,7 @@ export function awardWorld(state: GameState, npcs: NPC[], npcSongs: Song[]): Awa
   // The academy remembers scandals and lost cases; a campaign helps.
   const lost = (state.cases ?? []).filter((c) => c.status === 'lost' && serial - (c.outcome?.serial ?? 0) < 365).length;
   const academy = Math.max(0.6, Math.min(1.25, 0.85 + p.career.reputation / 250 - lost * 0.06));
-  return { entrants, songs, albums, playerId: p.id, playerAcademy: academy };
+  return { entrants, songs, albums: [...albums, ...sceneAlbums], playerId: p.id, playerAcademy: academy };
 }
 
 function awardPost(state: GameState, body: AwardBody, content: string, trending = 60): void {
@@ -7593,10 +8751,19 @@ function runCeremony(state: GameState, season: AwardSeason, attended: boolean): 
   const academy = Math.max(0.6, Math.min(1.5, 0.85 + p.career.reputation / 250 + season.campaign.academy));
   const wins: string[] = [];
   const night: string[] = [];
+  const nominatedHere = season.categories.some((c) => c.nominees.some((n) => n.isPlayer));
+  const quiet = !!season.quiet && !nominatedHere && !followed;
   for (const c of season.categories) {
     const w = decide(c, academy, Math.random);
     c.winnerId = w.id;
     night.push(`${c.name}: ${w.name}${w.work ? ` — "${w.work}"` : ''}`);
+    // A night on the other side of the world is in the record on its own page;
+    // the trophy cabinet keeps the ones that touched your career.
+    if (quiet) {
+      const n = state.npcs.find((x) => x.id === w.id);
+      if (n) n.fame = Math.min(100, n.fame + (c.major ? 1 : 0.4) * body.prestige / 70);
+      continue;
+    }
     state.awards.push({ id: uuidv4(), name: `${body.name} — ${c.name}`, tier: body.scope === 'country' ? 'country' : body.scope === 'continental' ? 'regional' : 'global', country: body.country, category: c.name, year: season.year, winner: w.id, nominees: c.nominees.map((n) => n.id) } as GameState['awards'][number]);
     if (w.isPlayer) {
       wins.push(c.name);
@@ -7614,6 +8781,11 @@ function runCeremony(state: GameState, season: AwardSeason, attended: boolean): 
   }
   season.phase = 'done';
   season.night = night;
+  if (quiet) {
+    // Keep the podium, drop the long lists: the world's awards are many.
+    for (const c of season.categories) c.nominees = c.nominees.filter((n, i) => n.id === c.winnerId || i < 3);
+    return;
+  }
   const major = season.categories.filter((c) => c.major);
   const nominatedMe = season.categories.filter((c) => c.nominees.some((n) => n.isPlayer));
   // The headlines and the timeline.
@@ -7641,49 +8813,113 @@ function runCeremony(state: GameState, season: AwardSeason, attended: boolean): 
   if (attended) season.night.unshift('You were in the room.');
 }
 
-/** Daily: the calendars, the nominations, the voting. */
+/** Daily: the calendars, entries, nominations and the voting — for every body in the world. */
 function awardsTick(state: GameState, serial: number, npcs: NPC[], npcSongs: Song[]): void {
   const p = state.player;
   if (!p) return;
   const seasons = state.awardSeasons ?? (state.awardSeasons = {});
-  if (!state.awardFollows) state.awardFollows = [bodiesFor(state).find((b) => b.country === p.country)?.id ?? 'ghana'];
+  const bodies = bodiesFor(state);
+  if (!state.awardFollows) state.awardFollows = [bodies.find((b) => b.country === p.country)?.id ?? 'ghana'];
   const fame = blendedFame(p);
   // Nights that passed while the days were being skipped still happened.
   for (const season of Object.values(seasons)) if (season.phase === 'nominations' && serial > season.cal.ceremony) runCeremony(state, season, false);
-  for (const body of bodiesFor(state)) {
+  // The academy's view of the world is built once, and only on a day somebody needs it.
+  let world: AwardWorld | null = null;
+  const worldOf = () => world ?? (world = awardWorld(state, npcs, npcSongs));
+  const handler = entriesHandler(state);
+  // One lookup table for the whole day's voting, not a roster scan per nominee.
+  const idx = npcIndex(npcs);
+  const fansOf = (id: string) => (id === p.id ? p.career.fanbase : (idx.get(id)?.fame ?? 10) * 400);
+  const eligibleWork = (cal: Calendar) => (state.songs ?? []).some((x) => isSongReleased(x) && (() => { const r = releaseSerialOf(state, x, serial); return r >= cal.windowStart - 365 && r <= cal.windowEnd; })());
+  for (const body of bodies) {
     const cal = nextCalendar(body, serial);
     const key = `${body.id}:${cal.year}`;
-    const s = seasons[key] ?? (seasons[key] = { key, bodyId: body.id, year: cal.year, cal, phase: 'upcoming', categories: [], campaign: { academy: 0, rally: 0, spent: 0 } });
+    const relevant = awardRelevant(state, body);
+    let s = seasons[key];
+    if (!s) {
+      // Far-away ceremonies only start existing a couple of months out.
+      if (!relevant && cal.nominations - serial > 60) continue;
+      s = seasons[key] = { key, bodyId: body.id, year: cal.year, cal, phase: 'upcoming', categories: [], campaign: { academy: 0, rally: 0, spent: 0 }, quiet: !relevant };
+    }
+    if (relevant && s.quiet) s.quiet = false;
     const followed = (state.awardFollows ?? []).includes(body.id);
-    if (s.phase === 'upcoming' && serial >= cal.nominations) {
-      s.categories = nominate(body, cal, awardWorld(state, npcs, npcSongs), Math.random);
+    const close = s.cal.entriesClose;
+    // ── Entries ─────────────────────────────────────────────────────────
+    // Nobody is nominated for something they never entered. Your team puts
+    // the entries in for you; on your own, you have to do it yourself.
+    if (s.phase === 'upcoming' && close !== undefined && !s.entered && relevant && body.scope !== 'global' && eligibleWork(s.cal)) {
+      if (handler && serial >= close - 14) {
+        s.entered = true;
+        s.enteredBy = 'team';
+        if (body.scope === 'country' && body.country === p.country) pushTeamLines(state, [{ from: managerOf(state)?.id ?? 'team', name: handler, role: managerOf(state) ? 'manager' : 'team', text: `Submitted your entries for the ${body.name} ${s.cal.year}. Nominations come out ${new Date(s.cal.nominations * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })}.` }], serial);
+      } else if (!handler && !s.entryReminded && serial >= close - 10 && serial <= close) {
+        s.entryReminded = true;
+        pushNotification(state, { kind: 'business', title: `${body.emoji} Enter the ${body.name}`, body: `Entries close ${new Date(close * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })}. Nobody on your team handles it — submit them yourself on the Awards page.`, artSeed: `award|${key}|entries`, action: { type: 'awards', id: key } });
+      }
+    }
+    if (s.phase === 'upcoming' && serial >= s.cal.nominations) {
+      const w = worldOf();
+      // Global academies watch the charts themselves; everywhere else you have
+      // to have entered. Old seasons (no deadline) count as entered.
+      const entered = body.scope === 'global' || close === undefined || !!s.entered;
+      const wv: AwardWorld = entered ? w : { ...w, songs: w.songs.filter((x) => x.ownerId !== w.playerId), albums: w.albums.filter((a) => a.ownerId !== w.playerId) };
+      s.categories = nominate(body, s.cal, wv, Math.random);
       s.phase = 'nominations';
+      if (!s.categories.length) {
+        // A year too thin to fill a shortlist: the academy postpones rather
+        // than hand out trophies to nobody.
+        s.phase = 'done';
+        s.night = ['Not enough eligible releases this year — the academy postponed the night.'];
+        continue;
+      }
       const mine = s.categories.filter((c) => c.nominees.some((n) => n.isPlayer));
+      if (!entered && relevant && eligibleWork(s.cal)) {
+        pushNotification(state, { kind: 'business', title: `${body.emoji} ${body.name} nominations are out`, body: 'You never entered, so you were not considered. Next year, put your entries in — or have somebody on your team do it.', artSeed: `award|${key}|missed`, action: { type: 'awards', id: key } });
+      }
       if (mine.length) {
+        s.quiet = false;
         s.invite = fame >= 45 && mine.some((c) => c.major) ? 'performer' : 'invited';
         s.rsvp = true;
         state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} earns ${mine.length} nomination${mine.length > 1 ? 's' : ''} at the ${body.name}`, fullStory: mine.map((c) => c.name).join(', '), date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 7, category: 'award' });
-        pushNotification(state, { kind: 'milestone', title: `${body.emoji} You're nominated: ${mine.length} at the ${body.name}`, body: `${mine.map((c) => c.name).join(', ')}. The night is ${new Date(cal.ceremony * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })}.${s.invite === 'performer' ? ' They want you to perform.' : ''}`, artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
-        remember(state, 'career', `You were nominated for ${mine.map((c) => c.name).join(', ')} at the ${body.name} ${cal.year}.`, { weight: 4, tone: 'good' });
-      } else if (fame >= 55) {
+        pushNotification(state, { kind: 'milestone', title: `${body.emoji} You're nominated: ${mine.length} at the ${body.name}`, body: `${mine.map((c) => c.name).join(', ')}. The night is ${new Date(s.cal.ceremony * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })} in ${body.city}.${s.invite === 'performer' ? ' They want you to perform.' : ''}`, artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
+        remember(state, 'career', `You were nominated for ${mine.map((c) => c.name).join(', ')} at the ${body.name} ${s.cal.year}.`, { weight: 4, tone: 'good' });
+      } else if (fame >= 55 && (relevant || fame >= 75)) {
         s.invite = 'invited';
       }
-      if (followed && !mine.length) pushNotification(state, { kind: 'business', title: `${body.emoji} ${body.name} nominations are out`, body: s.categories.filter((c) => c.major).map((c) => `${c.name}: ${c.nominees.slice(0, 3).map((n) => n.name).join(', ')}…`).join(' · ').slice(0, 220), artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
-      const top = s.categories.find((c) => c.major);
-      if (top) awardPost(state, body, `📣 Nominations for the ${body.name} ${cal.year} are OUT. ${top.name}: ${top.nominees.map((n) => n.name).join(', ')}. ${s.categories.some((c) => c.fanVote) ? 'Voting is open now 🗳️' : ''}`, 65);
+      if (!s.quiet) {
+        if (followed && !mine.length) pushNotification(state, { kind: 'business', title: `${body.emoji} ${body.name} nominations are out`, body: s.categories.filter((c) => c.major).map((c) => `${c.name}: ${c.nominees.slice(0, 3).map((n) => n.name).join(', ')}…`).join(' · ').slice(0, 220), artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
+        const top = s.categories.find((c) => c.major);
+        if (top) awardPost(state, body, `📣 Nominations for the ${body.name} ${s.cal.year} are OUT. ${top.name}: ${top.nominees.map((n) => n.name).join(', ')}. ${s.categories.some((c) => c.fanVote) ? 'Voting is open now 🗳️' : ''}`, 65);
+      }
     }
-    if (s.phase === 'nominations' && serial <= cal.votingCloses) {
-      const fansOf = (id: string) => (id === p.id ? p.career.fanbase : (npcs.find((n) => n.id === id)?.fame ?? 10) * 400);
+    if (s.phase === 'nominations' && serial <= s.cal.votingCloses) {
       for (const c of s.categories) if (c.fanVote) voteDay(c, fansOf, s.campaign.rally, Math.random);
     }
-    if (s.phase === 'nominations' && serial === cal.ceremony && !s.told?.tonight && (followed || s.rsvp)) {
+    if (s.phase === 'nominations' && serial === s.cal.ceremony && !s.told?.tonight && (followed || s.rsvp)) {
       s.told = { ...(s.told ?? {}), tonight: true };
       pushNotification(state, { kind: 'business', title: `${body.emoji} ${body.name} is tonight`, body: `${body.venue}, ${body.city} · 7:00 PM${s.rsvp ? ' — you\'re going.' : ''}`, artSeed: `award|${key}|tonight`, action: { type: 'awards', id: key } });
     }
   }
-  // Keep two years of history per body.
-  const keys = Object.keys(seasons).sort();
-  for (const k of keys) { const v = seasons[k]; if (v.phase === 'done' && serial - v.cal.ceremony > 760) delete seasons[k]; }
+  // History: two years for the ceremonies that concern you, one for the rest.
+  for (const k of Object.keys(seasons)) {
+    const v = seasons[k];
+    if (v.phase === 'done' && serial - v.cal.ceremony > (v.quiet ? 380 : 760)) delete seasons[k];
+  }
+}
+
+/** Put your own entries in. */
+export function enterAwardsFor(state: GameState, key: string): { ok: boolean; message: string } {
+  const s = state.awardSeasons?.[key];
+  if (!s) return { ok: false, message: 'That season is not open.' };
+  const serial = dateToSerial(state.gameDate);
+  if (s.entered) return { ok: false, message: 'Your entries are already in.' };
+  if (s.phase !== 'upcoming' || (s.cal.entriesClose !== undefined && serial > s.cal.entriesClose)) return { ok: false, message: 'Entries are closed for this year.' };
+  const fee = 50;
+  if ((state.player?.career.money ?? 0) < fee) return { ok: false, message: `The entry fee is $${fee}.` };
+  state.player!.career.money -= fee;
+  s.entered = true;
+  s.enteredBy = 'you';
+  return { ok: true, message: `Entered. $${fee} admin fee. Nominations come out ${new Date(s.cal.nominations * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })}.` };
 }
 
 // ─── CAREER MODES ──────────────────────────────────────────────────────────
@@ -7772,10 +9008,12 @@ function captureMemories(state: GameState): void {
   const p = state.player;
   if (!p) return;
   const cur = state.memoryCursor ?? (state.memoryCursor = {});
-  const npcIds = new Set(state.npcs.map((n) => n.id));
   const heads: Headline[] = [];
   for (const h of state.headlines ?? []) { if (h.id === cur.headline || heads.length >= 30) break; heads.push(h); }
   if (state.headlines?.[0]) cur.headline = state.headlines[0].id;
+  // The roster's ids never change, so the set is built once per session rather
+  // than by walking eleven thousand drafts every midnight.
+  const npcIds = heads.length ? rosterIds(state) : new Set<string>();
   for (const h of heads.reverse()) {
     if (!h.relatedEntities?.includes(p.id) || (h.priority ?? 0) < 3) continue;
     // Already written down by the system that made the news.
@@ -7789,6 +9027,12 @@ function captureMemories(state: GameState): void {
     const k = NOTE_KIND[n.kind];
     if (k) remember(state, k.kind, n.title.replace(/^[^\p{L}\p{N}"“]+/u, ''), { weight: k.weight, tone: 'good' });
   }
+}
+
+let rosterIdCache: Set<string> | null = null;
+function rosterIds(state: GameState): Set<string> {
+  if (!rosterIdCache || rosterIdCache.size !== state.npcs.length) rosterIdCache = new Set((raw(state.npcs) as NPC[]).map((n) => n.id));
+  return rosterIdCache;
 }
 
 /** An NPC posts on Chirp about something that just happened. */
@@ -8277,6 +9521,11 @@ function deliverBeatOrder(state: GameState, o: BeatOrder, serial: number): void 
   state.lastEventLog.unshift(`🎹 ${o.producerName} delivered "${beat.name}"${o.forTitle ? ` for "${o.forTitle}"` : ''} — ${beatGrade(quality)}.`);
 }
 
+/** The facts the team talks from — for the AI layer. */
+export function teamSnapshotOf(state: GameState): TeamSnapshot {
+  return teamSnapshot(state, dateToSerial(state.gameDate));
+}
+
 function teamSnapshot(state: GameState, serial: number): TeamSnapshot {
   const p = state.player!;
   const now = nowMinuteOf(state);
@@ -8295,13 +9544,103 @@ function teamSnapshot(state: GameState, serial: number): TeamSnapshot {
     openCase: openCase ? { kind: String(openCase.kind), claim: openCase.claim } : undefined,
     daysSincePost: lastPost < 0 ? 99 : Math.max(0, serial - lastPost),
     burn: monthlyBurnOf(state).total,
+    vault: state.songs.filter((x) => isVaultMaster(x)).sort((a, b) => b.quality - a.quality).slice(0, 6).map((x) => ({ id: x.id, title: x.title, quality: x.quality, status: x.masterStatus ?? 'recorded' })),
+    newest: (() => {
+      const out = state.songs.filter((x) => isSongReleased(x)).sort((a, b) => releaseSerialOf(state, b, serial) - releaseSerialOf(state, a, serial))[0];
+      return out ? { title: out.title, days: Math.max(0, serial - releaseSerialOf(state, out, serial)), weekly: Math.round(out.weeklyStreams ?? 0) } : undefined;
+    })(),
+    desk: (state.managerDesk ?? []).filter((b) => b.status !== 'done').slice(0, 4).map((b) => b.title),
+    nextShow: (() => {
+      const sh = [...state.scheduledShows].filter((x) => x.serial >= serial).sort((a, b) => a.serial - b.serial)[0];
+      if (!sh) return undefined;
+      const v = findVenue(sh.venueId);
+      return { label: `the ${v ? `${v.name} show in ${v.city}` : 'show'}`, days: sh.serial - serial };
+    })(),
+    nextAward: (() => {
+      const mine = Object.values(state.awardSeasons ?? {}).filter((x) => x.phase !== 'done' && !x.quiet && x.cal.ceremony >= serial).sort((a, b) => a.cal.ceremony - b.cal.ceremony)[0];
+      const body = mine ? bodiesFor(state).find((b) => b.id === mine.bodyId) : undefined;
+      return mine && body ? { name: `the ${body.name}`, days: mine.cal.ceremony - serial, entered: !!mine.entered || mine.cal.entriesClose === undefined || body.scope === 'global', nominated: mine.categories.filter((c) => c.nominees.some((n) => n.isPlayer)).length } : undefined;
+    })(),
+    policy: policyLines(policyOf(state.teamPolicy)),
+    managerKind: (() => { const m = managerOf(state); return m ? SPECIALTIES[managerSpecialty(m)].label : undefined; })(),
+    payroll: (state.crew ?? []).reduce((a, c) => a + (c.monthlyWage ?? 0), 0),
+    me: p.artistName,
+    ...dropFacts(state, serial),
+    drafts: (state.albumDrafts ?? []).slice(0, 2).map((d) => ({ title: d.title, tracks: d.songIds.length, plannedDays: d.plannedSerial !== undefined ? Math.max(0, d.plannedSerial - serial) : undefined })),
+    beef: (state.beefs ?? []).find((b) => !b.resolution)?.npcName,
+    slackers: (state.crew ?? []).filter((c) => c.perf?.last === 'none').map((c) => c.npcName),
   };
+}
+
+/** What the team reads before they tell you when to drop. */
+function dropFacts(state: GameState, serial: number): Pick<TeamSnapshot, 'dropPlan' | 'bigDrops'> {
+  const p = state.player!;
+  const fame = blendedFame(p);
+  const best = state.songs.filter((x) => isVaultMaster(x)).sort((a, b) => b.quality - a.quality)[0];
+  // Who just dropped: a big name from home (or a global star) in the last few days.
+  const idx = npcIndex(baseNpcs(state));
+  const bigDrops: { name: string; title: string }[] = [];
+  for (const x of state.npcSongs) {
+    if ((x.weeksOut ?? 9) > 0 || !x.ownerId) continue;
+    const n = idx.get(x.ownerId);
+    if (!n || n.fame < Math.max(55, fame + 15) || (n.country !== p.country && n.tier !== 'international')) continue;
+    bigDrops.push({ name: n.name, title: x.title });
+    if (bigDrops.length >= 2) break;
+  }
+  if (!best) return { bigDrops };
+  let d = serial;
+  while (serialWeekday(d) !== 5) d++;
+  const newest = state.songs.filter((x) => isSongReleased(x)).reduce((m, x) => Math.max(m, releaseSerialOf(state, x, -999)), -999);
+  const quietDays = newest > -999 ? serial - newest : undefined;
+  const wait = bigDrops.length ? `${bigDrops[0].name} just dropped "${bigDrops[0].title}" — nobody hears you that week.`
+    : quietDays !== undefined && quietDays < 14 ? `Your last release is only ${quietDays} days old.`
+      : undefined;
+  return {
+    bigDrops,
+    dropPlan: { id: best.id, title: best.title, quality: best.quality, status: best.masterStatus ?? 'recorded', friday: formatGameDate(serialToDate(d)), daysToFriday: d - serial, quietDays, wait },
+  };
+}
+
+/** Everybody in the group as one list, the manager included. */
+function teamMembers(state: GameState): TeamMember[] {
+  const out: TeamMember[] = (state.crew ?? []).map((c) => ({ id: c.npcId, name: c.npcName, role: c.role, skill: c.skill, morale: c.morale ?? 70, style: workStyleOf(c), months: c.monthsServed ?? 0, last: c.perf?.last }));
+  const mgr = managerOf(state);
+  if (mgr) {
+    const t = traitsFor(mgr as NPC);
+    const c = state.contracts.find((x) => x.type === 'management' && x.active);
+    const months = c ? Math.max(0, Math.floor((dateToSerial(state.gameDate) - serialOfGameDate(c.signedAt, dateToSerial(state.gameDate))) / 30)) : 0;
+    out.unshift({ id: mgr.id, name: mgr.name, role: 'manager', skill: managerNetwork(mgr), morale: 55 + mgr.relationshipScore / 2.5, style: workStyleOf(t), months, isManager: true });
+  }
+  return out;
+}
+
+/**
+ * What the team does when you ask them to: a beat, a mix, a push. Runs after
+ * the message lands, through the same actions the buttons use, so a request in
+ * the chat and a tap on a button cannot behave differently.
+ */
+function runTeamActions(actions: TeamAction[]): void {
+  for (const a of actions.slice(0, 3)) {
+    const st = useGameStore.getState();
+    if (!st.player) return;
+    if (a.kind === 'make_beat') {
+      const song = a.songId ? st.songs.find((x) => x.id === a.songId) : undefined;
+      const genre = song?.genre ?? st.player.genre;
+      const r = st.orderBeat({ producerId: a.from, genre, bpm: song?.bpm ?? GENRE_BY_ID[genre]?.bpm ?? 95, mood: song?.mood ?? 'defiant', forTitle: song?.title });
+      useGameStore.getState().noteTeam(a.from, r.ok ? `✅ ${r.message}` : r.message);
+    } else if (a.kind === 'mix_song' && a.songId) {
+      const r = st.mixMasterSong(a.songId, a.from, { fee: 0 });
+      useGameStore.getState().noteTeam(a.from, r ? (r.ok === false ? r.read : `✅ Mixing "${st.songs.find((x) => x.id === a.songId)?.title ?? 'the record'}" now.`) : 'That one can\'t be mixed right now.');
+    } else if (a.kind === 'push_shows' || a.kind === 'push_features' || a.kind === 'push_deals') {
+      st.pushManager(a.kind === 'push_shows' ? 'shows' : a.kind === 'push_features' ? 'features' : 'deals');
+    }
+  }
 }
 
 function pushTeamLines(state: GameState, lines: TeamLine[], serial: number): void {
   const list = state.teamChat ?? (state.teamChat = []);
   for (const l of lines) {
-    list.push({ id: uuidv4(), from: l.from, name: l.name, role: l.role, text: l.text, serial, at: new Date().toISOString() });
+    list.push({ id: uuidv4(), from: l.from, name: l.name, role: l.role, text: l.text, serial, at: new Date().toISOString(), ...(l.key ? { key: l.key } : {}) });
     state.teamChatUnread = (state.teamChatUnread ?? 0) + 1;
   }
   if (list.length > 120) list.splice(0, list.length - 120);
@@ -8312,11 +9651,63 @@ function teamChatTick(state: GameState, serial: number): void {
   if (!state.player || !(state.crew ?? []).length) return;
   const last = state.teamChat?.[state.teamChat.length - 1];
   if (last && last.serial === serial) return;
-  // Nobody repeats themselves inside a week.
+  // Nobody posts twice in a few days, and nobody repeats the same kind of
+  // update for a fortnight — unless it's urgent (rent due, a show tomorrow).
   const recent = new Map<string, number>();
-  for (const m of state.teamChat ?? []) if (m.from !== 'player') recent.set(m.from, Math.max(recent.get(m.from) ?? -99, m.serial));
-  const fresh = teamUpdates(state, teamSnapshot(state, serial), serial).filter((l) => serial - (recent.get(l.from) ?? -99) >= 6);
+  const byKey = new Map<string, number>();
+  for (const m of state.teamChat ?? []) {
+    if (m.from === 'player') continue;
+    recent.set(m.from, Math.max(recent.get(m.from) ?? -99, m.serial));
+    if (m.key) byKey.set(m.key, Math.max(byKey.get(m.key) ?? -99, m.serial));
+  }
+  const snap = teamSnapshot(state, serial);
+  const fresh = teamUpdates(state, snap, serial).filter((l) => {
+    if (l.key && serial - (byKey.get(l.key) ?? -99) < (l.urgent ? 3 : 14)) return false;
+    return serial - (recent.get(l.from) ?? -99) >= (l.urgent ? 1 : 4);
+  });
   pushTeamLines(state, fresh, serial);
+  teamDisputeTick(state, snap, serial);
+}
+
+/** Now and then two of them don't agree — more often the greener the team. */
+function teamDisputeTick(state: GameState, snap: TeamSnapshot, serial: number): void {
+  const d = state.teamDispute;
+  const members = teamMembers(state);
+  if (d && d.status === 'open') {
+    if (serial <= d.expires) return;
+    const out = lapseDispute(d, members, `${d.id}|lapse`);
+    applyDisputeOutcome(state, out);
+    pushTeamLines(state, out.lines, serial);
+    d.status = 'expired';
+    d.resolution = out.text;
+    return;
+  }
+  if (serial - (state.lastDisputeSerial ?? -99) < 5) return;
+  if (Math.random() >= disputeChance(members)) return;
+  const draft = draftDispute(snap, members, `${serial}|${members.length}|${Math.random()}`);
+  if (!draft) return;
+  state.lastDisputeSerial = serial;
+  state.teamDispute = {
+    id: uuidv4(), serial, expires: serial + 2, topic: draft.topic, about: draft.about,
+    a: { id: draft.a.id, name: draft.a.name, role: draft.a.role }, b: { id: draft.b.id, name: draft.b.name, role: draft.b.role },
+    options: draft.options, status: 'open', songId: draft.songId,
+  };
+  pushTeamLines(state, draft.lines.map((l) => ({ ...l, key: `dispute:${draft.topic}` })), serial);
+}
+
+function applyDisputeOutcome(state: GameState, out: { morale: { id: string; v: number }[]; rel: { id: string; v: number }[]; warn?: string }): void {
+  for (const m of out.morale) {
+    const c = state.crew.find((x) => x.npcId === m.id);
+    if (c) c.morale = Math.max(0, Math.min(100, (c.morale ?? 70) + m.v));
+  }
+  for (const r of out.rel) {
+    const n = state.npcs.find((x) => x.id === r.id);
+    if (n) n.relationshipScore = Math.max(-100, Math.min(100, n.relationshipScore + r.v));
+  }
+  if (out.warn) {
+    const c = state.crew.find((x) => x.npcId === out.warn);
+    if (c) c.warnedSerial = dateToSerial(state.gameDate);
+  }
 }
 
 function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
@@ -8382,9 +9773,205 @@ function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number):
   }
 }
 
+// ─── BIRTHDAYS ─────────────────────────────────────────────────────────────
+// Yours once a year — planned a week out, celebrated on the day. Everybody
+// else's too: the people you know have days that come round, and whether you
+// remembered is remembered. See `sim/birthdays.ts`.
+
+function birthdaysTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
+  const p = state.player;
+  if (!p) return;
+  const date = state.gameDate;
+  const bd = birthdayOf(p.dateOfBirth);
+  if (bd) {
+    const until = daysUntil(bd, date);
+    // The birthday this is about: the next one, or one that passed during a skip.
+    let passed = -1;
+    for (let k = 0; k < Math.min(days, 20); k++) { const d = serialToDate(serial - k); if (d.month === bd.month && d.day === bd.day) { passed = k; break; } }
+    const year = passed >= 0 ? serialToDate(serial - passed).year : until === 0 ? date.year : serialToDate(serial + until).year;
+    if (!state.birthday || state.birthday.year !== year) state.birthday = { year };
+    const b = state.birthday;
+    const age = year - Number(p.dateOfBirth.slice(0, 4));
+    if (passed < 0 && until <= 7 && until >= 0 && !b.plan && !b.asked) {
+      b.asked = true;
+      const mgr = managerOf(state, npcs);
+      const pa = state.crew.find((c) => c.role === 'personal_assistant');
+      const asker = pa ? { name: pa.npcName, role: 'personal_assistant' } : mgr ? { name: mgr.name, role: 'manager' } : undefined;
+      const fame = blendedFame(p);
+      const idx = costIndex(p.country);
+      deliverMoment(state, buildBirthdayPlan({ daysOut: until, age, cost: partyCost(fame, idx), dinner: dinnerCost(fame, idx), serial, asker }), serial);
+      if (asker) pushTeamLines(state, [{ from: pa ? pa.npcId : mgr!.id, name: asker.name, role: asker.role, text: `${until === 0 ? 'It\'s your birthday today' : `Your birthday is in ${until} day${until === 1 ? '' : 's'}`} 🎂 Party, dinner, or keep it low-key? Tell me and I'll sort it.`, key: `bday-ask:${year}` }], serial);
+    }
+    if (passed >= 0 && !b.done) {
+      b.done = true;
+      celebrateBirthday(state, npcs, serial, age, b.plan ?? 'normal', passed);
+    }
+  }
+  // Everybody else's.
+  const year = date.year;
+  const seen = new Set(state.birthdaysSeen ?? []);
+  const crewIds = new Map((state.crew ?? []).map((c) => [c.npcId, c] as const));
+  const mgr = managerOf(state, npcs);
+  const todays: NPC[] = [];
+  for (const n of npcs) {
+    const close = crewIds.has(n.id) || n.id === mgr?.id || (n.relationshipScore >= 35 && n.role !== 'fan_account') || (isRealId(n.id) && n.relationshipScore >= 50);
+    if (!close) continue;
+    const nb = npcBirthday(n.id);
+    let hit = false;
+    for (let k = 0; k < Math.min(days, 3); k++) { const d = serialToDate(serial - k); if (d.month === nb.month && d.day === nb.day) { hit = true; break; } }
+    if (!hit || seen.has(`${n.id}|${year}`)) continue;
+    todays.push(n);
+  }
+  todays.sort((a, b) => (crewIds.has(b.id) || b.id === mgr?.id ? 100 : 0) + b.relationshipScore - ((crewIds.has(a.id) || a.id === mgr?.id ? 100 : 0) + a.relationshipScore));
+  const list = state.birthdaysSeen ?? (state.birthdaysSeen = []);
+  for (const n of todays.slice(0, 2)) {
+    list.push(`${n.id}|${year}`);
+    const c = crewIds.get(n.id);
+    const real = isRealId(n.id);
+    const gift = Math.max(50, Math.round(((c ? c.monthlyWage * 0.15 : 60 + n.fame * 8) * Math.max(0.5, costIndex(p.country))) / 10) * 10);
+    deliverMoment(state, buildNpcBirthday({ npcId: n.id, name: n.name, role: c?.role ?? n.role, rel: n.relationshipScore, gift, crewId: c?.id, real, serial }), serial);
+    // The group remembers its own.
+    if (c || n.id === mgr?.id) {
+      const other = (state.crew ?? []).find((x) => x.npcId !== n.id);
+      if (other) pushTeamLines(state, [{ from: other.npcId, name: other.npcName, role: other.role, text: `Happy birthday @${n.name.split(' ')[0]} 🎂🎉`, key: `bday:${n.id}:${year}` }], serial);
+    }
+  }
+  if (list.length > 300) list.splice(0, list.length - 300);
+}
+
+/** The day itself. */
+function celebrateBirthday(state: GameState, npcs: NPC[], serial: number, age: number, plan: 'party' | 'dinner' | 'studio' | 'normal', lateBy: number): void {
+  const p = state.player!;
+  const now = nowMinuteOf(state);
+  const fame = blendedFame(p);
+  const me = p.artistName.split(' ')[0];
+  const b = state.birthday!;
+  // The texts: the people who actually think about you.
+  const friends = sampleNpcs(npcs, 8, (n) => !isRealId(n.id) && n.relationshipScore >= 28 && n.role !== 'fan_account' && !isBlocked(state, n.id));
+  if (!lateBy) friends.forEach((n, i) => scheduleDM(state, n.id, wishLine(`${n.id}|${serial}`, n.relationshipScore >= 60), now + 30 + i * 70 + Math.floor(Math.random() * 60)));
+  // The group.
+  const voices = [...(state.crew ?? []).map((c) => ({ from: c.npcId, name: c.npcName, role: c.role as string }))];
+  const mgr = managerOf(state, npcs);
+  if (mgr) voices.unshift({ from: mgr.id, name: mgr.name, role: 'manager' });
+  pushTeamLines(state, voices.slice(0, 4).map((v) => ({ ...v, text: teamWish(`${v.from}|${serial}`, v.role) })), serial);
+  // The fans.
+  if (p.career.fanbase >= 500) {
+    const fansPages = sampleNpcs(npcs, fame >= 40 ? 3 : 1, (n) => n.role === 'fan_account' && (n.country === p.country || fame >= 50));
+    for (const f of fansPages) npcPost(state, f, fanWish(`${f.id}|${serial}`, p.artistName, age));
+  }
+  // A star you're close to marks it — an action, never words.
+  const star = sampleNpcs(npcs, 1, (n) => isRealId(n.id) && n.role === 'artist' && n.relationshipScore >= 45)[0];
+  let starLine = '';
+  if (star && Math.random() < 0.5) {
+    addMomentum(state, 2, `${star.name} marked your birthday`);
+    starLine = ` ${star.name} posted you on their story.`;
+  }
+  const effects: MomentEffect[] = [];
+  let story = '';
+  if (plan === 'party') {
+    const pool: Guest[] = [];
+    for (const c of state.crew ?? []) pool.push({ id: c.npcId, name: c.npcName, rel: 60, fame: 10, real: false, role: c.role, crew: true });
+    if (mgr) pool.push({ id: mgr.id, name: mgr.name, rel: mgr.relationshipScore, fame: mgr.fame, real: isRealId(mgr.id), role: 'manager', crew: true });
+    for (const n of sampleNpcs(npcs, 14, (x) => x.role !== 'fan_account' && !isBlocked(state, x.id) && (x.role === 'artist' || x.role === 'producer' || x.role === 'dj' || x.role === 'blogger') && x.relationshipScore >= 15 && !(state.crew ?? []).some((c) => c.npcId === x.id))) {
+      pool.push({ id: n.id, name: n.name, rel: n.relationshipScore, fame: n.fame, real: isRealId(n.id), role: n.role });
+    }
+    const night = partyNight({ guests: pool, playerFame: fame, charisma: p.stats.charisma, networking: p.stats.networking, roll: Math.random, me: p.artistName });
+    effects.push(...night.effects);
+    b.guests = night.came.map((g) => g.id);
+    story = night.text;
+    if (night.star) state.headlines.unshift({ id: uuidv4(), text: `${night.star.name} spotted at ${p.artistName}'s birthday party`, fullStory: `Photos from ${p.artistName}'s ${age}th birthday show ${night.star.name} in the room. The guest list says a lot about where ${p.artistName} is right now.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id, night.star.id], priority: 6, category: 'general' });
+  } else if (plan === 'dinner') {
+    for (const c of state.crew ?? []) effects.push({ k: 'morale', crewId: c.id, v: 6 });
+    if (mgr) effects.push({ k: 'rel', npcId: mgr.id, v: 4 });
+    for (const n of friends.slice(0, 3)) effects.push({ k: 'rel', npcId: n.id, v: 5 });
+    effects.push({ k: 'energy', v: 10 });
+    story = `Dinner with ${[...(state.crew ?? []).slice(0, 2).map((c) => c.npcName.split(' ')[0]), ...friends.slice(0, 2).map((n) => n.name.split(' ')[0])].join(', ') || 'the people who matter'}. Nobody looked at their phone. Best night in months.`;
+  } else if (plan === 'studio') {
+    effects.push({ k: 'stat', stat: 'creativity', v: 1 }, { k: 'stat', stat: 'songwriting', v: 0.6 }, { k: 'momentum', v: 1 });
+    for (const c of state.crew ?? []) if (workStyleOf(c) === 'grinder') effects.push({ k: 'morale', crewId: c.id, v: 4 });
+    story = 'You spent your birthday in the booth. Two ideas you love, one hook you can\'t stop humming. The team noticed.';
+  } else {
+    story = `Just a normal day. ${friends.length ? `${friends.length} people texted` : 'Quiet'} — that's enough.`;
+  }
+  // A brand that wants to be your friend.
+  if (fame >= 35 && Math.random() < 0.5) effects.push({ k: 'dripGift', from: 'a brand that wants to work with you' });
+  applyMomentEffects(state, effects, serial);
+  b.story = `${story}${starLine}`;
+  pushNotification(state, { kind: 'milestone', title: `🎂 ${lateBy ? `Your birthday — you turned ${age}` : `Happy birthday, ${me} — you're ${age}`}`, body: b.story, artSeed: `bday|${serial}` });
+  remember(state, 'life', `Your ${age}th birthday: ${b.story}`, { weight: 3, tone: 'good' });
+  state.lastEventLog.unshift(`🎂 ${age} today. ${b.story}`);
+  state.lastEventLog = state.lastEventLog.slice(0, 12);
+}
+
+// ─── THE BIG NAMES MOVE ────────────────────────────────────────────────────
+// Real artists live in this world: they drop records (the release engine does
+// that), they announce shows, they sit at #1 — and when you get hot enough,
+// they notice you. All of it is reported as what happened. Nobody real ever
+// says a word here.
+
+function starPulseTick(state: GameState, npcs: NPC[], serial: number): void {
+  const p = state.player;
+  if (!p) return;
+  const week = Math.floor(serial / 7);
+  if (state.starPulseWeek === week) return;
+  state.starPulseWeek = week;
+  const fame = blendedFame(p);
+  const cont = getCountry(p.country)?.continent;
+  const reals = npcs.filter((n) => n.role === 'artist' && isRealId(n.id) && (n.country === p.country || (n.fame >= 70 && getCountry(n.country)?.continent === cont) || n.fame >= 90));
+  if (!reals.length) return;
+  const flags = state.lifeFlags ?? (state.lifeFlags = {});
+  const home = reals.filter((n) => n.country === p.country);
+  const weighted = (list: NPC[]): NPC | undefined => {
+    const total = list.reduce((a, n) => a + n.fame + (n.country === p.country ? 30 : 0), 0);
+    let r = Math.random() * total;
+    for (const n of list) { r -= n.fame + (n.country === p.country ? 30 : 0); if (r <= 0) return n; }
+    return list[0];
+  };
+  // A show announcement: a big night somebody real is headlining.
+  const star = weighted(home.length && Math.random() < 0.75 ? home : reals);
+  if (star && Math.random() < 0.6) {
+    const cities = SHOW_CITIES.filter((c) => c.country === star.country).sort((a, b) => venuesInCity(b.city, b.country).length - venuesInCity(a.city, a.country).length);
+    const city = cities[Math.floor(Math.random() * Math.min(2, cities.length))];
+    const room = city ? venuesInCity(city.city, city.country).filter((v) => v.capacity >= 2000).sort((a, b) => b.capacity - a.capacity)[Math.floor(Math.random() * 2)] : undefined;
+    if (room) {
+      const day = serial + 21 + Math.floor(Math.random() * 40);
+      state.headlines.unshift({ id: uuidv4(), text: `${star.name} announces ${room.name}, ${room.city}`, fullStory: `${star.name} will headline ${room.name} in ${room.city} on ${formatGameDate(serialToDate(day))} — ${room.capacity.toLocaleString()} capacity. Tickets are expected to go fast.`, date: formatGameDate(state.gameDate), relatedEntities: [star.id], priority: star.country === p.country ? 5 : 3, category: 'show' });
+      if (star.country === p.country) state.lastEventLog.unshift(`🎟️ ${star.name} announced ${room.name}, ${room.city}.`);
+    }
+  }
+  // A home star sitting at #1.
+  const top = state.npcSongs.find((x) => x.ownerId && x.ownerCountry === p.country && isRealId(x.ownerId) && x.chartPositions?.[p.country] === 1);
+  if (top && flags[`no1:${top.id}`] === undefined) {
+    flags[`no1:${top.id}`] = serial;
+    state.headlines.unshift({ id: uuidv4(), text: `${top.ownerName}'s "${top.title}" is #1 in ${p.country}`, fullStory: `"${top.title}" has taken the top spot. Everybody else is releasing around it.`, date: formatGameDate(state.gameDate), relatedEntities: [top.ownerId!], priority: 4, category: 'chart' });
+  }
+  // When you're hot, they notice — a follow, a like. Actions, not words.
+  const hot = (p.career.momentum ?? 0) >= 45 || state.songs.some((x) => isSongReleased(x) && (x.chartPositions?.[p.country] ?? 99) <= 10);
+  if (hot && Math.random() < 0.45) {
+    const watcher = home.filter((n) => flags[`follow:${n.id}`] === undefined && n.fame - fame <= 45).sort((a, b) => b.fame - a.fame)[0];
+    if (watcher) {
+      flags[`follow:${watcher.id}`] = serial;
+      const live = state.npcs.find((x) => x.id === watcher.id);
+      if (live) live.relationshipScore = Math.min(100, live.relationshipScore + 5);
+      socialStatsOf(state).snapgram.followers += Math.round(200 + watcher.fame * 30);
+      addMomentum(state, 2, `${watcher.name} followed you`);
+      pushNotification(state, { kind: 'milestone', title: `👀 ${watcher.name} followed you on Snapgram`, body: 'The fan pages noticed before you did.', artSeed: `npc|${watcher.id}`, action: { type: 'artist', id: watcher.id } });
+      remember(state, 'people', `${watcher.name} followed you on Snapgram.`, { npcIds: [watcher.id], weight: 3, tone: 'good' });
+    }
+  }
+}
+
 /** Daily: expire, wake follow-ups, and maybe somebody new reaches out. */
 function momentsTick(state: GameState, npcs: NPC[], serial: number, days: number): void {
   if (!state.player) return;
+  // A verse that came with a deadline: the record is still in the vault and
+  // the window has closed.
+  for (const r of state.featureRequests) {
+    if (r.status !== 'added' || !r.conditions?.some((c) => c.kind === 'release_window' && c.bySerial !== undefined && serial > c.bySerial)) continue;
+    if ((r.breaches ?? []).some((b) => b.kind === 'release_window')) continue;
+    const song = state.songs.find((x) => x.id === r.songId);
+    if (song && !isSongReleased(song)) checkFeatureTerms(state, song.id, false, false, npcs);
+  }
   const list = state.moments ?? (state.moments = []);
   for (const m of list) {
     if (m.status === 'scheduled' && (m.dueSerial ?? 0) <= serial) {
@@ -8393,7 +9980,7 @@ function momentsTick(state: GameState, npcs: NPC[], serial: number, days: number
       m.expiresSerial = Math.max(m.expiresSerial, serial + 3);
       announceMoment(state, m);
     } else if (m.status === 'open' && m.expiresSerial < serial) {
-      const r = expireMoment(m);
+      const r = expireMoment(m, m.kind === 'feature_breach' || m.kind === 'npc_birthday' || m.kind === 'birthday_plan' ? momentWorld(state, npcs, serial) ?? undefined : undefined, Math.random());
       m.status = 'expired';
       m.resolution = { text: r.text };
       applyMomentEffects(state, r.effects, serial);
@@ -9120,7 +10707,8 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    postTeamChat: (text) =>
+    postTeamChat: (text) => {
+      let actions: TeamAction[] = [];
       set((state) => {
         const p = state.player;
         const t = text.trim().slice(0, 300);
@@ -9128,7 +10716,112 @@ export const useGameStore = create<GameState & GameActions>()(
         const serial = dateToSerial(state.gameDate);
         const list = state.teamChat ?? (state.teamChat = []);
         list.push({ id: uuidv4(), from: 'player', name: p.artistName, role: 'player', text: t, serial, at: new Date().toISOString() });
-        pushTeamLines(state, teamReply(state as GameState, teamSnapshot(state as GameState, serial), t), serial);
+        if (list.length > 120) list.splice(0, list.length - 120);
+        const people = (state.crew ?? []).length + (managerOf(state) ? 1 : 0);
+        if (!people) return;
+        // With an AI key the team writes its own replies; the chat shows them
+        // typing until the answer lands (or the built-in reply takes over).
+        if (aiActiveFor('dms')) { state.teamChatPending = { since: Date.now(), text: t }; return; }
+        const snap = teamSnapshot(state as GameState, serial);
+        // "@Kofi …" is for Kofi: only he answers.
+        const tag = /@([\p{L}'-]+)/u.exec(t)?.[1]?.toLowerCase();
+        const only = tag ? teamMembers(state as GameState).find((m) => m.name.split(' ')[0].toLowerCase() === tag)?.id : undefined;
+        let lines = teamReply(state as GameState, snap, t, only);
+        if (only && !lines.length) {
+          const m = teamMembers(state as GameState).find((x) => x.id === only)!;
+          lines = [{ from: m.id, name: m.name, role: m.role, text: pickLine(['Yes boss?', 'I\'m here — what do you need?', 'Talk to me.'], `${serial}|${t.length}`) }];
+        }
+        pushTeamLines(state, lines, serial);
+        actions = teamActions(state as GameState, snap, t, only);
+      });
+      if (actions.length) runTeamActions(actions);
+    },
+
+    applyAITeamChat: (payload) => {
+      let actions: TeamAction[] = [];
+      set((state) => {
+        const pending = state.teamChatPending;
+        if (!pending || !state.player) return;
+        state.teamChatPending = undefined;
+        const serial = dateToSerial(state.gameDate);
+        const mgr = managerOf(state);
+        const who = (id: string) => {
+          const c = (state.crew ?? []).find((x) => x.npcId === id);
+          if (c) return { from: c.npcId, name: c.npcName, role: c.role as string };
+          if (mgr && mgr.id === id) return { from: mgr.id, name: mgr.name, role: 'manager' };
+          return null;
+        };
+        const said = (state.teamChat ?? []).filter((m) => m.from !== 'player').slice(-8);
+        const lines: TeamLine[] = [];
+        for (const r of payload.replies.slice(0, 4)) {
+          const w = who(r.from);
+          const text = (r.text ?? '').trim().slice(0, 500);
+          if (!w || !text || said.some((m) => nearDuplicate(m.text, text))) continue;
+          lines.push({ ...w, text });
+        }
+        if (!lines.length) {
+          // The AI said nothing usable: the built-in team answers.
+          const snap = teamSnapshot(state as GameState, serial);
+          pushTeamLines(state, teamReply(state as GameState, snap, pending.text), serial);
+          actions = teamActions(state as GameState, snap, pending.text);
+          return;
+        }
+        pushTeamLines(state, lines, serial);
+        const ok: TeamAction['kind'][] = ['make_beat', 'mix_song', 'push_shows', 'push_features', 'push_deals'];
+        for (const a of payload.actions ?? []) {
+          if (!ok.includes(a.kind as TeamAction['kind']) || !who(a.from)) continue;
+          const song = a.song ? state.songs.find((x) => !isSongReleased(x) && x.title.toLowerCase() === String(a.song).toLowerCase()) : undefined;
+          const role = who(a.from)!.role;
+          // Only the person whose job it is can do it.
+          if (a.kind === 'make_beat' && role !== 'producer') continue;
+          if (a.kind === 'mix_song' && role !== 'engineer' && role !== 'producer') continue;
+          if (a.kind.startsWith('push') && role !== 'manager') continue;
+          const mixTarget = a.kind === 'mix_song' ? (song ?? state.songs.find((x) => isVaultMaster(x) && x.masterStatus === 'recorded')) : song;
+          if (a.kind === 'mix_song' && !mixTarget) continue;
+          actions.push({ kind: a.kind as TeamAction['kind'], from: a.from, songId: mixTarget?.id });
+        }
+      });
+      if (actions.length) runTeamActions(actions);
+    },
+
+    fallbackTeamChat: () => {
+      let actions: TeamAction[] = [];
+      set((state) => {
+        const pending = state.teamChatPending;
+        if (!pending || !state.player) return;
+        state.teamChatPending = undefined;
+        const serial = dateToSerial(state.gameDate);
+        const snap = teamSnapshot(state as GameState, serial);
+        pushTeamLines(state, teamReply(state as GameState, snap, pending.text), serial);
+        actions = teamActions(state as GameState, snap, pending.text);
+      });
+      if (actions.length) runTeamActions(actions);
+    },
+
+    applyAITeamChatter: (lines) =>
+      set((state) => {
+        if (!state.player) return;
+        const serial = dateToSerial(state.gameDate);
+        const mgr = managerOf(state);
+        const said = (state.teamChat ?? []).filter((m) => m.from !== 'player').slice(-10);
+        const out: TeamLine[] = [];
+        for (const l of lines.slice(0, 3)) {
+          const c = (state.crew ?? []).find((x) => x.npcId === l.from);
+          const w = c ? { from: c.npcId, name: c.npcName, role: c.role as string } : mgr && mgr.id === l.from ? { from: mgr.id, name: mgr.name, role: 'manager' } : null;
+          const text = (l.text ?? '').trim().slice(0, 400);
+          if (!w || !text || said.some((m) => nearDuplicate(m.text, text))) continue;
+          out.push({ ...w, text });
+        }
+        pushTeamLines(state, out, serial);
+      }),
+
+    noteTeam: (from, text) =>
+      set((state) => {
+        const serial = dateToSerial(state.gameDate);
+        const mgr = managerOf(state);
+        const c = (state.crew ?? []).find((x) => x.npcId === from);
+        const w = c ? { from: c.npcId, name: c.npcName, role: c.role as string } : mgr && mgr.id === from ? { from: mgr.id, name: mgr.name, role: 'manager' } : null;
+        if (w) pushTeamLines(state, [{ ...w, text }], serial);
       }),
 
     readTeamChat: () =>
@@ -9251,6 +10944,9 @@ export const useGameStore = create<GameState & GameActions>()(
         song.masterStatus = 'released';
         song.releaseDate = formatGameDate(state.gameDate);
         song.weeksOut = 0;
+        // Every guest's terms are checked the day it comes out.
+        checkFeatureTerms(state, song.id, false, true);
+        rollBreakout(state, [song]);
         // `undefined` means everywhere, which is what an untouched release
         // dialog means. An explicit list is what the engine reads to decide
         // where this record can actually be heard.
@@ -9435,6 +11131,7 @@ export const useGameStore = create<GameState & GameActions>()(
         for (const t of tracks) {
           if (!isReleased(t)) releaseAsProjectTrack(state, t);
         }
+        rollBreakout(state, tracks as Song[], 'album');
 
         const index = state.albums.filter((a) => (a.ownerId ?? state.player!.id) === state.player!.id).length;
         const albumId = `alb_player_${state.player.id.slice(0, 8)}_${index}`;
@@ -10148,6 +11845,7 @@ export const useGameStore = create<GameState & GameActions>()(
         for (const t of tracks) {
           if (!isReleased(t)) releaseAsProjectTrack(state, t);
         }
+        rollBreakout(state, tracks as Song[], 'tape');
 
         const nowSerial = dateToSerial(state.gameDate);
         const id = `alb_tape_${state.player.id}_${state.albums.length}`;
@@ -10176,6 +11874,65 @@ export const useGameStore = create<GameState & GameActions>()(
         state.lastEventLog = state.lastEventLog.slice(0, 10);
       });
       return result;
+    },
+
+    saveAlbumDraft: (d) => {
+      let result: { ok: boolean; message: string; id?: string } = { ok: false, message: 'Nothing to save.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const title = d.title.trim();
+        if (!title) { result = { ok: false, message: 'Give the project a title first.' }; return; }
+        // Only your own records, and nothing already on a released project.
+        const mine = new Set(state.songs.map((x) => x.id));
+        const used = new Set<string>();
+        for (const a of state.albums) if ((a.ownerId ?? p.id) === p.id) for (const id of a.songs) used.add(id);
+        const ids = [...new Set(d.songIds)].filter((id) => mine.has(id) && !used.has(id));
+        const serial = dateToSerial(state.gameDate);
+        const list = state.albumDrafts ?? (state.albumDrafts = []);
+        const planned = d.plannedSerial === null ? undefined : d.plannedSerial !== undefined ? Math.max(serial + 1, Math.round(d.plannedSerial)) : undefined;
+        let draft = d.id ? list.find((x) => x.id === d.id) : undefined;
+        if (draft) {
+          draft.title = title;
+          draft.type = d.type;
+          draft.songIds = ids;
+          draft.updatedSerial = serial;
+          if (d.plannedSerial !== undefined) draft.plannedSerial = planned;
+          if (d.note !== undefined) draft.note = d.note.slice(0, 300);
+        } else {
+          draft = { id: uuidv4(), title, type: d.type, songIds: ids, createdSerial: serial, updatedSerial: serial, plannedSerial: planned, note: d.note?.slice(0, 300), coverSeed: hashString(`draft|${title}|${serial}`) };
+          list.unshift(draft);
+        }
+        const short = ids.length < MIN_PROJECT_TRACKS[d.type];
+        result = {
+          ok: true,
+          id: draft.id,
+          message: `"${title}" is saved in the album vault — ${ids.length} track${ids.length === 1 ? '' : 's'}.${short ? ` ${PROJECT_TRACK_RULE[d.type]}` : ''}${draft.plannedSerial ? ` Scheduled for ${formatGameDate(serialToDate(draft.plannedSerial))}.` : ''}`,
+        };
+      });
+      return result;
+    },
+
+    deleteAlbumDraft: (id) =>
+      set((state) => {
+        state.albumDrafts = (state.albumDrafts ?? []).filter((x) => x.id !== id);
+      }),
+
+    releaseAlbumDraft: (id) => {
+      const d0 = (get().albumDrafts ?? []).find((x) => x.id === id);
+      if (!d0) return { ok: false, message: 'That project is not in the vault.' };
+      // Songs deleted since, or already out on another project, quietly drop off.
+      const st0 = get();
+      const usedIds = new Set(st0.albums.filter((a) => (a.ownerId ?? st0.player?.id) === st0.player?.id).flatMap((a) => a.songs));
+      const d = { ...d0, songIds: d0.songIds.filter((sid) => st0.songs.some((x) => x.id === sid) && !usedIds.has(sid)) };
+      const res = d.type === 'mixtape' ? get().createMixtape({ title: d.title, songIds: d.songIds }) : get().createAlbum({ title: d.title, songIds: d.songIds, type: d.type });
+      if (!res.ok) return { ok: false, message: res.error };
+      set((state) => {
+        state.albumDrafts = (state.albumDrafts ?? []).filter((x) => x.id !== id);
+        // A track that just came out on this project is spoken for on every other draft.
+        for (const other of state.albumDrafts) other.songIds = other.songIds.filter((sid) => !d.songIds.includes(sid));
+      });
+      return { ok: true, message: `"${d.title}" is out — it charts from this week.` };
     },
 
     // ─── VIDEO VAULT ────────────────────────────────────────────────────
@@ -10985,6 +12742,12 @@ export const useGameStore = create<GameState & GameActions>()(
     },
 
     // ─── AWARD SEASONS ──────────────────────────────────────────────────
+    enterAwards: (key) => {
+      let r = { ok: false, message: 'Nothing to enter.' };
+      set((state) => { r = enterAwardsFor(state as GameState, key); });
+      return r;
+    },
+
     followAward: (bodyId, on) => set((state) => {
       const f = new Set(state.awardFollows ?? []);
       if (on) f.add(bodyId); else f.delete(bodyId);
@@ -11682,6 +13445,21 @@ export const useGameStore = create<GameState & GameActions>()(
             npc.memoryLog = [...npc.memoryLog.slice(-9), `[DM] You: "${message.slice(0, 50)}"${song ? ` (sent "${song.title}")` : ''}`];
             return;
           }
+          const onTeam = (state.crew ?? []).some((c) => c.npcId === npc.id) || managerOf(state)?.id === npc.id;
+          if (onTeam && !song && !isRealId(npc.id)) {
+            // Your own people answer about their job, with real numbers — and
+            // do what you ask them to if it is theirs to do.
+            const snap = teamSnapshot(state as GameState, serial);
+            const lines = teamReply(state as GameState, snap, message, npc.id);
+            const acts = teamActions(state as GameState, snap, message, npc.id);
+            if (lines.length) {
+              pushDM(state, npcId, { fromPlayer: false, content: lines[0].text, read: false });
+              npc.relationshipScore = Math.min(100, npc.relationshipScore + 0.5);
+              npc.memoryLog = [...npc.memoryLog.slice(-9), `[DM] You: "${message.slice(0, 40)}" — they: "${lines[0].text.slice(0, 40)}"`];
+              if (acts.length) queueMicrotask(() => runTeamActions(acts));
+              return;
+            }
+          }
           if (song && today < 3 && !isRealId(npc.id)) {
             const reaction = generateSongReaction(npc, song.title, song.quality);
             replyContent = isRealId(npc.id) ? null : reaction.text;
@@ -12303,21 +14081,29 @@ export const useGameStore = create<GameState & GameActions>()(
     actOnBrief: (briefId, action) => {
       const st = get();
       const b = (st.managerDesk ?? []).find((x) => x.id === briefId);
-      if (!b || b.status === 'done' || !b.refId) return { ok: false, message: 'That\'s already handled.' };
+      if (!b || b.status === 'done' || (!b.refId && b.kind !== 'pitch')) return { ok: false, message: 'That\'s already handled.' };
       let r: { ok: boolean; message: string } = { ok: false, message: 'Nothing happened.' };
       if (b.kind === 'show') {
-        const offer = st.showOffers.find((o) => o.id === b.refId);
+        const offer = st.showOffers.find((o) => o.id === b.refId!);
         if (!offer || offer.status !== 'open') r = { ok: false, message: 'That offer is gone.' };
-        else if (action === 'accept') r = st.acceptShowOffer(b.refId);
-        else if (action === 'decline') r = st.declineShowOffer(b.refId, 'none', true);
-        else r = st.counterShowOffer(b.refId, { ...offer.terms, fee: b.counterAt ?? Math.round(offer.fair) });
+        else if (action === 'accept') r = st.acceptShowOffer(b.refId!);
+        else if (action === 'decline') r = st.declineShowOffer(b.refId!, 'none', true);
+        else r = st.counterShowOffer(b.refId!, { ...offer.terms, fee: b.counterAt ?? Math.round(offer.fair) });
       } else if (b.kind === 'feature') {
-        if (action === 'accept') r = st.acceptInboundOffer(b.refId);
-        else if (action === 'decline') r = st.declineInboundRequest(b.refId);
-        else r = st.quoteInboundVerse(b.refId, b.counterAt ?? 0);
+        if (action === 'accept') r = st.acceptInboundOffer(b.refId!);
+        else if (action === 'decline') r = st.declineInboundRequest(b.refId!);
+        else r = st.quoteInboundVerse(b.refId!, b.counterAt ?? 0);
       } else if (b.kind === 'interview') {
-        if (action === 'accept') r = st.acceptInterview(b.refId);
-        else { st.declineInterview(b.refId); r = { ok: true, message: 'Declined.' }; }
+        if (action === 'accept') r = st.acceptInterview(b.refId!);
+        else { st.declineInterview(b.refId!); r = { ok: true, message: 'Declined.' }; }
+      } else if (b.kind === 'pitch') {
+        if (action === 'accept') r = st.acceptPitch(briefId);
+        else {
+          r = { ok: true, message: 'Passed.' };
+          // Turning down somebody who said yes is noticed.
+          const npcId = String(b.data?.npcId ?? '');
+          if (npcId) set((state) => { const n = state.npcs.find((x) => x.id === npcId); if (n) n.relationshipScore = Math.max(-100, n.relationshipScore - 2); });
+        }
       }
       set((state) => {
         const brief = (state.managerDesk ?? []).find((x) => x.id === briefId);
@@ -12327,6 +14113,164 @@ export const useGameStore = create<GameState & GameActions>()(
         if (r.ok) { brief.status = 'done'; brief.outcome = r.message; }
       });
       return r;
+    },
+
+    acceptPitch: (briefId) => {
+      let result: { ok: boolean; message: string } = { ok: false, message: 'That has gone.' };
+      let payFor: string | null = null;
+      set((state) => {
+        const p = state.player;
+        const b = (state.managerDesk ?? []).find((x) => x.id === briefId);
+        if (!p || !b || b.kind !== 'pitch' || b.status === 'done') return;
+        const serial = dateToSerial(state.gameDate);
+        if (b.expiresSerial !== undefined && serial > b.expiresSerial) {
+          b.status = 'done';
+          b.outcome = 'Lapsed — they moved on.';
+          result = { ok: false, message: 'That lapsed. They moved on.' };
+          return;
+        }
+        const d = b.data ?? {};
+        const fee = Math.max(0, Math.round(Number(d.fee ?? 0)));
+        const mgr = managerOf(state);
+        switch (b.pitch) {
+          case 'big_feature':
+          case 'abroad_feature': {
+            const npc = state.npcs.find((n) => n.id === d.npcId);
+            const song = state.songs.find((x) => x.id === d.songId);
+            if (!npc || !song) return;
+            if (isSongReleased(song)) { result = { ok: false, message: `"${song.title}" is already out — too late for a verse.` }; return; }
+            if (p.career.money < fee) { result = { ok: false, message: `You need $${fee.toLocaleString()} for ${npc.name}'s verse.` }; return; }
+            const req: FeatureRequest = {
+              id: uuidv4(), songId: song.id, songTitle: song.title, npcId: npc.id, npcName: npc.name, status: 'terms',
+              sentDate: formatGameDate(state.gameDate), dueDate: formatGameDate(state.gameDate), fee, freeVerse: false,
+              reason: `${mgr?.name ?? 'Your manager'} arranged it with ${isRealId(npc.id) ? `${npc.name}'s team` : npc.name}.`, originalFee: fee,
+            };
+            state.featureRequests.push(req);
+            attachTerms(state, req, npc as NPC, baseNpcs(state), serial);
+            payFor = req.id;
+            result = { ok: true, message: `Paid. ${npc.name} is recording a verse for "${song.title}" — track it in Studio → Features.${req.conditions?.length ? ` Their terms: ${req.conditions.map((c) => c.text.replace(/^📨[^:]+: /, '')).join(' ')}` : ''}` };
+            break;
+          }
+          case 'brand': {
+            const kind = String(d.kind ?? 'brand');
+            const months = Number(d.months ?? 6);
+            p.career.money += fee;
+            p.career.totalEarnings += fee;
+            const rep = Number(d.rep ?? 0);
+            p.career.reputation = Math.max(0, Math.min(100, p.career.reputation + rep));
+            addMomentum(state, rep < 0 ? 1 : 2);
+            if (rep < 0) p.career.fanbase = Math.max(0, Math.round(p.career.fanbase * (1 + rep / 200)));
+            const flags = state.lifeFlags ?? (state.lifeFlags = {});
+            flags[`brand:${kind}`] = serial + months * 30;
+            state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} signs with ${String(d.brand)}`, fullStory: `A ${months}-month ambassador deal with the ${kind} brand.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: blendedFame(p) >= 30 ? 5 : 3, category: 'business' });
+            remember(state, 'money', `You signed a ${months}-month deal with ${String(d.brand)} for $${fee.toLocaleString()}.`, { weight: 3, tone: rep < 0 ? 'bad' : 'good' });
+            result = { ok: true, message: `Signed. $${fee.toLocaleString()} is in your account.${rep < 0 ? ' The comments are not all kind.' : ''}` };
+            break;
+          }
+          case 'sync': {
+            const song = state.songs.find((x) => x.id === d.songId);
+            if (!song) return;
+            p.career.money += fee;
+            p.career.totalEarnings += fee;
+            pushSong(state, song.id, 0.5 + Math.max(0, song.quality - 55) / 120, 18, `Synced in ${String(d.where ?? 'a film')}`);
+            p.career.fanbase += Math.round(200 + blendedFame(p) * 12);
+            addMomentum(state, 2);
+            remember(state, 'career', `"${song.title}" was placed in ${String(d.where ?? 'a film')}.`, { weight: 3, tone: 'good' });
+            result = { ok: true, message: `Done. $${fee.toLocaleString()} in, and "${song.title}" is about to find a new audience.` };
+            break;
+          }
+          case 'intro': {
+            const npc = state.npcs.find((n) => n.id === d.npcId);
+            if (!npc) return;
+            const at = Number(d.atMinute ?? 0);
+            if (at <= nowMinuteOf(state)) { result = { ok: false, message: 'That meeting time has passed.' }; return; }
+            if ((state.appointments ?? []).some((x) => x.status === 'confirmed' && Math.abs(x.atMinute - at) < 120)) { result = { ok: false, message: 'You already have something at that time. Clear it first.' }; return; }
+            const real = isRealId(npc.id);
+            const a = createAppointment(state, npc as NPC, 'meeting', at, 'npc', 'confirmed', {
+              title: `Meeting with ${real ? `${npc.name}'s team` : npc.name}`,
+              place: real ? `${npc.name}'s team's office, ${npc.city ?? npc.country}` : `a private studio in ${npc.city ?? npc.country}`,
+              pitch: { starId: npc.id, starName: npc.name, real, fame: Math.round(npc.fame) },
+            });
+            remember(state, 'career', `${mgr?.name ?? 'Your manager'} got you a meeting with ${real ? `${npc.name}'s team` : npc.name}.`, { npcIds: [npc.id], weight: 3, tone: 'good' });
+            result = { ok: true, message: `Locked in: ${whenLabel(a.atMinute, nowMinuteOf(state))} at ${a.place}. Bring your best record.` };
+            break;
+          }
+          case 'producer': {
+            const npc = state.npcs.find((n) => n.id === d.npcId);
+            if (!npc) return;
+            if (p.career.money < fee) { result = { ok: false, message: `You need $${fee.toLocaleString()} for the beat.` }; return; }
+            p.career.money -= fee;
+            const days = Math.max(2, Number(d.days ?? 4));
+            beatsOf(state).orders.push({
+              id: uuidv4(), producerId: npc.id, producerName: npc.name, genre: p.genre, bpm: GENRE_BY_ID[p.genre]?.bpm ?? 95, mood: 'defiant',
+              fee, orderedSerial: serial, dueSerial: serial + days, inHouse: false,
+            });
+            npc.relationshipScore = Math.min(100, npc.relationshipScore + 4);
+            result = { ok: true, message: `${npc.name} is building it. Ready in ${days} days — it lands in Studio → Beats.` };
+            break;
+          }
+          default:
+            return;
+        }
+        b.status = 'done';
+        b.outcome = result.message;
+      });
+      if (payFor) {
+        const ok = get().payFeatureFee(payFor);
+        if (!ok) {
+          result = { ok: false, message: 'The payment did not go through.' };
+          set((state) => { const r = state.featureRequests.find((x) => x.id === payFor); if (r) r.status = 'declined'; const b = (state.managerDesk ?? []).find((x) => x.id === briefId); if (b) { b.status = 'seen'; b.outcome = undefined; } });
+        }
+      }
+      return result;
+    },
+
+    runAutopilot: () => {
+      const auto = (get().managerDesk ?? []).filter((b) => b.auto && b.status !== 'done');
+      for (const b of auto) {
+        const r = get().actOnBrief(b.id, 'accept');
+        set((state) => {
+          const x = (state.managerDesk ?? []).find((y) => y.id === b.id);
+          if (!x) return;
+          x.auto = false;
+          const mgr = managerOf(state);
+          if (r.ok) {
+            x.status = 'done';
+            x.outcome = `Accepted for you (your rule) — ${r.message}`;
+            if (mgr) pushDM(state, mgr.id, { fromPlayer: false, content: `✅ Took it for you, like you told me to: ${x.title}. ${r.message}` });
+          } else if (mgr) {
+            pushDM(state, mgr.id, { fromPlayer: false, content: `I tried to lock in ${x.title} for you but it didn't go through: ${r.message} It's on the desk.` });
+          }
+        });
+      }
+    },
+
+    setTeamPolicy: (patch) =>
+      set((state) => {
+        const next = { ...policyOf(state.teamPolicy), ...patch };
+        next.minShowFee = Math.max(0, Math.round(Number(next.minShowFee) || 0));
+        next.cashFloor = Math.max(0, Math.round(Number(next.cashFloor) || 0));
+        next.restDay = Math.max(-1, Math.min(6, Math.round(Number(next.restDay))));
+        state.teamPolicy = next;
+      }),
+
+    pushManager: (kind) => {
+      let result = { ok: false, message: 'You have no manager to push.' };
+      set((state) => {
+        const mgr = managerOf(state);
+        if (!mgr || !state.player) return;
+        const serial = dateToSerial(state.gameDate);
+        if (state.managerPush && state.managerPush.until >= serial && state.managerPush.kind === kind) {
+          result = { ok: false, message: `${mgr.name.split(' ')[0]} is already pushing for that.` };
+          return;
+        }
+        state.managerPush = { kind, until: serial + 30 };
+        const sp = SPECIALTIES[managerSpecialty(mgr)];
+        const lane = (kind === 'shows' && (sp.id === 'booker' || sp.id === 'global')) || (kind === 'features' && sp.id === 'connector') || (kind === 'deals' && sp.id === 'dealmaker');
+        pushDM(state, mgr.id, { fromPlayer: false, content: lane ? `On it. ${kind === 'shows' ? 'Dates' : kind === 'features' ? 'Features' : 'Deals'} are what I do — give me a few weeks.` : `I'll try. It's not really my lane — ${sp.tagline.toLowerCase()} is — but I know people who know people.` });
+        result = { ok: true, message: `${mgr.name.split(' ')[0]} will push for ${kind} over the next month.` };
+      });
+      return result;
     },
 
     markDeskSeen: () =>
@@ -13827,6 +15771,7 @@ export const useGameStore = create<GameState & GameActions>()(
         const now = dateToSerial(state.gameDate);
         if (now > offer.expiresSerial) {
           offer.status = 'expired';
+          closeBriefs(state, offer.id, 'Expired — nobody answered.');
           out = { ok: false, message: 'That offer has expired.' };
           return;
         }
@@ -13853,6 +15798,7 @@ export const useGameStore = create<GameState & GameActions>()(
         }
         if (res.outcome === 'walked') {
           offer.status = 'walked';
+          closeBriefs(state, offer.id, 'They walked away from the table.');
           npc.relationshipScore = Math.max(-100, npc.relationshipScore - 2);
           state.lastEventLog.unshift(`🚪 ${npc.name}'s camp walked away from the ${offer.city} offer.`);
           state.lastEventLog = state.lastEventLog.slice(0, 10);
@@ -13871,6 +15817,7 @@ export const useGameStore = create<GameState & GameActions>()(
         const now = dateToSerial(state.gameDate);
         if (now > offer.expiresSerial) {
           offer.status = 'expired';
+          closeBriefs(state, offer.id, 'Expired — nobody answered.');
           result = { ok: false, message: 'That offer has expired.' };
           return;
         }
@@ -13906,6 +15853,7 @@ export const useGameStore = create<GameState & GameActions>()(
         };
         state.bookedGigs.push(gig);
         offer.status = 'accepted';
+        closeBriefs(state, offer.id, 'Booked.');
         npc.relationshipScore = Math.min(100, npc.relationshipScore + 2);
         npc.memoryLog = [`Accepted their ${offer.city} date`, ...(npc.memoryLog ?? [])].slice(0, 10);
 
@@ -13952,6 +15900,7 @@ export const useGameStore = create<GameState & GameActions>()(
         npc.memoryLog = [`Turned down their ${offer.city} date (${reason})`, ...(npc.memoryLog ?? [])].slice(0, 10);
         state.player.career.reputation = Math.max(0, Math.min(100, state.player.career.reputation + eff.reputation));
         offer.status = 'declined';
+        closeBriefs(state, offer.id, 'Declined.');
         offer.log.unshift(eff.line);
 
         if (eff.grudge || (eff.relationship <= -5 && npc.tier !== 'local')) {
@@ -14152,6 +16101,26 @@ export const useGameStore = create<GameState & GameActions>()(
         const a = (state.appointments ?? []).find((x) => x.id === state.activeAppointment);
         const npc = a ? state.npcs.find((n) => n.id === a.npcId) : undefined;
         if (!p || !a || !npc) { state.activeAppointment = null; return; }
+        if (a.pitch) {
+          const { best: out, fresh } = pitchSongs(state as GameState);
+          const pc = pitchChoices(out ? { title: out.title } : undefined, fresh ? { title: fresh.title } : undefined).find((c) => c.id === choiceId);
+          if (!pc) return;
+          if (p.energy < pc.energy) { result.message = `You need ${pc.energy} energy for that.`; return; }
+          const played = choiceId === 'play_new' ? fresh : choiceId === 'play_best' ? out : (out ?? fresh);
+          const mgr = managerOf(state);
+          const r = resolvePitch({
+            pitch: a.pitch, choice: pc.id, songTitle: played?.title, songId: fresh?.id, quality: played?.quality ?? 40,
+            playerFame: blendedFame(p), charisma: p.stats.charisma, networking: p.stats.networking, businessKnowledge: p.stats.businessKnowledge,
+            managerSkill: mgr ? managerNetwork(mgr) : 30, rel: npc.relationshipScore, roll: Math.random(), seed: a.id,
+          });
+          // An unreleased record played in somebody else's room can travel.
+          if (choiceId === 'play_new' && fresh && Math.random() < 0.08) r.effects.push({ k: 'momentum', v: 2 }, { k: 'headline', text: `A snippet of an unreleased ${p.artistName} record is going round`, story: 'Somebody in a meeting room had their phone out. Fans are already asking when it drops.', category: 'general' });
+          finishAppointment(state, a, { text: r.text, npcLine: r.npcLine ?? '', effects: r.effects }, 'done');
+          if (mgr) scheduleDM(state, mgr.id, r.outcome === 'feature' ? 'That went better than I hoped. Check the terms before you pay — big camps always have conditions.' : r.outcome === 'cosign' ? 'You see your phone? That\'s what a room like that does. Keep the momentum.' : r.outcome === 'door' ? 'Door is open. Next record goes to them first — make it a strong one.' : 'Not this time. But they know your name now. That counts.', nowMinuteOf(state) + 30);
+          state.clockPaused = false;
+          result = { ok: true, message: a.outcome ?? r.text };
+          return;
+        }
         const best = (state.songs ?? []).filter((s) => !isSongReleased(s) && !s.archivedAt).reduce((m, s) => Math.max(m, s.quality), 0);
         const choice = sceneChoices(a, best > 0).find((c) => c.id === choiceId);
         if (!choice) return;
@@ -14176,6 +16145,62 @@ export const useGameStore = create<GameState & GameActions>()(
         finishAppointment(state, a, res, mode === 'ghost' ? 'missed' : 'cancelled');
         state.clockPaused = false;
         result = { ok: true, message: res.text };
+      });
+      return result;
+    },
+
+    cypherRound: (move) => {
+      let result = { ok: false, message: 'There is no cypher going on.' };
+      set((state) => {
+        const p = state.player;
+        const a = (state.appointments ?? []).find((x) => x.id === state.activeAppointment);
+        if (!p || !a || a.kind !== 'cypher' || !a.cypher) return;
+        const rounds = a.cypherRounds ?? (a.cypherRounds = []);
+        if (rounds.length >= CYPHER_ROUNDS) { result.message = 'That was the last round.'; return; }
+        const m = CYPHER_MOVES[move];
+        if (!m) return;
+        if (p.energy < m.energy) { result.message = `You need ${m.energy} energy for that round. You're running on empty.`; return; }
+        p.energy = Math.max(0, p.energy - m.energy);
+        const r = playRound({ stats: p.stats, move, spec: a.cypher, prev: rounds, energy: p.energy, roll: Math.random(), me: p.artistName, seed: `${a.id}|${rounds.length}` });
+        rounds.push(r);
+        result = { ok: true, message: r.text };
+      });
+      return result;
+    },
+
+    cypherFinish: () => {
+      let result: FeatureActionResult = { ok: false, message: 'There is no cypher going on.' };
+      set((state) => {
+        const p = state.player;
+        const a = (state.appointments ?? []).find((x) => x.id === state.activeAppointment);
+        if (!p || !a || a.kind !== 'cypher' || !a.cypher || !(a.cypherRounds ?? []).length) return;
+        const before = { ...p.stats };
+        const res = finishCypherNight({ spec: a.cypher, rounds: a.cypherRounds!, playerFame: blendedFame(p), me: p.artistName, stats: p.stats, seed: a.id });
+        finishAppointment(state, a, { text: `${VERDICT_LABEL[res.verdict]} — ${res.text}`, npcLine: res.npcLine, effects: res.effects }, 'done');
+        statUps(state, before, 'the cypher');
+        if (res.verdict === 'legendary' || res.verdict === 'bodied') remember(state, 'music', res.verdict === 'legendary' ? `You bodied the cypher at ${a.place}.` : `You got bodied at the cypher at ${a.place}.`, { npcIds: [a.npcId], weight: 3, tone: res.verdict === 'legendary' ? 'good' : 'bad' });
+        state.clockPaused = false;
+        result = { ok: true, message: a.outcome ?? res.text };
+      });
+      return result;
+    },
+
+    settleTeamDispute: (optionId) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to settle.' };
+      set((state) => {
+        const d = state.teamDispute;
+        const p = state.player;
+        if (!d || d.status !== 'open' || !p) return;
+        const serial = dateToSerial(state.gameDate);
+        const label = d.options.find((o) => o.id === optionId)?.label ?? '';
+        const out = settleDispute(d, optionId, teamMembers(state), `${d.id}|${optionId}`);
+        applyDisputeOutcome(state, out);
+        const said = optionId === 'calm' ? label : optionId === 'a' ? `${d.a.name.split(' ')[0]} is right on this one.` : `${d.b.name.split(' ')[0]} is right on this one.`;
+        pushTeamLines(state, [{ from: 'player', name: p.artistName, role: 'artist', text: said }, ...out.lines], serial);
+        state.teamChatUnread = 0;
+        d.status = 'settled';
+        d.resolution = out.text;
+        result = { ok: true, message: out.text };
       });
       return result;
     },
@@ -15783,6 +17808,20 @@ export const useGameStore = create<GameState & GameActions>()(
           createAppointment(state, npc, kind, when, action?.startsWith('accept') ? 'player' : 'npc', action?.startsWith('accept') ? 'confirmed' : 'proposed');
         }
         if (payload.action === 'offer_collab') applyMomentEffects(state, [{ k: 'inboundAsk', npcId, free: true }], serial);
+        // Your own people can be asked to do their job in a DM, too.
+        const crewRole = (state.crew ?? []).find((c) => c.npcId === npcId)?.role ?? (managerOf(state)?.id === npcId ? 'manager' : null);
+        const act = payload.action ?? '';
+        if (crewRole && ['make_beat', 'mix_song', 'push_shows', 'push_features', 'push_deals'].includes(act)) {
+          const fits = (act === 'make_beat' && crewRole === 'producer') || (act === 'mix_song' && (crewRole === 'engineer' || crewRole === 'producer')) || (act.startsWith('push') && crewRole === 'manager');
+          if (fits) {
+            const songT = payload.song ? state.songs.find((x) => !isSongReleased(x) && x.title.toLowerCase() === String(payload.song).toLowerCase()) : undefined;
+            const target = act === 'mix_song' ? (songT ?? state.songs.find((x) => isVaultMaster(x) && x.masterStatus === 'recorded')) : songT;
+            if (act !== 'mix_song' || target) {
+              const a: TeamAction = { kind: act as TeamAction['kind'], from: npcId, songId: target?.id };
+              queueMicrotask(() => runTeamActions([a]));
+            }
+          }
+        }
         if (payload.action === 'go_quiet') {
           thread.mutedUntil = serial + 5;
           pushDM(state, npcId, { fromPlayer: false, system: true, content: `${npc.name.split(' ')[0]} has stopped replying.` });
@@ -15825,6 +17864,16 @@ export const useGameStore = create<GameState & GameActions>()(
         }
         const last = [...thread.messages].reverse().find((x) => x.fromPlayer && !x.system);
         if (!last) return;
+        if (!last.attachedSongId && ((state.crew ?? []).some((c) => c.npcId === npc.id) || managerOf(state)?.id === npc.id)) {
+          const snap = teamSnapshot(state as GameState, serial);
+          const lines = teamReply(state as GameState, snap, last.content, npc.id);
+          if (lines.length) {
+            pushDM(state, npcId, { fromPlayer: false, content: lines[0].text, read: false });
+            const acts = teamActions(state as GameState, snap, last.content, npc.id);
+            if (acts.length) queueMicrotask(() => runTeamActions(acts));
+            return;
+          }
+        }
         const today = thread.sentToday?.serial === serial ? thread.sentToday.count - 1 : 0;
         const reply = chatReply(npc as NPC, last.content, { playerFame: state.player ? blendedFame(state.player) : 0, sentToday: today, beef: activeBeefIds(state).has(npcId), seed: `${serial}|fb|${today}` }, Math.random());
         if (reply.text) pushDM(state, npcId, { fromPlayer: false, content: reply.text, read: false });
@@ -17329,12 +19378,64 @@ export const useGameStore = create<GameState & GameActions>()(
         }
         s.lastEventLog.unshift(`👋 ${member.npcName} is off the payroll. Severance: $${severance.toLocaleString()}.`);
         s.lastEventLog = s.lastEventLog.slice(0, 10);
+        // The rest of the team watches how you let people go.
+        const dead = (member.strikes ?? 0) >= 1 || member.lastReview?.grade === 'D' || member.lastReview?.grade === 'F';
+        const star = member.lastReview?.grade === 'A';
+        for (const c of s.crew) c.morale = Math.max(0, Math.min(100, (c.morale ?? 70) + (dead ? 3 : star ? -5 : -1)));
+        const mgr = managerOf(s as GameState);
+        const voice = mgr ? { from: mgr.id, name: mgr.name, role: 'manager' } : s.crew[0] ? { from: s.crew[0].npcId, name: s.crew[0].npcName, role: s.crew[0].role } : null;
+        if (voice) pushTeamLines(s as GameState, [{ ...voice, text: dead ? `${member.npcName.split(' ')[0]} is off the team. It needed to happen.` : star ? `${member.npcName.split(' ')[0]} is gone? They were carrying us. Hope you know what you're doing.` : `${member.npcName.split(' ')[0]} is off the team. We move.` }], dateToSerial(s.gameDate));
       });
 
       return {
         ok: true,
         message: `${member.npcName} is off the payroll. One month's severance — $${severance.toLocaleString()} — and they are not happy about it.`,
       };
+    },
+
+    warnCrew: (crewId) => {
+      let result: TeamActionResult = { ok: false, message: 'They are not on your team.' };
+      set((state) => {
+        const c = state.crew.find((x) => x.id === crewId);
+        if (!c || !state.player) return;
+        const serial = dateToSerial(state.gameDate);
+        const n = c.npcName.split(' ')[0];
+        if (c.warnedSerial !== undefined && serial - c.warnedSerial < 14) { result = { ok: false, message: `You talked to ${n} about it ${serial - c.warnedSerial} day${serial - c.warnedSerial === 1 ? '' : 's'} ago. Give it time to show.` }; return; }
+        const o = warnOutcome(workStyleOf(c), c.lastReview?.grade, Math.random(), c.npcName);
+        pushDM(state, c.npcId, { fromPlayer: true, content: pickLine(['We need to talk about your work. I need more from you.', 'Real talk — you\'re not pulling your weight. Pick it up.', 'I\'m not happy with how the last few weeks went. Lock in.'], `${c.id}|${serial}`) });
+        pushDM(state, c.npcId, { fromPlayer: false, system: true, content: o.text });
+        if (o.quit) {
+          applyMomentEffects(state, [{ k: 'quit', crewId: c.id }], serial);
+          const npc = state.npcs.find((x) => x.id === c.npcId);
+          if (npc) npc.relationshipScore = Math.max(-100, npc.relationshipScore - 15);
+          pushTeamLines(state, [{ from: c.npcId, name: c.npcName, role: c.role, text: pickLine(['I\'m done. Good luck.', 'Nobody talks to me like that. I\'m out.'], c.id) }], serial);
+          result = { ok: true, message: o.text };
+          return;
+        }
+        c.morale = Math.max(0, Math.min(100, (c.morale ?? 70) + o.morale));
+        if (o.warned) c.warnedSerial = serial;
+        result = { ok: true, message: o.text };
+      });
+      return result;
+    },
+
+    praiseCrew: (crewId) => {
+      let result: TeamActionResult = { ok: false, message: 'They are not on your team.' };
+      set((state) => {
+        const c = state.crew.find((x) => x.id === crewId);
+        if (!c || !state.player) return;
+        const serial = dateToSerial(state.gameDate);
+        const n = c.npcName.split(' ')[0];
+        if (c.praisedSerial !== undefined && serial - c.praisedSerial < 14) { result = { ok: false, message: `You already told ${n} ${serial - c.praisedSerial === 0 ? 'today' : `${serial - c.praisedSerial} days ago`}. Too much and it stops meaning anything.` }; return; }
+        const o = praiseOutcome(workStyleOf(c), c.npcName);
+        c.morale = Math.max(0, Math.min(100, (c.morale ?? 70) + o.morale));
+        c.praisedSerial = serial;
+        if (workStyleOf(c) === 'coaster') c.warnedSerial = undefined;
+        pushDM(state, c.npcId, { fromPlayer: true, content: pickLine(['Just want to say — you\'ve been killing it. Appreciate you.', 'Great work this month. I see it.', 'You\'re a big part of this. Thank you.'], `${c.id}|${serial}|p`) });
+        pushDM(state, c.npcId, { fromPlayer: false, system: true, content: o.text });
+        result = { ok: true, message: o.text };
+      });
+      return result;
     },
 
     fireManager: () => {
@@ -17473,11 +19574,18 @@ export const useGameStore = create<GameState & GameActions>()(
       }),
 
     // ─── TURN ADVANCEMENT ───────────────────────────────────────────────
-    advanceTurn: (unit, opts) =>
+    advanceTurn: (unit, opts) => {
+      // A deferred half of the previous day goes first, so the world never
+      // runs out of order.
+      flushSideTicks();
       set((state) => {
         if (!state.player) return;
 
         const days = unit === 'day' ? 1 : unit === 'week' ? 7 : 30;
+        // The clock's own midnight: the world's chatter (awards, moments, the
+        // feed, interviews, the team group) runs a beat later, in its own
+        // frame, so the day change itself stays short. See `runSideTicks`.
+        const deferSide = unit === 'day' && !!opts?.silent && typeof window !== 'undefined';
         // Read before anything moves, so the report can state the balance
         // either side of the turn rather than reconstructing it.
         const fromDate = formatGameDate(state.gameDate);
@@ -17489,6 +19597,23 @@ export const useGameStore = create<GameState & GameActions>()(
         openTurnLedger();
         state.gameDate = advanceDate(state.gameDate, days) as typeof state.gameDate;
         state.turnCount += 1;
+
+        // ─── WHAT KIND OF DAY IS IT ───────────────────────────────────
+        // The clock hands the tick one day at a time, so "+1 Month" is not the
+        // only way a month passes. The calendar decides: a Monday closes the
+        // week (statements, momentum, weekly coaching, the scene's albums and
+        // videos), and the 1st of the month is payday (wages, retainers, the
+        // manager's monthly work). Before this, a career played on the clock
+        // never paid its team and its manager never did a month's work.
+        const calTo = dateToSerial(state.gameDate);
+        let weeksCrossed = 0;
+        let monthsCrossed = 0;
+        for (let d = calTo - days + 1; d <= calTo; d++) {
+          if (serialWeekday(d) === 1) weeksCrossed++;
+          if (serialToDate(d).day === 1) monthsCrossed++;
+        }
+        const isWeek = unit !== 'day' || weeksCrossed > 0;
+        const isMonth = unit === 'month' || monthsCrossed > 0;
 
         // Plain, non-draft views for the read-heavy parts of the tick. Scanning
         // the roster through the immer proxy costs ~7x more (see `raw()`), and
@@ -17887,6 +20012,7 @@ export const useGameStore = create<GameState & GameActions>()(
           for (const o of state.showOffers) {
             if (o.status === 'open' && targetSerial > o.expiresSerial) {
               o.status = 'expired';
+              closeBriefs(state, o.id, 'Expired — nobody answered.');
               const host = state.npcs.find((n) => n.id === o.hostId);
               // Leaving a friend on read is a small slight.
               if (host && o.hostRole === 'artist' && host.relationshipScore > 10) {
@@ -17905,11 +20031,28 @@ export const useGameStore = create<GameState & GameActions>()(
           // Semi-retired: the dates you do play are rare, and priced like it.
           if (modeDef.showFee !== 1) for (const o of fresh) { o.terms.fee = Math.round(o.terms.fee * modeDef.showFee); o.fair = Math.round(o.fair * modeDef.showFee); o.ceiling = Math.round(o.ceiling * modeDef.showFee); }
           const mgrNow = managerOf(state, rawNPCs);
+          const pol = policyOf(state.teamPolicy);
           for (const o of fresh) {
             state.showOffers.push(o);
-            // With a manager it goes to their desk; they brief you.
+            // With a manager it goes to their desk; they brief you — and the
+            // rules you set are theirs to follow.
             if (mgrNow) {
-              fileBrief(state, showBrief(state, o));
+              const why = showBreaksPolicy(pol, {
+                fee: o.terms.fee,
+                weekday: serialWeekday(o.serial),
+                abroad: o.country !== state.player.country,
+                sameContinent: getCountry(o.country)?.continent === getCountry(state.player.country)?.continent,
+              });
+              if (why) {
+                o.status = 'declined';
+                const b = fileBrief(state, { ...showBrief(state, o), advice: 'pass', reason: `I passed on this one for you. ${why}` });
+                b.status = 'done';
+                b.outcome = `Passed for you — ${why}`;
+                tourLines.push(`📋 ${mgrNow.name} passed on ${o.venueName}, ${o.city}: ${why}`);
+                continue;
+              }
+              const b = fileBrief(state, showBrief(state, o));
+              if (pol.autoTake && b.advice === 'take') b.auto = true;
               tourLines.push(`📋 ${mgrNow.name} has a show offer for you: ${o.venueName}, ${o.city}.`);
               continue;
             }
@@ -18068,6 +20211,8 @@ export const useGameStore = create<GameState & GameActions>()(
           } else {
             req.status = decision.outcome; // 'declined' | 'ignored'
           }
+          // A yes often comes with conditions.
+          if (decision.outcome === 'terms' || decision.outcome === 'free') attachTerms(state, req, npc as NPC, rawNPCs, targetSerial);
 
           const thread = state.dmThreads[req.npcId] ?? {
             npcId: req.npcId,
@@ -18252,7 +20397,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // monthly decay, so a player who was not mid-release lived at the
         // floor. The week itself is now a source: a record doing real numbers
         // keeps you hot, and a record doing nothing does not.
-        if (unit === 'week' || unit === 'month') {
+        if (isWeek) {
           const weeks = unit === 'month' ? 4 : 1;
           const perWeek = totalWeeklyStreams / weeks;
           // A log curve. The gap between 1k and 10k weekly streams is a career;
@@ -18304,7 +20449,7 @@ export const useGameStore = create<GameState & GameActions>()(
         }
 
         // Weekly statement
-        if (unit === 'week' || unit === 'month') {
+        if (isWeek) {
           const stmt: WeeklyStatement = {
             id: uuidv4(),
             weekStartDate: formatGameDate(state.gameDate),
@@ -18326,7 +20471,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // exactly why it is cheaper over a career.
         for (const contract of state.contracts.filter(c => c.active)) {
           if (contract.terms.feeKind === 'retainer') {
-            if (unit === 'month') {
+            if (isMonth) {
               const fee = contract.terms.monthlyFee ?? 0;
               state.player.career.money -= fee;
               ledgerAdd('management', -fee);
@@ -18352,13 +20497,13 @@ export const useGameStore = create<GameState & GameActions>()(
         // ─── PAYROLL ──────────────────────────────────────────────────
         // Wages go out every month, and the people earning them do their job
         // every week. Both halves are here so a hire is never just a bill.
-        if (crew.monthlyWage > 0 && unit === 'month') {
+        if (crew.monthlyWage > 0 && isMonth) {
           state.player.career.money -= crew.monthlyWage;
           ledgerAdd('payroll', -crew.monthlyWage);
           log.push(`👥 Payroll: $${crew.monthlyWage.toLocaleString()} across ${(state.crew ?? []).length} people.`);
         }
 
-        if (unit === 'week' || unit === 'month') {
+        if (isWeek) {
           const weeks = unit === 'month' ? 4 : 1;
           const raised: string[] = [];
           for (const [stat, perWeek] of Object.entries(crew.stats)) {
@@ -18381,7 +20526,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // to the STAT, not to a bonus, and the tick never takes it back — so
         // firing them stops the growth, it does not undo the work. Capped below
         // 100, because a stat you cannot lose the top of is not a stat.
-        if (unit === 'month' && Object.keys(crew.coaching).length > 0) {
+        if (isMonth && Object.keys(crew.coaching).length > 0) {
           const COACHING_CAP = 92;
           const improved: string[] = [];
           for (const [stat, perMonth] of Object.entries(crew.coaching)) {
@@ -18409,7 +20554,7 @@ export const useGameStore = create<GameState & GameActions>()(
         //
         // Tenure and morale are settled in the same pass, because all three are
         // facts about the same month of employment.
-        if (unit === 'month' && (state.crew ?? []).length > 0) {
+        if (isMonth && (state.crew ?? []).length > 0) {
           for (const member of state.crew) {
             // Months served is what `chemistryOf` reads. It is the tick's
             // number, the way `skill` is.
@@ -18525,7 +20670,7 @@ export const useGameStore = create<GameState & GameActions>()(
         //
         // The odds and the sizes are `managerMonth`'s, so the number the Team
         // screen promises and the number the tick pays come from one place.
-        if (unit === 'month' && currentManager) {
+        if (isMonth && currentManager) {
           const mm = managerMonth({
             net: mgrNet,
             playerFame: blendedFame(state.player),
@@ -18535,6 +20680,8 @@ export const useGameStore = create<GameState & GameActions>()(
             pickOutlet: Math.random(),
             pickBrand: Math.random(),
             sizeRoll: Math.random(),
+            placeMult: SPECIALTIES[managerSpecialty(currentManager)].placeMult,
+            dealMult: SPECIALTIES[managerSpecialty(currentManager)].dealMult,
           });
 
           if (mm.placement) {
@@ -18560,6 +20707,9 @@ export const useGameStore = create<GameState & GameActions>()(
           }
 
           log.push(`💼 ${currentManager.name} ${mm.report}.`);
+          // And the work their specialty is for: features, dates, deals,
+          // producers, radio, abroad — filed on the desk, reported in the DMs.
+          managerPitchTick(state, rawNPCs, currentManager, targetSerial, log);
         }
 
         // ─── WHO THEY ARE, SHOWING UP ─────────────────────────────────
@@ -18567,7 +20717,8 @@ export const useGameStore = create<GameState & GameActions>()(
         // angry operator costs you something visible every so often, and the
         // event log is where the player finds out what they actually hired.
         // Chance-based, so it reads as a person rather than a debuff timer.
-        if ((state.crew ?? []).length > 0 && crew.events.length > 0 && Math.random() < 0.14) {
+        // A week's worth of chance, spread over the days that passed.
+        if ((state.crew ?? []).length > 0 && crew.events.length > 0 && Math.random() < Math.min(0.6, 0.14 * days / 7)) {
           const line = crew.events[Math.floor(Math.random() * crew.events.length)];
           const who = state.crew[Math.floor(Math.random() * state.crew.length)];
           if (who) {
@@ -18605,6 +20756,8 @@ export const useGameStore = create<GameState & GameActions>()(
           [...liveSongs(rawSongs), ...rawNPCSongs] as Song[],
           rawNPCs,
           raw(state.player) as Player,
+          // The chart week turns over on Sunday, the day after the week ends.
+          days > 1 || serialWeekday(targetSerial) === 0,
         ) as typeof state.charts;
 
         // ─── GLOBAL CHARTS ────────────────────────────────────────────
@@ -18660,7 +20813,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // ─── AWARD SEASONS ────────────────────────────────────────────
         // Calendars, nominations, fan voting and ceremonies run daily (see
         // awardsTick); the old year-end batch is gone.
-        awardsTick(state, targetSerial, rawNPCs, rawNPCSongs);
+        if (!deferSide) awardsTick(state, targetSerial, rawNPCs, rawNPCSongs);
 
         // ─── STORY DIRECTOR ───────────────────────────────────────────
         // Shallow spread of the draft, NOT `raw(state)`.
@@ -18706,6 +20859,29 @@ export const useGameStore = create<GameState & GameActions>()(
             state.player.career.reputation = Math.min(100, Math.max(0, state.player.career.reputation + rep));
           }
           if (ev.effectType === 'money') state.player.career.money = Math.max(0, state.player.career.money + ev.effectValue);
+          // The story does what it says.
+          if (ev.special === 'start_beef') {
+            const rival = state.npcs.find((n) => n.id === ev.involvedNPCIds[0]);
+            if (rival && !isBlocked(state, rival.id)) npcStartsBeef(state, rival as NPC, targetSerial, 'a subliminal post the whole timeline read as being about you');
+            continue;
+          }
+          if (ev.special === 'collab_ask') {
+            const ally = rawNPCs.find((n) => n.id === ev.involvedNPCIds[0]);
+            const theirSong = ally ? (state.npcSongs as Song[]).filter((x) => x.ownerId === ally.id && x.releaseDate).sort((a, b) => b.quality - a.quality)[0] : undefined;
+            const busy = state.inboundRequests.some((r) => r.npcId === ev.involvedNPCIds[0] && (r.status === 'open' || r.status === 'agreed'));
+            if (ally && theirSong && !busy && !isBlocked(state, ally.id) && !isRealId(ally.id)) {
+              openInboundAsk(state, ally, theirSong, pickLine([`We've been talking about this for too long. Jump on "${theirSong.title}" with me?`, `Got a record with your name on it — "${theirSong.title}". You in?`], ally.id + targetSerial));
+            }
+          }
+          if (ev.special === 'revive' && ev.songId) {
+            pushSong(state, ev.songId, 0.35, 14, ev.headline);
+            addMomentum(state, 2);
+            state.player.career.fanbase += Math.round(80 + blendedFame(state.player) * 8);
+          }
+          if (ev.special === 'intl_buzz') {
+            state.player.career.internationalFame = Math.min(100, state.player.career.internationalFame + 1.5);
+            addMomentum(state, 1);
+          }
 
           // Add NPC social post for the event
           if (ev.involvedNPCIds.length > 0) {
@@ -18789,11 +20965,13 @@ export const useGameStore = create<GameState & GameActions>()(
             const npc = rawNPCs.find((n) => n.id === song.ownerId);
             if (!npc) continue;
             const follows = (state.subscriptions ?? []).some((s) => s.artistId === npc.id);
-            if (!follows) continue;
+            // A superstar from home dropping is news whether you follow them or not.
+            const bigHome = npc.country === state.player.country && npc.fame >= 70;
+            if (!follows && !bigHome) continue;
             pushNotification(state, {
               kind: 'artist_release',
-              title: `${npc.name} dropped "${song.title}"`,
-              body: `${npc.name} released a new record.`,
+              title: bigHome && !follows ? `🔥 ${npc.name} just dropped "${song.title}"` : `${npc.name} dropped "${song.title}"`,
+              body: bigHome && !follows ? `The whole of ${npc.country} is on it. Maybe don't release this week.` : `${npc.name} released a new record.`,
               artSeed: `song|${song.id}`,
               action: { type: 'song', id: song.id },
             });
@@ -18819,7 +20997,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // Artists who just put out a single sometimes bundle their recent work
         // into an EP or album. Without this the Global Top 200 only ever
         // shrinks: the recurrent rule retires entries and nothing replaces them.
-        if (unit !== 'day' && fresh.length > 0) {
+        if (isWeek && fresh.length > 0) {
           const albums = state.npcAlbums ?? (state.npcAlbums = []);
           const owners = new Set<string>();
           for (const s of fresh) if (s.ownerId) owners.add(s.ownerId);
@@ -18849,7 +21027,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // ─── NPC VIDEO WORLD ──────────────────────────────────────────
         // NPC artists shoot visuals for their current singles on their own, so
         // the video platform is alive whether or not the player ever opens it.
-        if (unit !== 'day') {
+        if (isWeek) {
           const freshVideos = npcVideoTick(
             state,
             rawNPCs,
@@ -18888,7 +21066,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // ─── MOMENTS ──────────────────────────────────────────────────
         // People text you; your team walks in with problems. Decisions
         // with consequences, some of them weeks later.
-        momentsTick(state, rawNPCs, targetSerial, days);
+        if (!deferSide) momentsTick(state, rawNPCs, targetSerial, days);
 
         // Plans you skipped past, and messages that were due.
         {
@@ -18902,16 +21080,20 @@ export const useGameStore = create<GameState & GameActions>()(
         // ─── SOCIAL ───────────────────────────────────────────────────
         // Posts keep collecting, the scene posts, fan wars burn, rivals
         // hit back.
-        socialTick(state, rawNPCs, targetSerial, days);
+        if (!deferSide) socialTick(state, rawNPCs, targetSerial, days);
 
         // ─── INTERVIEWS ───────────────────────────────────────────────
-        interviewTick(state, targetSerial, days, rawNPCs);
+        if (!deferSide) interviewTick(state, targetSerial, days, rawNPCs);
 
         // ─── BEATS & THE BUILDING ─────────────────────────────────────
         // The team's beat drops, commissioned beats arriving, the weekly
         // store, and the studio's monthly bills.
         beatsTick(state, rawNPCs, targetSerial, days);
-        teamChatTick(state, targetSerial);
+        if (!deferSide) teamChatTick(state, targetSerial);
+        if (!deferSide) birthdaysTick(state, rawNPCs, targetSerial, days);
+        if (!deferSide) starPulseTick(state, rawNPCs, targetSerial);
+        if (!deferSide) breakoutTick(state, targetSerial);
+        if (deferSide) pendingSide = { serial: targetSerial };
 
         // ─── MONEY & THE TEAM'S WEEK ──────────────────────────────────
         // Markets move daily; businesses, rent and dividends at the month;
@@ -18932,7 +21114,7 @@ export const useGameStore = create<GameState & GameActions>()(
           campaign.remainingDays -= days;
           // Exposure is uncommon, but becomes more likely when the player is
           // famous enough for journalists and radio insiders to care.
-          if (!campaign.exposed && Math.random() < 0.015 + state.player.career.reputation / 5000) {
+          if (!campaign.exposed && Math.random() < (0.015 + state.player.career.reputation / 5000) * Math.max(1, days) / 7) {
             campaign.exposed = true;
             state.player.career.reputation = Math.max(0, state.player.career.reputation - 4);
             state.headlines.unshift({ id: uuidv4(), text: `Questions surround ${state.player.artistName}'s radio push`, fullStory: `Industry insiders are questioning the radio campaign behind "${song.title}" in ${campaign.city}. No formal finding has been made, but the story is spreading.`, date: formatGameDate(state.gameDate), relatedEntities: [state.player.id, song.id], priority: 6, category: 'scandal' });
@@ -18976,9 +21158,11 @@ export const useGameStore = create<GameState & GameActions>()(
         // A&R missions are generated only when the player's career has enough
         // traction. They expire, so they behave like real industry work rather
         // than a permanent quest list.
-        if (state.player.career.localFame >= 20 && state.scoutMissions.filter(m => m.status === 'open').length < 2 && Math.random() < 0.18) {
-          const target = rawNPCs.find(n => n.role === 'artist' && n.country === state.player!.country && n.id !== state.player!.id && n.relationshipScore < 60);
-          const scout = rawNPCs.find(n => n.role === 'a_and_r_scout' || n.role === 'ar');
+        if (isWeek && state.player.career.localFame >= 20 && state.scoutMissions.filter(m => m.status === 'open').length < 2 && Math.random() < 0.18) {
+          // A different artist and a local scout each time — not the first name in the roster forever.
+          const busyTargets = new Set(state.scoutMissions.filter((m) => m.status === 'open').map((m) => m.targetNpcId));
+          const target = sampleNpcs(rawNPCs, 1, (n) => n.role === 'artist' && n.country === state.player!.country && n.id !== state.player!.id && n.relationshipScore < 60 && !busyTargets.has(n.id) && Math.abs(n.fame - blendedFame(state.player!)) < 30)[0];
+          const scout = sampleNpcs(rawNPCs, 1, (n) => (n.role === 'a_and_r_scout' || n.role === 'ar') && n.country === state.player!.country)[0] ?? sampleNpcs(rawNPCs, 1, (n) => n.role === 'a_and_r_scout' || n.role === 'ar')[0];
           if (target && scout) {
             state.scoutMissions.unshift({ id: uuidv4(), scoutName: scout.name, targetNpcId: target.id, targetName: target.name, objective: `Build a working relationship with ${target.name}.`, rewardMoney: 1000 + Math.round(state.player.career.localFame * 50), rewardFame: 2 + state.player.career.localFame / 25, expiresSerial: todaySerial + 45, status: 'open' });
             state.industryNotices.unshift({ id: uuidv4(), type: 'scout', title: `${scout.name} noticed your work`, body: `A&R wants you to build a connection with ${target.name}.`, date: formatGameDate(state.gameDate), relatedNpcId: target.id, read: false });
@@ -18989,8 +21173,11 @@ export const useGameStore = create<GameState & GameActions>()(
         // Rare, earned "they noticed you" moments. This is a social/world event,
         // not a free reward: the relationship starts neutral and the opportunity
         // must still be handled by the player.
-        if (state.player.career.nationalFame >= 45 && Math.random() < 0.035) {
-          const big = rawNPCs.filter(n => n.role === 'artist' && n.tier === 'international' && n.fame > state.player!.career.nationalFame).sort((a,b) => b.fame-a.fame)[0];
+        if (isWeek && state.player.career.nationalFame >= 45 && Math.random() < 0.035 * 7) {
+          // Somebody among the biggest names — not the same one every time.
+          const recent = new Set(state.industryNotices.filter((n) => n.type === 'noticed').slice(0, 8).map((n) => n.relatedNpcId));
+          const tops = rawNPCs.filter(n => n.role === 'artist' && n.tier === 'international' && n.fame > state.player!.career.nationalFame && !recent.has(n.id)).sort((a,b) => b.fame-a.fame).slice(0, 12);
+          const big = tops[Math.floor(Math.random() * tops.length)];
           if (big) {
             state.industryNotices.unshift({ id: uuidv4(), type: 'noticed', title: `${big.name} noticed your rise`, body: `${big.name}'s team has been watching your recent numbers. Nothing is promised — but your name is in the room.`, date: formatGameDate(state.gameDate), relatedNpcId: big.id, read: false });
             // No words in a real person's mouth: the notice above is the news.
@@ -19012,17 +21199,24 @@ export const useGameStore = create<GameState & GameActions>()(
         // Several manager archetypes circle once the player shows traction —
         // and once one of them is signed, the rest start trying to take them
         // off you. A manager who is never challenged is not a deal.
-        const mgrOffers = generateManagerOffers(
+        // Weekly, not daily: the chances below are a week's worth of interest.
+        // Rolled every day on the clock, a hot artist got a new manager pitch
+        // or label offer almost every morning.
+        const mgrOffers = isWeek ? generateManagerOffers(
           state.player,
           rawNPCs,
           state.turnCount,
           currentManager ? 1 : 0,
           currentManager,
-        );
+        ) : [];
+        const fired = state.storyFired ?? (state.storyFired = {});
         for (const offer of mgrOffers) {
-          // Avoid stacking identical pending offers.
+          // Avoid stacking identical pending offers — and nobody pitches the
+          // same artist twice in six weeks.
           const dupe = state.mailbox.some(m => m.type === 'offer' && !m.read && m.from === offer.from);
           if (dupe) continue;
+          if (fired[`mgrOffer:${offer.from}`] !== undefined && targetSerial - fired[`mgrOffer:${offer.from}`] < 45) continue;
+          fired[`mgrOffer:${offer.from}`] = targetSerial;
           state.mailbox.unshift(offer as typeof state.mailbox[0]);
           log.push(
             currentManager
@@ -19034,15 +21228,18 @@ export const useGameStore = create<GameState & GameActions>()(
         // ─── LABEL INTEREST ───────────────────────────────────────────
         // Labels compete for a hot artist rather than one static offer.
         const hasLabel = state.contracts.some(c => c.type === 'label' && c.active);
-        const labelOffers = generateLabelOffers(
+        const labelOffers = isWeek ? generateLabelOffers(
           state.player,
           rawNPCs,
           bestSongQuality(rawSongs),
           hasLabel,
-        );
+        ) : [];
         for (const offer of labelOffers) {
           const dupe = state.mailbox.some(m => m.type === 'contract' && !m.read && m.fromName === offer.fromName);
           if (dupe) continue;
+          // A label that was turned down waits a couple of months before trying again.
+          if (fired[`labelOffer:${offer.fromName}`] !== undefined && targetSerial - fired[`labelOffer:${offer.fromName}`] < 60) continue;
+          fired[`labelOffer:${offer.fromName}`] = targetSerial;
           state.mailbox.unshift(offer as typeof state.mailbox[0]);
           log.push(`📬 ${offer.fromName} sent you a contract offer.`);
         }
@@ -19212,6 +21409,13 @@ export const useGameStore = create<GameState & GameActions>()(
             openCount: openAsks.length,
             weeksElapsed: days / 7,
             roll: Math.random(),
+            // A connector gets you asked more, and by bigger names; a global
+            // operator brings asks from abroad.
+            ...(currentManager ? (() => {
+              const sp = SPECIALTIES[managerSpecialty(currentManager)];
+              const push = state.managerPush?.kind === 'features' && state.managerPush.until >= targetSerial ? 0.06 : 0;
+              return { pull: sp.askRate * (0.5 + managerNetwork(currentManager) / 100) + push, reachUp: sp.reachUp, abroadOk: sp.id === 'global' && state.player.career.nationalFame >= 30 };
+            })() : {}),
           });
 
           if (ask.npc && reaches(state.legacy?.mode, 'asks', Math.random())) {
@@ -19329,119 +21533,32 @@ export const useGameStore = create<GameState & GameActions>()(
         managerDigest(state, targetSerial, rawNPCs);
 
         // ─── SAVE ────────────────────────────────────────────────────
-        const stateSnapshot = {
-          initialized: state.initialized,
-          player: state.player,
-          songs: state.songs,
-          albums: state.albums,
-          // `rawNPCs` is the same array `raw(state.npcs)` would rebuild — and
-          // rebuilding it means a second deep clone of the 11.6k roster. The
-          // tick never mutates `state.npcs` (verified: the only other touch is
-          // a read-only `.find`), so the start-of-tick view is still exact.
-          npcDeltas: collectNPCDeltas(rawNPCs),
-          dmThreads: state.dmThreads,
-          socialPosts: feedForSave(state.socialPosts),
-          mailbox: state.mailbox,
-          contracts: state.contracts,
-          crew: state.crew,
-          shows: state.shows,
-          cityMarkets: state.cityMarkets,
-          tours: state.tours,
-          scheduledShows: state.scheduledShows,
-          showOffers: state.showOffers,
-          bookedGigs: state.bookedGigs,
-          studio: state.studio,
-          beefs: state.beefs,
-          feedRefreshedAt: state.feedRefreshedAt,
-          tagQuota: state.tagQuota,
-          socialStats: state.socialStats,
-          fanbaseName: state.fanbaseName,
-          fanWars: (state.fanWars ?? []).slice(0, 10),
-          postsToday: state.postsToday,
-          beats: state.beats,
-          following: state.following,
-          followedBy: state.followedBy,
-          blocked: state.blocked,
-          socialActivity: (state.socialActivity ?? []).slice(0, 60),
-          stories: (state.stories ?? []).slice(0, 30),
-          lastLive: state.lastLive,
-          verified: state.verified,
-          interviewInvites: (state.interviewInvites ?? []).slice(0, 12),
-          activeInterview: state.activeInterview ?? null,
-          interviewLog: (state.interviewLog ?? []).slice(0, 30),
-          outletRel: state.outletRel,
-          lastPitchSerial: state.lastPitchSerial,
-          managerDesk: (state.managerDesk ?? []).slice(0, 30),
-          market: state.market,
-          portfolio: state.portfolio,
-          ventures: state.ventures,
-          devProjects: state.devProjects,
-          casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
-          wealthHistory: state.wealthHistory,
-          pendingDMs: state.pendingDMs,
-          football: state.football,
-          drip: state.drip,
-          memories: state.memories,
-          memoryCursor: state.memoryCursor,
-          cases: (state.cases ?? []).slice(0, 60),
-          storyFired: state.storyFired,
-          home: state.home,
-          homes: state.homes,
-          loans: state.loans,
-          credit: state.credit,
-          earningsMarks: state.earningsMarks,
-          npcUpcoming: state.npcUpcoming,
-          awardSeasons: state.awardSeasons,
-          awardFollows: state.awardFollows,
-          activeCeremony: null,
-          activeHearing: null,
-          appointments: (state.appointments ?? []).slice(-40),
-          activeAppointment: null,
-          investments: state.investments,
-          businesses: state.businesses,
-          label: state.label ?? null,
-          moments: (state.moments ?? []).slice(0, 40),
-          ownedAssets: state.ownedAssets,
-          awards: state.awards,
-          certifications: state.certifications,
-          openThreads: state.openThreads,
-          interviews: state.interviews,
-          headlines: state.headlines.slice(0, 50),
-          charts: state.charts,
-          weeklyStatements: state.weeklyStatements.slice(0, 20),
-          gameDate: state.gameDate,
-          clockMinute: state.clockMinute,
-          clockPaused: state.clockPaused,
-          clockSpeed: state.clockSpeed,
-          turnCount: state.turnCount,
-          lastEventLog: state.lastEventLog,
-          cityFame: state.cityFame,
-          sampleClearances: state.sampleClearances,
-          payolaCampaigns: state.payolaCampaigns,
-          scoutMissions: state.scoutMissions,
-          industryNotices: state.industryNotices.slice(0, 40),
-          family: state.family,
-          legacy: state.legacy,
-          npcSongs: state.npcSongs,
-          trending: state.trending,
-          featureRequests: state.featureRequests,
-          inboundRequests: state.inboundRequests,
-          workItems: state.workItems,
-          jobBoard: state.jobBoard,
-          jobShifts: state.jobShifts,
-          jobBoardTurn: state.jobBoardTurn,
-          // The tax year has to survive a reload, or closing the tab mid-year
-          // wipes the liability and the player keeps everything. `taxMonth` is
-          // the monthly withholding cursor and matters just as much: lose it
-          // and the next tick bills the whole year again.
-          taxYear: state.taxYear,
-          taxMonth: state.taxMonth,
-          taxYearIncome: state.taxYearIncome,
-          taxPaidThisYear: state.taxPaidThisYear,
-          taxPaidLifetime: state.taxPaidLifetime,
-        };
-        saveToActiveSlot(state, stateSnapshot);
-      }),
+        // Not here: serialising the whole career inside the day change is what
+        // made midnight stutter. The save runs a moment later, when the
+        // browser is idle (see `scheduleAutosave`), with the same full list
+        // Save now uses.
+      });
+      // What the rules say the manager may take on their own, they take.
+      if ((get().managerDesk ?? []).some((b) => b.auto && b.status !== 'done')) get().runAutopilot();
+      // Projects scheduled in the album vault come out on their day.
+      {
+        const today = dateToSerial(get().gameDate);
+        for (const d of (get().albumDrafts ?? []).filter((x) => x.plannedSerial !== undefined && x.plannedSerial <= today)) {
+          const r = get().releaseAlbumDraft(d.id);
+          set((state) => {
+            if (r.ok) {
+              pushNotification(state, { kind: 'milestone', title: `💿 "${d.title}" is out`, body: 'Your scheduled project dropped today. It charts from this week.', artSeed: `album|${d.id}` });
+            } else {
+              const x = (state.albumDrafts ?? []).find((y) => y.id === d.id);
+              if (x) x.plannedSerial = undefined;
+              pushNotification(state, { kind: 'business', title: `💿 "${d.title}" couldn't come out`, body: `${r.message} It's back in the album vault, unscheduled.`, artSeed: `album|${d.id}|fail` });
+            }
+          });
+        }
+      }
+      if (pendingSide) scheduleSideTicks();
+      scheduleAutosave();
+    },
 
     /** The player has read the report — take it down. */
     dismissTurnReport: () =>
@@ -19714,130 +21831,7 @@ export const useGameStore = create<GameState & GameActions>()(
         });
         return;
       }
-      const result = writeSlot(state.activeSlotId, {
-        initialized: state.initialized,
-        player: state.player,
-        songs: state.songs,
-        albums: state.albums,
-        npcDeltas: collectNPCDeltas(raw(state.npcs) as NPC[]),
-        dmThreads: state.dmThreads,
-        socialPosts: feedForSave(state.socialPosts),
-        mailbox: state.mailbox,
-        contracts: state.contracts,
-        crew: state.crew,
-        shows: state.shows,
-        cityMarkets: state.cityMarkets,
-        tours: state.tours,
-          scheduledShows: state.scheduledShows,
-          showOffers: state.showOffers,
-          bookedGigs: state.bookedGigs,
-        studio: state.studio,
-        beefs: state.beefs,
-        feedRefreshedAt: state.feedRefreshedAt,
-        tagQuota: state.tagQuota,
-        socialStats: state.socialStats,
-        fanbaseName: state.fanbaseName,
-        fanWars: (state.fanWars ?? []).slice(0, 10),
-        postsToday: state.postsToday,
-        beats: state.beats,
-        following: state.following,
-        followedBy: state.followedBy,
-        blocked: state.blocked,
-        socialActivity: (state.socialActivity ?? []).slice(0, 60),
-        stories: (state.stories ?? []).slice(0, 30),
-        lastLive: state.lastLive,
-        verified: state.verified,
-        interviewInvites: (state.interviewInvites ?? []).slice(0, 12),
-        activeInterview: state.activeInterview ?? null,
-        interviewLog: (state.interviewLog ?? []).slice(0, 30),
-        outletRel: state.outletRel,
-        lastPitchSerial: state.lastPitchSerial,
-        managerDesk: (state.managerDesk ?? []).slice(0, 30),
-        market: state.market,
-        portfolio: state.portfolio,
-        ventures: state.ventures,
-        devProjects: state.devProjects,
-        casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
-        wealthHistory: state.wealthHistory,
-        pendingDMs: state.pendingDMs,
-        football: state.football,
-        drip: state.drip,
-        memories: state.memories,
-        memoryCursor: state.memoryCursor,
-        cases: (state.cases ?? []).slice(0, 60),
-        storyFired: state.storyFired,
-        home: state.home,
-        homes: state.homes,
-        loans: state.loans,
-        credit: state.credit,
-        earningsMarks: state.earningsMarks,
-        npcUpcoming: state.npcUpcoming,
-        awardSeasons: state.awardSeasons,
-        awardFollows: state.awardFollows,
-        activeCeremony: null,
-        activeHearing: null,
-        appointments: (state.appointments ?? []).slice(-40),
-        activeAppointment: null,
-        investments: state.investments,
-        businesses: state.businesses,
-        label: state.label ?? null,
-        moments: (state.moments ?? []).slice(0, 40),
-        ownedAssets: state.ownedAssets,
-        awards: state.awards,
-        certifications: state.certifications,
-        openThreads: state.openThreads,
-        interviews: state.interviews,
-        headlines: state.headlines.slice(0, 50),
-        charts: state.charts,
-        weeklyStatements: state.weeklyStatements.slice(0, 20),
-        gameDate: state.gameDate,
-        clockMinute: state.clockMinute,
-        clockPaused: state.clockPaused,
-        clockSpeed: state.clockSpeed,
-        turnCount: state.turnCount,
-        lastEventLog: state.lastEventLog,
-        cityFame: state.cityFame,
-        sampleClearances: state.sampleClearances,
-        payolaCampaigns: state.payolaCampaigns,
-        scoutMissions: state.scoutMissions,
-        industryNotices: state.industryNotices.slice(0, 40),
-        family: state.family,
-        legacy: state.legacy,
-        npcSongs: state.npcSongs,
-        trending: state.trending,
-        featureRequests: state.featureRequests,
-        inboundRequests: state.inboundRequests,
-        workItems: state.workItems,
-        jobBoard: state.jobBoard,
-        jobShifts: state.jobShifts,
-        jobBoardTurn: state.jobBoardTurn,
-        // Tax. A reload mid-year must not wipe the liability, and a reload
-        // mid-month must not re-bill the month.
-        taxYear: state.taxYear,
-        taxMonth: state.taxMonth,
-        taxYearIncome: state.taxYearIncome,
-        taxPaidThisYear: state.taxPaidThisYear,
-        taxPaidLifetime: state.taxPaidLifetime,
-        // ── Streaming, charts and video ──────────────────────────────────
-        platformStats: state.platformStats,
-        streamCursor: state.streamCursor,
-        chartWeekCursor: state.chartWeekCursor,
-        globalSongs: state.globalSongs,
-        globalAlbums: state.globalAlbums,
-        chartRuns: state.chartRuns,
-        chartMilestones: state.chartMilestones,
-        globalCerts: state.globalCerts,
-        npcAlbums: state.npcAlbums,
-        screenCountry: state.screenCountry,
-        recentCountries: state.recentCountries,
-        subscriptions: state.subscriptions,
-        notifications: state.notifications,
-        videos: state.videos,
-        videoComments: state.videoComments,
-        videoReactions: state.videoReactions,
-        commentReactions: state.commentReactions,
-        watchHistory: state.watchHistory,
-      });
+      const result = writeSlot(state.activeSlotId, buildSavePayload(state));
       set((s) => {
         s.saveError = result.ok ? null : result.error;
       });

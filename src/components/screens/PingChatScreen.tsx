@@ -190,7 +190,7 @@ export function PingChatScreen() {
       {/* Chat / desk */}
       <div className={cn('flex-1 min-w-0 flex-col', showList ? 'hidden md:flex' : 'flex')}>
         {selectedId === TEAM ? (
-          <TeamGroup onBack={() => setSelectedId(null)} />
+          <TeamGroup onBack={() => setSelectedId(null)} onOpen={(id) => select(id)} />
         ) : selectedId === DESK ? (
           <div className="flex-1 overflow-y-auto rounded-[18px] border border-line bg-card p-4">
             <button onClick={() => setSelectedId(null)} className="md:hidden text-[13px] text-ink2 mb-3">← Chats</button>
@@ -494,50 +494,126 @@ function PlanSheet({ npc, onDone }: { npc: NPC; onDone: () => void }) {
 
 
 // ─── THE TEAM GROUP ────────────────────────────────────────────────────────
+// Everybody you pay, in one chat — with a face and a name on every message.
+// Tap anyone to talk to them on their own.
 
-const ROLE_EMOJI: Record<string, string> = { manager: '💼', accountant: '💰', producer: '🎛️', engineer: '🎚️', songwriter: '📝', vocal_coach: '🎤', publicist: '📣', stylist: '👗', photographer: '📸', personal_assistant: '🗓️', trainer: '💪', lawyer: '⚖️' };
+const ROLE_EMOJI: Record<string, string> = { manager: '💼', accountant: '💰', producer: '🎛️', engineer: '🎚️', songwriter: '📝', vocal_coach: '🎤', publicist: '📣', stylist: '👗', photographer: '📸', personal_assistant: '🗓️', trainer: '💪', lawyer: '⚖️', dj: '🎧', tour_manager: '🧳', promoter: '📢', choreographer: '💃🏾', session_musician: '🎸', distributor: '📦', artist: '🎤' };
+const ROLE_SHORT: Record<string, string> = { manager: 'Manager', accountant: 'Accountant', producer: 'Producer', engineer: 'Sound engineer', songwriter: 'Songwriter', vocal_coach: 'Vocal coach', publicist: 'Publicist', stylist: 'Stylist', photographer: 'Photographer', personal_assistant: 'Assistant', trainer: 'Trainer', lawyer: 'Lawyer', dj: 'DJ', tour_manager: 'Tour manager', promoter: 'Promoter', choreographer: 'Choreographer', session_musician: 'Musician', distributor: 'Distributor' };
+const ROLE_COLOR: Record<string, string> = { manager: '#F5B301', accountant: '#2ED573', producer: '#B57BFF', engineer: '#4DA3FF', songwriter: '#FFD166', vocal_coach: '#FF8FA3', publicist: '#FF6B9A', stylist: '#E0A3FF', photographer: '#7FDBFF', personal_assistant: '#9BE7C4', trainer: '#FF9F43', lawyer: '#C0C6D4', dj: '#FF8A3D', tour_manager: '#A0E7E5', promoter: '#FFB4A2', choreographer: '#FCA5F1', session_musician: '#B9FBC0', distributor: '#CDB4DB' };
+const roleColor = (r: string) => ROLE_COLOR[r] ?? '#9AA0AE';
 
-function TeamGroup({ onBack }: { onBack: () => void }) {
+function TeamGroup({ onBack, onOpen }: { onBack: () => void; onOpen: (npcId: string) => void }) {
   const chat = useGameStore((s) => s.teamChat);
   const crew = useGameStore((s) => s.crew);
   const post = useGameStore((s) => s.postTeamChat);
   const read = useGameStore((s) => s.readTeamChat);
   const unread = useGameStore((s) => s.teamChatUnread ?? 0);
+  const pending = useGameStore((s) => s.teamChatPending);
+  const dispute = useGameStore((s) => s.teamDispute);
+  const settle = useGameStore((s) => s.settleTeamDispute);
+  const contracts = useGameStore((s) => s.contracts);
+  const npcs = useGameStore((s) => s.npcs);
   const [text, setText] = useState('');
+  const [note, setNote] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const msgs = chat ?? [];
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length]);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length, pending, dispute?.status]);
   useEffect(() => { if (unread) read(); }, [unread, read]);
-  function send() { if (!text.trim()) return; post(text); setText(''); }
-  const names = (crew ?? []).map((c) => c.npcName.split(' ')[0]).join(', ');
+  function send(t = text) { if (!t.trim()) return; post(t); setText(''); setTimeout(kickAI, 50); }
+  const mgrContract = contracts.find((c) => c.type === 'management' && c.active);
+  const mgr = mgrContract ? npcs.find((n) => n.id === mgrContract.npcId) : undefined;
+  const members = [
+    ...(mgr ? [{ id: mgr.id, name: mgr.name, role: 'manager', morale: undefined as number | undefined }] : []),
+    ...(crew ?? []).map((c) => ({ id: c.npcId, name: c.npcName, role: c.role as string, morale: c.morale })),
+  ];
+  const roles = new Set(members.map((m) => m.role));
+  const chips = [
+    'How are we doing?',
+    'When should I drop?',
+    ...(roles.has('producer') ? ['Make me a beat'] : []),
+    ...(roles.has('engineer') ? ['Mix my latest record'] : []),
+    ...(roles.has('manager') ? ['Find me shows', 'Get me a big feature'] : []),
+    ...(roles.has('accountant') ? ['Can I afford a car?'] : []),
+    'What should I do next?',
+  ];
+  const openDispute = dispute && dispute.status === 'open' ? dispute : null;
   return (
     <div className="flex-1 min-h-0 flex flex-col rounded-[18px] border border-line bg-[#0C0D12] overflow-hidden">
       <div className="flex items-center gap-3 px-3 py-2.5 border-b border-line bg-card">
         <button onClick={onBack} className="md:hidden w-9 h-9 rounded-full hover:bg-white/5 text-[18px]" aria-label="Back">←</button>
-        <div className="w-10 h-10 rounded-full bg-rise/15 flex items-center justify-center text-[18px]">👥</div>
-        <div className="min-w-0"><div className="text-[15px] font-semibold text-ink">Team group</div><div className="text-[11px] text-ink3 truncate">You, {names || 'nobody yet'}</div></div>
+        <div className="flex -space-x-3 shrink-0">
+          {members.slice(0, 3).map((m) => <div key={m.id} className="rounded-full ring-2 ring-card"><Avatar name={m.name} seed={m.id} size={34} /></div>)}
+          {!members.length && <div className="w-10 h-10 rounded-full bg-rise/15 flex items-center justify-center text-[18px]">👥</div>}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold text-ink">Team group</div>
+          <div className="text-[11px] text-ink3 truncate">{pending ? <span className="text-rise">someone is typing…</span> : `You, ${members.map((m) => m.name.split(' ')[0]).join(', ') || 'nobody yet'}`}</div>
+        </div>
       </div>
+      {members.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto no-scrollbar px-3 py-2.5 border-b border-line bg-card/60">
+          {members.map((m) => (
+            <button key={m.id} onClick={() => onOpen(m.id)} className="shrink-0 w-[64px] flex flex-col items-center gap-1 group" title={`Message ${m.name}`}>
+              <div className="relative">
+                <Avatar name={m.name} seed={m.id} size={46} ring={roleColor(m.role)} />
+                <span className="absolute -right-1 -bottom-1 w-[20px] h-[20px] rounded-full bg-card border border-line flex items-center justify-center text-[11px]">{ROLE_EMOJI[m.role] ?? '👤'}</span>
+                {m.morale !== undefined && <span className={cn('absolute -left-0.5 -top-0.5 w-2.5 h-2.5 rounded-full border-2 border-card', m.morale >= 60 ? 'bg-rise' : m.morale >= 40 ? 'bg-amber' : 'bg-fall')} title={`Morale ${Math.round(m.morale)}`} />}
+              </div>
+              <span className="text-[11px] text-ink font-medium truncate max-w-full group-hover:text-amber">{m.name.split(' ')[0]}</span>
+              <span className="text-[9px] text-ink3 truncate max-w-full -mt-1">{ROLE_SHORT[m.role] ?? m.role.replace(/_/g, ' ')}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1.5">
-        {msgs.length === 0 && <div className="text-center py-10 text-[13px] text-ink3 px-6">Your team will post updates here as the days go by. Ask about money, beats, posts, your schedule or a case and the right person answers.</div>}
+        {msgs.length === 0 && <div className="text-center py-10 text-[13px] text-ink3 px-6">Your team posts updates here as the days go by. Talk to them like a real group: ask about money, beats, mixes, shows, when to drop — the right person answers, and if it's their job, they do it. Tap a face above to talk to one of them alone.</div>}
         {msgs.map((m, i) => {
           const mine = m.from === 'player';
           const prev = msgs[i - 1];
           const grouped = prev && prev.from === m.from;
           return (
-            <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-2.5')}>
-              <div className={cn('max-w-[84%] sm:max-w-[440px] px-3.5 py-2 text-[14px] leading-snug rl-pop', mine ? 'bg-amber text-black rounded-[18px] rounded-br-[6px]' : 'bg-white/[0.08] text-ink rounded-[18px] rounded-bl-[6px]')}>
-                {!mine && !grouped && <div className="text-[11px] font-semibold text-amber mb-0.5">{ROLE_EMOJI[m.role] ?? '👤'} {m.name.split(' ')[0]} · {m.role.replace(/_/g, ' ')}</div>}
+            <div key={m.id} className={cn('flex items-end gap-2', mine ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-2.5')}>
+              {!mine && (grouped ? <div className="w-[30px] shrink-0" /> : (
+                <button onClick={() => onOpen(m.from)} className="shrink-0 self-start mt-0.5" aria-label={`Message ${m.name}`}><Avatar name={m.name} seed={m.from} size={30} /></button>
+              ))}
+              <div className={cn('max-w-[80%] sm:max-w-[440px] px-3.5 py-2 text-[14px] leading-snug rl-pop', mine ? 'bg-amber text-black rounded-[18px] rounded-br-[6px]' : 'bg-white/[0.08] text-ink rounded-[18px] rounded-bl-[6px]')}>
+                {!mine && !grouped && (
+                  <button onClick={() => onOpen(m.from)} className="block text-left text-[11px] font-semibold mb-0.5" style={{ color: roleColor(m.role) }}>
+                    {m.name.split(' ')[0]} <span className="font-normal text-ink3">· {ROLE_EMOJI[m.role] ?? ''} {ROLE_SHORT[m.role] ?? m.role.replace(/_/g, ' ')}</span>
+                  </button>
+                )}
                 {m.text}
               </div>
             </div>
           );
         })}
+        {openDispute && (
+          <div className="mt-3 rounded-[16px] border border-amber/40 bg-amber/[0.06] p-3 rl-fade">
+            <div className="flex items-center gap-2">
+              <div className="flex -space-x-2"><Avatar name={openDispute.a.name} seed={openDispute.a.id} size={26} /><Avatar name={openDispute.b.name} seed={openDispute.b.id} size={26} /></div>
+              <div className="text-[12px] text-ink font-semibold">⚡ {openDispute.a.name.split(' ')[0]} vs {openDispute.b.name.split(' ')[0]} — {openDispute.about}</div>
+            </div>
+            <div className="text-[11px] text-ink3 mt-1">They want you to settle it. Whoever you side with, the other one remembers.</div>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {openDispute.options.map((o) => (
+                <button key={o.id} onClick={() => setNote(settle(o.id).message)} className={cn('rounded-full border px-3 py-1.5 text-[12px] font-semibold', o.id === 'calm' ? 'border-line text-ink2 hover:text-ink' : 'border-amber/50 text-amber bg-amber/[0.06] hover:bg-amber/15')}>{o.label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {note && !openDispute && <div className="text-center text-[11px] text-ink3 italic py-1">{note}</div>}
+        {pending && (
+          <div className="flex justify-start mt-2.5"><div className="px-3.5 py-2 rounded-[18px] rounded-bl-[6px] bg-white/[0.08] text-[13px] text-rise">typing…</div></div>
+        )}
         <div ref={endRef} />
       </div>
       <div className="border-t border-line bg-card p-2.5">
+        <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-0.5 px-0.5">
+          {chips.map((c) => <button key={c} onClick={() => send(c)} disabled={!!pending} className="h-7 px-2.5 rounded-full border border-line text-[11px] text-ink2 hover:text-ink whitespace-nowrap shrink-0 disabled:opacity-40">{c}</button>)}
+        </div>
         <div className="flex items-center gap-2">
-          <input className="flex-1 min-w-0 h-11 rounded-full bg-sidebar border border-line px-4 text-[15px] text-ink placeholder:text-ink3 outline-none focus:border-amber" placeholder="Ask your team…" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
-          <button onClick={send} disabled={!text.trim()} className="w-11 h-11 rounded-full bg-amber text-black font-bold text-[16px] disabled:opacity-30 shrink-0" aria-label="Send">➤</button>
+          <input className="flex-1 min-w-0 h-11 rounded-full bg-sidebar border border-line px-4 text-[15px] text-ink placeholder:text-ink3 outline-none focus:border-amber" placeholder="Message your team… (@name to ask one person)" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
+          <button onClick={() => send()} disabled={!text.trim()} className="w-11 h-11 rounded-full bg-amber text-black font-bold text-[16px] disabled:opacity-30 shrink-0" aria-label="Send">➤</button>
         </div>
       </div>
     </div>

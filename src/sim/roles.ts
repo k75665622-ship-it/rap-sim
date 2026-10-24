@@ -1680,8 +1680,13 @@ export function managerMonth(input: {
   pickOutlet: number;
   pickBrand: number;
   sizeRoll: number;
+  /** What kind of manager they are scales the two odds (see `sim/managerStyle.ts`). */
+  placeMult?: number;
+  dealMult?: number;
 }): ManagerMonthResult {
   const { net, playerFame, fanbase } = input;
+  const placeMult = input.placeMult ?? 1;
+  const dealMult = input.dealMult ?? 1;
 
   // Nobody can sell an artist with no profile at all. Below this the manager is
   // working on your development, which is what the fanbase multiplier already
@@ -1690,7 +1695,7 @@ export function managerMonth(input: {
 
   // ── A placement ────────────────────────────────────────────────────────
   // A well-connected manager places you most months; a weak one rarely does.
-  const placementChance = sellable ? Math.min(0.85, 0.12 + net / 140) : 0;
+  const placementChance = sellable ? Math.min(0.9, (0.12 + net / 140) * placeMult) : 0;
   let placement: ManagerMonthResult['placement'] = null;
   if (input.rollPlacement < placementChance) {
     const outlet = MANAGER_OUTLETS[Math.floor(input.pickOutlet * MANAGER_OUTLETS.length) % MANAGER_OUTLETS.length];
@@ -1702,7 +1707,7 @@ export function managerMonth(input: {
 
   // ── An endorsement ─────────────────────────────────────────────────────
   // Money is harder than exposure and needs a bigger profile to exist at all.
-  const endorsementChance = sellable ? Math.min(0.6, Math.max(0, (net - 20) / 180)) : 0;
+  const endorsementChance = sellable ? Math.min(0.7, Math.max(0, (net - 20) / 180) * dealMult) : 0;
   let endorsement: ManagerMonthResult['endorsement'] = null;
   if (input.rollEndorsement < endorsementChance) {
     const brand = MANAGER_BRANDS[Math.floor(input.pickBrand * MANAGER_BRANDS.length) % MANAGER_BRANDS.length];

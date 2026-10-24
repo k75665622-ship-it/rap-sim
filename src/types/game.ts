@@ -559,7 +559,11 @@ export interface GameNotification {
     /** A feature deal — lands on Studio → Features. */
     | { type: 'features'; id: string }
     /** Rent, bills, the landlord — lands on Home & Lifestyle. */
-    | { type: 'home'; id: string };
+    | { type: 'home'; id: string }
+    /** Your people — lands on the Team page. */
+    | { type: 'team'; id?: string }
+    /** A conversation — a DM thread, or '__team__' for the group. */
+    | { type: 'chat'; id: string };
 }
 
 // ─── NPC ─────────────────────────────────────────────────────────────────
@@ -686,9 +690,14 @@ export interface Appointment {
   id: string;
   npcId: string;
   npcName: string;
-  kind: 'studio' | 'linkup' | 'party' | 'meeting' | 'gig';
+  kind: 'studio' | 'linkup' | 'party' | 'meeting' | 'gig' | 'cypher';
   title: string;
   place: string;
+  /** A cypher: the room, the beat, the MCs — and how each round went. */
+  cypher?: import('../sim/freestyle').CypherSpec;
+  cypherRounds?: import('../sim/freestyle').CypherRound[];
+  /** A meeting your manager set up with a big name's camp. */
+  pitch?: import('../sim/starIntro').StarPitch;
   /** A gig: what they pay, in cash, on the night. */
   fee?: number;
   /** A gig where they bring you out as a surprise guest (no fee). */
@@ -721,7 +730,8 @@ export type FeatureRequestStatus =
   | 'verse_ready'  // agreed (paid or free), the verse is in hand
   | 'declined'     // a no, with a reason
   | 'ignored'      // never answered
-  | 'added';       // folded into the record
+  | 'added'        // folded into the record
+  | 'removed';     // taken back off the record after a dispute
 
 // ─── INBOUND: SOMEBODY WANTS YOU ON THEIR RECORD ───────────────────────────
 //
@@ -861,6 +871,10 @@ export interface FeatureRequest {
   refunded?: number;
   /** A court case over this deal. */
   caseId?: string;
+  /** The terms they attached to the verse (see `sim/featureTerms.ts`). */
+  conditions?: import('../sim/featureTerms').FeatureCondition[];
+  /** Terms that were broken, and what came of it. */
+  breaches?: { kind: string; serial: number; how: string; text: string; settled?: boolean }[];
 }
 
 /**
@@ -1180,6 +1194,47 @@ export interface CrewMember {
    * contribute, so a slighted producer is not just an annoyed line in the log.
    */
   morale?: number;
+  /** How their weeks have gone (see `sim/crewWork.ts`). */
+  perf?: CrewPerf;
+  /** You've worked with them long enough to know how they work. */
+  styleKnown?: boolean;
+  /** Months in a row they've let the team down. Two and the manager says so. */
+  strikes?: number;
+  /** Day serial you last warned or praised them. */
+  warnedSerial?: number;
+  praisedSerial?: number;
+  /** Their last monthly review. */
+  lastReview?: { serial: number; grade: string; text: string };
+}
+
+/** A month of somebody's work, counted by how each week went. */
+export interface CrewWeeks { none: number; low: number; normal: number; extra: number; clutch: number }
+export interface CrewPerf {
+  /** Every week since they started. */
+  total: CrewWeeks;
+  /** This month so far. */
+  month: CrewWeeks;
+  /** Grades of the last months, newest first. */
+  grades: string[];
+  /** How last week went. */
+  last?: keyof CrewWeeks;
+}
+
+/** Two people on your team who don't agree — and want you to settle it. */
+export interface TeamDispute {
+  id: string;
+  serial: number;
+  expires: number;
+  topic: string;
+  /** What it's about, in a line. */
+  about: string;
+  a: { id: string; name: string; role: string };
+  b: { id: string; name: string; role: string };
+  options: { id: 'a' | 'b' | 'calm'; label: string }[];
+  status: 'open' | 'settled' | 'expired';
+  resolution?: string;
+  /** Anything the side you take sets in motion. */
+  songId?: string;
 }
 
 export interface InterviewOffer {
@@ -1653,7 +1708,16 @@ export interface InterviewRecord {
 /** One thing on the manager's desk: what it is, the details, and their advice. */
 export interface ManagerBrief {
   id: string;
-  kind: 'show' | 'feature' | 'interview' | 'fyi';
+  /** `pitch`: something the manager went out and got — a feature, a brand, a sync, a producer. */
+  kind: 'show' | 'feature' | 'interview' | 'fyi' | 'pitch';
+  /** Which kind of pitch (see `sim/managerStyle.ts`). */
+  pitch?: string;
+  /** What the pitch needs to be acted on. */
+  data?: Record<string, unknown>;
+  /** The team rules say the manager may accept this one without asking. */
+  auto?: boolean;
+  /** The day it lapses, for pitches. */
+  expiresSerial?: number;
   refId?: string;
   title: string;
   details: string[];
@@ -1741,7 +1805,33 @@ export type MomentEffect =
   /** They'll put a verse on your best unreleased song, free — it arrives in Studio → Features. */
   | { k: 'guestVerse'; npcId: string }
   /** A piece of clothing, gifted — it goes in your wardrobe. */
-  | { k: 'dripGift'; from: string };
+  | { k: 'dripGift'; from: string }
+  /** A second wind on one of your released records. */
+  | { k: 'revival'; songId: string; power: number; width: number; reason: string }
+  /** Something is now true about your life (a generator, a security system). */
+  | { k: 'flag'; id: string; v: number }
+  /** Their verse comes off your record. */
+  | { k: 'removeVerse'; songId: string; npcId: string; requestId: string }
+  /** They take you to court over a broken feature deal. */
+  | { k: 'sueBreach'; npcId: string; requestId: string; claim: number }
+  /** The dispute over a broken term is over. */
+  | { k: 'settleBreach'; requestId: string }
+  /** They give you more time on a release deadline. */
+  | { k: 'extendTerms'; requestId: string; days: number }
+  /** They drop one of their terms (you paid it off). */
+  | { k: 'dropTerm'; requestId: string; kind: string }
+  /** A freestyle cypher goes in your diary. */
+  | { k: 'cypher'; npcId: string; atMinute: number; place: string }
+  /** Your birthday plan for this year. */
+  | { k: 'birthdayPlan'; plan: 'party' | 'dinner' | 'studio' | 'normal' }
+  /** A big name's team takes a meeting (see the manager's intro pitch). */
+  | { k: 'starMeeting'; npcId: string; atMinute: number }
+  /** The star is in for a verse on your record — a priced deal lands in Studio → Features. */
+  | { k: 'starFeature'; npcId: string; songId: string }
+  /** The star shared your record. */
+  | { k: 'cosign'; npcId: string; songId?: string }
+  /** The intro happened; how it went. */
+  | { k: 'introDone'; npcId: string; outcome: string };
 
 export interface Moment {
   id: string;
@@ -2172,6 +2262,7 @@ export type GameScreen =
   | 'lifestyle'
   | 'streaming'
   | 'streams'
+  | 'catalog'
   | 'platform'
   | 'videos'
   | 'watch'
@@ -2494,6 +2585,28 @@ export interface GameState {
   /** The group chat with everyone on your payroll. */
   teamChat?: TeamChatMsg[];
   teamChatUnread?: number;
+  /** A message in the group is waiting on the AI (or the built-in fallback). */
+  teamChatPending?: { since: number; text: string };
+  /** The rules the player set for the team (see `sim/teamRules.ts`). */
+  teamPolicy?: Partial<import('../sim/teamRules').TeamPolicy>;
+  /** Things that are true about the player's life: a generator, a visa on file. Day serial it became true. */
+  lifeFlags?: Record<string, number>;
+  /** The manager was told to push something: more shows or more features, until a day. */
+  managerPush?: { kind: 'shows' | 'features' | 'deals'; until: number };
+  /** Projects you are still putting together: saved tracklists, not out yet. */
+  albumDrafts?: AlbumDraft[];
+  /** Two people on the team who need you to settle something. */
+  teamDispute?: TeamDispute | null;
+  /** The last day the team argued, so it doesn't happen every day. */
+  lastDisputeSerial?: number;
+  /** Birthdays: what you planned for yours this year, and the years already marked. */
+  birthday?: { year: number; plan?: 'party' | 'dinner' | 'studio' | 'normal'; asked?: boolean; done?: boolean; guests?: string[]; story?: string };
+  /** NPC birthdays already marked, by "id|year". */
+  birthdaysSeen?: string[];
+  /** Big names you've been put in a room with, so the manager doesn't pitch the same one twice. */
+  starIntros?: { npcId: string; serial: number; outcome?: string }[];
+  /** The last week the big names moved (releases, shows), so it runs once a week. */
+  starPulseWeek?: number;
   /** The plan happening right now (the modal is open). */
   activeAppointment?: string | null;
   /** Clothes, jewellery, the shop's drops and the wardrobe. */
@@ -2701,6 +2814,21 @@ export interface GameState {
 }
 
 
+/** A project in the album vault: a tracklist you are still working on. */
+export interface AlbumDraft {
+  id: string;
+  title: string;
+  type: 'album' | 'ep' | 'mixtape';
+  /** In running order. */
+  songIds: string[];
+  createdSerial: number;
+  updatedSerial: number;
+  /** The day it comes out on its own, if you scheduled it. */
+  plannedSerial?: number;
+  note?: string;
+  coverSeed: number;
+}
+
 export interface TeamChatMsg {
   id: string;
   /** NPC id of the sender, or 'player'. */
@@ -2711,4 +2839,6 @@ export interface TeamChatMsg {
   serial: number;
   /** Real time, for ordering and the "2h" stamp. */
   at: string;
+  /** What kind of update it was, so the same one isn't posted every week. */
+  key?: string;
 }

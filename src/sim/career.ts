@@ -7,6 +7,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { MailMessage, NPC, Player, Song } from '../types/game';
 import { traitsFor } from './roles';
 import { pitchFromTraits, traitSummary } from './traits';
+import { getCountry } from '../data/locations';
+import { specialtyOf, managerReach } from './managerStyle';
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -140,7 +142,15 @@ export function generateManagerOffers(
   // Managers start circling once there is a real signal.
   if (!signed && player.career.localFame < 15 && player.career.fanbase < 300) return [];
 
-  const managers = npcs.filter((n) => n.role === 'manager' || n.role === 'rival_manager');
+  const all = npcs.filter((n) => n.role === 'manager' || n.role === 'rival_manager');
+  if (all.length === 0) return [];
+  // Managers work where they live. You are approached by people from your own
+  // scene; the international operators only call once you are a national name.
+  const cont = getCountry(player.country)?.continent;
+  const home = all.filter((m) => m.country === player.country);
+  const near = all.filter((m) => m.country !== player.country && getCountry(m.country)?.continent === cont && m.tier !== 'local');
+  const big = all.filter((m) => m.tier === 'international' && player.career.nationalFame >= 35);
+  const managers = [...new Set([...(home.length ? home : near), ...(player.career.nationalFame >= 25 ? near.slice(0, 20) : []), ...big])];
   if (managers.length === 0) return [];
 
   // Rarer as time goes on without a hit, to avoid spam.
@@ -185,8 +195,9 @@ export function generateManagerOffers(
   // they are drawn from the manager's own record rather than the archetype, so
   // two veterans with different characteristics make different pitches.
   const mgrTraits = traitsFor(mgr).visible;
-  const traitPitch = pitchFromTraits(mgr.name, mgrTraits, mgr.role);
-  const traitTag = traitSummary(mgrTraits);
+  const spec = specialtyOf(mgr)!;
+  const traitPitch = `${pitchFromTraits(mgr.name, mgrTraits, mgr.role)}\n\n${spec.emoji} What I do: ${spec.purpose} ${spec.strengths[0]}. Where I work: ${managerReach(mgr).label.toLowerCase()}. I'll be honest — ${spec.weakness.charAt(0).toLowerCase()}${spec.weakness.slice(1)}`;
+  const traitTag = `${spec.label} · ${traitSummary(mgrTraits)}`;
 
   const opening = signed
     ? `I know ${currentManager?.name ?? 'whoever has you'} has you. I am not going to pretend I do not.\n\n` +
@@ -202,8 +213,8 @@ export function generateManagerOffers(
   return [{
     id: uuidv4(),
     from: mgr.id,
-    fromName: signed ? `${mgr.name} — ${arch.title} (poaching)` : `${mgr.name} — ${arch.title}`,
-    subject: signed ? `${mgr.name} wants to take you off ${currentManager?.name ?? 'your manager'}` : `Management offer: ${arch.title}`,
+    fromName: signed ? `${mgr.name} — ${spec.label} (poaching)` : `${mgr.name} — ${spec.label}`,
+    subject: signed ? `${mgr.name} wants to take you off ${currentManager?.name ?? 'your manager'}` : `Management offer: ${spec.label} (${arch.title.replace(/^The /, '').toLowerCase()})`,
     body:
       `${opening}` +
       `${hiddenClause}\n\n` +
@@ -251,8 +262,13 @@ export function generateLabelOffers(
     player.career.nationalFame > 30 ? 2 : 1;
 
   const pool = [...LABEL_ARCHETYPES].sort(() => Math.random() - 0.5).slice(0, heat);
+  // The biggest label in YOUR country is named for your capital, not Accra's.
+  const capital = getCountry(player.country)?.cities[0]?.name ?? player.city ?? 'Accra';
 
-  for (const label of pool) {
+  for (const label0 of pool) {
+    const label = label0.id === 'major'
+      ? { ...label0, name: `${capital} Gold Music`, blurb: `The biggest label in ${player.country}. Real budgets, real pressure, real deadlines.` }
+      : label0;
     const advance = randInt(label.advance);
     const royalty = randInt(label.royalty);
     const years = randInt(label.years);

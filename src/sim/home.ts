@@ -47,6 +47,11 @@ const COST: Record<string, number> = {
   Japan: 2.5, 'South Korea': 2.3, China: 1.8, India: 0.7, Indonesia: 0.8, Philippines: 0.8, Australia: 2.9, 'New Zealand': 2.6,
   Brazil: 1.3, Mexico: 1.2, Colombia: 1, Argentina: 1, Chile: 1.4, Jamaica: 1.6, 'Trinidad and Tobago': 1.6, 'Puerto Rico': 2.2,
   'United Arab Emirates': 2.9, 'Saudi Arabia': 2.2, Turkey: 1.2, Russia: 1.5,
+  // The game's own names for these countries. Without them an American, a
+  // Briton or an Emirati paid Accra-plus prices for everything.
+  USA: 3.2, UK: 3, UAE: 2.9,
+  'DR Congo': 0.9, Mali: 0.75, 'Burkina Faso': 0.75, Botswana: 1.2, Namibia: 1.3, Mozambique: 0.85,
+  Poland: 1.6, Thailand: 1.2, Vietnam: 0.9, Malaysia: 1.2,
 };
 export const costIndex = (country: string | undefined): number => COST[country ?? ''] ?? 1.6;
 

@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import { useGameStore, awardWorld } from "./store/gameStore";
+import { flushAutosave, flushSideTicks, useGameStore, awardWorld } from "./store/gameStore";
 import * as awardSeasons from "./sim/awardSeasons";
 import * as saves from "./store/saves";
 import { initKV } from "./store/kv";
@@ -27,6 +27,8 @@ import * as release from "./sim/release";
 // Dev hook so the store can be driven from the console / automated tests.
 // Harmless in production: it exposes no more than the local save file already does.
 (window as unknown as { __rapStore?: typeof useGameStore }).__rapStore = useGameStore;
+(window as unknown as { __rapFlushSave?: () => void }).__rapFlushSave = flushAutosave;
+(window as unknown as { __rapFlushSide?: () => void }).__rapFlushSide = flushSideTicks;
 (window as unknown as { __rapAwards?: unknown }).__rapAwards = { ...awardSeasons, awardWorld };
 
 // The save layer, for the same reason — and because the legacy-save migration

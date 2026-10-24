@@ -37,7 +37,7 @@ export function whenLabel(atMinute: number, nowMinute: number): string {
   return `${dow} ${t}`;
 }
 
-const HOUR: Record<Appointment['kind'], number> = { studio: 20, linkup: 19, party: 22, meeting: 14, gig: 23 };
+const HOUR: Record<Appointment['kind'], number> = { studio: 20, linkup: 19, party: 22, meeting: 14, gig: 23, cypher: 21 };
 
 /** The next sensible time for this kind of plan, at least an hour away. */
 export function defaultSlot(nowMinute: number, kind: Appointment['kind']): number {
@@ -63,6 +63,7 @@ export function placeFor(npc: Pick<NPC, 'id' | 'name' | 'city'>, kind: Appointme
   if (kind === 'party') return pick([`Club Midnight, ${city}`, `a rooftop in ${city}`, `${first}'s place`], seed);
   if (kind === 'meeting') return pick([`an office in ${city}`, `a hotel lounge in ${city}`], seed);
   if (kind === 'gig') return pick([`${first}'s club, ${city}`, `Club Midnight, ${city}`, `The Basement, ${city}`], seed);
+  if (kind === 'cypher') return pick([`the ${city} cypher spot`, `${first}'s studio`, `The Basement, ${city}`, `a car park in ${city}`], seed);
   return pick([`a chop bar in ${city}`, `a lounge in ${city}`, `the waterfront, ${city}`], seed);
 }
 
@@ -72,6 +73,7 @@ export const KIND_LABEL: Record<Appointment['kind'], { emoji: string; label: str
   party: { emoji: '🪩', label: 'Party' },
   meeting: { emoji: '🤝', label: 'Meeting' },
   gig: { emoji: '🎤', label: 'Gig' },
+  cypher: { emoji: '🔥', label: 'Cypher' },
 };
 
 /** How late they turn up, in minutes. */
@@ -104,6 +106,13 @@ export function sceneChoices(a: Appointment, hasUnreleased: boolean): SceneChoic
       { id: 'perform', label: 'Do the full set', hint: `Collect the $${(a.fee ?? 0).toLocaleString()} at the end`, energy: 15 },
       { id: 'short', label: 'Do ten minutes and dip', hint: 'Expect them to pay you less', energy: 7 },
       { id: 'leave', label: 'Walk out before your slot', hint: 'No money, and they will remember', energy: 2 },
+    ];
+  }
+  if (a.kind === 'cypher') {
+    // The rounds are played in the cypher itself; these are the ways out of it.
+    return [
+      { id: 'watch', label: 'Just watch tonight', hint: 'Learn from the circle, meet the MCs', energy: 5 },
+      { id: 'leave', label: 'Show face and leave', hint: 'Better than not coming', energy: 2 },
     ];
   }
   if (a.kind === 'party') {
@@ -164,6 +173,10 @@ export function resolveScene(a: Appointment, choice: string, p: Persona, ctx: { 
       return luck > 0.35
         ? { text: 'A legendary night. The clips are everywhere and people love it.', npcLine: 'LAST NIGHT 😂😂🔥', effects: [{ k: 'energy', v: -25 }, { k: 'rel', npcId: id, v: 8 }, { k: 'momentum', v: 3 }, { k: 'fans', v: Math.round(200 + ctx.playerFame * 30) }] }
         : { text: 'Too much. A video of you stumbling out is doing numbers for the wrong reasons.', npcLine: 'You good? 😭', effects: [{ k: 'energy', v: -30 }, { k: 'rel', npcId: id, v: 3 }, { k: 'reputation', v: -2 }] };
+    case 'watch':
+      return luck > 0.5
+        ? { text: `${late}You watched from the edge of the circle and studied every round. You know what the room rewards now.`, npcLine: 'Next time you\'re jumping in 😤', effects: [{ k: 'energy', v: -5 }, { k: 'rel', npcId: id, v: 3 }, { k: 'stat', stat: 'freestyle', v: 0.3 }, { k: 'stat', stat: 'networking', v: 0.3 }] }
+        : { text: `${late}You watched. Somebody asked why you didn't jump in.`, npcLine: 'You came all the way and didn\'t rap? 😂', effects: [{ k: 'energy', v: -5 }, { k: 'rel', npcId: id, v: 1 }, { k: 'stat', stat: 'freestyle', v: 0.2 }] };
     case 'business':
       return luck > 0.55
         ? { text: `${late}You traded real ideas. ${first} wants to work together.`, npcLine: 'Let\'s make money together 🤝🏾', effects: [{ k: 'energy', v: -10 }, { k: 'rel', npcId: id, v: 6 }, { k: 'stat', stat: 'businessKnowledge', v: 0.7 }] }

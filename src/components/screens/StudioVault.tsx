@@ -73,9 +73,12 @@ type Panel = 'title' | 'lyrics' | 'production' | 'rerecord' | 'note' | 'feature'
 export function StudioVault({
   onRelease,
   onMix,
+  focusSongId,
 }: {
   onRelease: (songId: string) => void;
   onMix: (songId: string) => void;
+  /** Open this master's sheet straight away (from the album builder's Edit). */
+  focusSongId?: string;
 }) {
   const songs = useGameStore((s) => s.songs);
   const npcs = useGameStore((s) => s.npcs);
@@ -91,7 +94,7 @@ export function StudioVault({
   const deleteSong = useGameStore((s) => s.deleteSong);
 
   const [tab, setTab] = useState<'active' | 'archived'>('active');
-  const [open, setOpen] = useState<{ songId: string; panel: Panel } | null>(null);
+  const [open, setOpen] = useState<{ songId: string; panel: Panel } | null>(() => (focusSongId ? { songId: focusSongId, panel: 'lyrics' } : null));
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   const active = useMemo(

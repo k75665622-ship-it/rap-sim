@@ -425,6 +425,7 @@ import { workStyleOf, weekEffort, effortLine, recordWeek, gradeOf, reviewLine, k
 import { cypherSpecFor, playRound, finishCypher as finishCypherNight, MOVES as CYPHER_MOVES, ROUNDS as CYPHER_ROUNDS, VERDICT_LABEL, type CypherMove } from '../sim/freestyle';
 import { npcBirthday, birthdayOf, daysUntil, partyCost, dinnerCost, partyNight, wishLine, teamWish, fanWish, type Guest } from '../sim/birthdays';
 import { pitchChoices, resolvePitch, introPitchLine } from '../sim/starIntro';
+import { discloseFor, judgeTerms, myBreaches, MY_TERMS, type MyTerm } from '../sim/myTerms';
 import { specialSkillOf, crewWithSkill, personaOf } from '../sim/persona';
 import { isSilentOption, playerLine, npcReply, toneOf, followUpFor, outcomeChips } from '../sim/dmVoice';
 import { mixCraft, decideMix } from '../sim/studio';
@@ -2370,6 +2371,42 @@ function finishWork(state: GameState, item: WorkItem, log: string[]): void {
     // The verse goes on THEIR record. That is the whole job — the player does
     // not get a copy, they get a credit on somebody else's song.
     if (hostSong) {
+      // Who else they put on it — and whether they kept to your terms.
+      if (npc && req && !isRealId(npc.id)) {
+        const persona = personaOf(npc as NPC);
+        const disc = discloseFor(npc as NPC, persona, baseNpcs(state), req.id);
+        const terms = req.myTerms ?? [];
+        const honest = (hashString(`${req.id}|honest`) % 1000) / 1000 < 0.45 + persona.reliability * 0.5;
+        let guests = disc.others;
+        if (honest && terms.some((t) => t.kind === 'only_feature')) guests = [];
+        if (honest) { const no = new Set(terms.filter((t) => t.kind === 'no_artist').flatMap((t) => (t.targets ?? []).map((x) => x.id))); guests = guests.filter((g) => !no.has(g.id)); }
+        for (const g of guests) if (!(hostSong.featuredArtists ?? []).includes(g.id)) { hostSong.featuredArtists = [...(hostSong.featuredArtists ?? []), g.id]; hostSong.featureArtistNames = [...(hostSong.featureArtistNames ?? []), g.name]; }
+        if (terms.length) {
+          const tagged = (honest && terms.some((t) => t.kind === 'credit_tag')) || !(persona.ego > 0.78 && persona.warmth < 0.35);
+          const broken = myBreaches(terms, { others: guests.map((g) => g.id), othersNames: guests.map((g) => g.name), tagged, persona, seed: req.id });
+          if (broken.length) {
+            req.myBreaches = broken.map((b) => ({ kind: b.kind, text: b.text }));
+            const law = state.crew.find((c) => c.role === 'lawyer');
+            const mgr = managerOf(state);
+            const relay = mgr ? { name: mgr.name, role: 'manager' } : law ? { name: law.npcName, role: 'lawyer' } : undefined;
+            const serial = dateToSerial(state.gameDate);
+            deliverMoment(state, {
+              kind: 'verse_breach', channel: relay ? 'team' : 'life', npcName: relay?.name, crewRole: relay?.role,
+              title: `${npc.name} broke your terms on "${hostSong.title}"`,
+              body: `${relay ? `${relay.name.split(' ')[0]}: "` : ''}${broken.map((b) => b.text).join(' ')} ${relay ? 'What do you want to do?"' : 'Your move.'}`,
+              options: [
+                { id: 'let_go', label: 'Let it go' },
+                { id: 'more', label: 'Ask for more money' },
+                { id: 'pull', label: 'Pull your verse' },
+                { id: 'public', label: 'Call them out' },
+                ...(law ? [{ id: 'lawyer', label: `Send ${law.npcName.split(' ')[0]} (lawyer)` }] : []),
+              ],
+              expiresSerial: serial + 5,
+              data: { npcId: npc.id, name: npc.name, fee: req.agreedFee ?? 0, warmth: persona.warmth, songId: hostSong.id, requestId: req.id, title: hostSong.title },
+            }, serial, 'scheduled', serial + 1);
+          }
+        }
+      }
       hostSong.featuredArtists = [...(hostSong.featuredArtists ?? []), state.player!.id];
       hostSong.featureArtistNames = [...(hostSong.featureArtistNames ?? []), state.player!.artistName];
       // A guest verse lifts the record it lands on, and the lift is the verse's
@@ -3020,6 +3057,8 @@ interface GameActions {
   quoteInboundVerse: (requestId: string, quote: number) => FeatureActionResult;
   /** Take the number on the table. */
   acceptInboundOffer: (requestId: string) => FeatureActionResult;
+  /** Send your terms on a verse somebody asked you for. They read them and answer. */
+  setVerseTerms: (requestId: string, terms: MyTerm[]) => FeatureActionResult;
   /** Say no. The artist is told, and the relationship takes it. */
   declineInboundRequest: (requestId: string) => FeatureActionResult;
   /**
@@ -6042,6 +6081,16 @@ function applyMomentEffects(state: GameState, effects: MomentEffect[], serial: n
         state.songs.push(rem);
         pushNotification(state, { kind: 'feature', title: `🎛️ "${rem.title}" ft. ${n.name} is in your vault`, body: 'Their verse is on it. Release it while the original is still hot.', artSeed: `song|${rem.id}`, action: { type: 'song', id: rem.id } });
         remember(state, 'music', `${n.name} jumped on the remix of "${orig.title}".`, { npcIds: [n.id], weight: 3, tone: 'good' });
+        break;
+      }
+      case 'pullMyVerse': {
+        const song = state.npcSongs.find((x) => x.id === e.songId);
+        if (song) {
+          const i = (song.featuredArtists ?? []).indexOf(p.id);
+          if (i >= 0) { song.featuredArtists = song.featuredArtists.filter((_, k) => k !== i); song.featureArtistNames = (song.featureArtistNames ?? []).filter((nm) => nm !== p.artistName); song.quality = Math.max(1, song.quality - 3); }
+        }
+        const r = state.inboundRequests.find((x) => x.id === e.requestId);
+        for (const b of r?.myBreaches ?? []) b.settled = true;
         break;
       }
       case 'introDone': {
@@ -12618,6 +12667,32 @@ export const useGameStore = create<GameState & GameActions>()(
         };
       });
 
+      return result;
+    },
+
+    setVerseTerms: (requestId, terms) => {
+      let result: FeatureActionResult = { ok: false, message: 'That ask is not open.' };
+      set((state) => {
+        const req = state.inboundRequests.find((r) => r.id === requestId);
+        const npc = req ? state.npcs.find((n) => n.id === req.npcId) : undefined;
+        if (!req || !npc || !state.player || (req.status !== 'open' && req.status !== 'agreed')) return;
+        if (req.termsSet) { result = { ok: false, message: 'You already sent your terms on this one.' }; return; }
+        if (!terms.length) { result = { ok: false, message: 'Pick at least one term.' }; return; }
+        const persona = personaOf(npc);
+        const j = judgeTerms(persona, terms, npc.fame - blendedFame(state.player), Math.random());
+        req.termsSet = true;
+        pushDM(state, npc.id, { fromPlayer: true, content: `My terms on "${req.npcSongTitle}": ${terms.map((t) => MY_TERMS[t.kind].label + (t.targets?.length ? ` (${t.targets.map((x) => x.name).join(', ')})` : '')).join(' · ')}` });
+        if (j.walk && req.status === 'open') {
+          req.status = 'withdrawn';
+          npc.relationshipScore = Math.max(-100, npc.relationshipScore - 3);
+          if (!isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: pickLine(['Nah that\'s too much for one verse. I\'ll find someone else.', 'All these conditions? Forget it.'], req.id) });
+          result = { ok: true, message: j.line };
+          return;
+        }
+        req.myTerms = j.accepted;
+        if (!isRealId(npc.id)) pushDM(state, npc.id, { fromPlayer: false, content: j.refused.length ? pickLine([`Most of that is fine. But ${j.refused.map((t) => MY_TERMS[t.kind].label).join(', ')}? Can't promise that.`, `I can do some of it. Not ${j.refused.map((t) => MY_TERMS[t.kind].label).join(' or ')}.`], req.id) : pickLine(['Fair. Done, in writing 🤝🏾', 'No problem. Your terms, your verse.'], req.id) });
+        result = { ok: true, message: j.line };
+      });
       return result;
     },
 

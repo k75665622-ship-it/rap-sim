@@ -817,6 +817,12 @@ export interface InboundRequest {
    * must not tell the player they were outbid when they simply never delivered.
    */
   lapsed?: boolean;
+  /** Your terms on the verse — the ones they agreed to. */
+  myTerms?: import('../sim/myTerms').MyTerm[];
+  /** You already sent your terms (one round, like real life). */
+  termsSet?: boolean;
+  /** Your terms they broke, and whether it's settled. */
+  myBreaches?: { kind: string; text: string; settled?: boolean }[];
   /** The manager's read, snapshotted when the player asks for it. */
   managerRead?: {
     trackVerdict: string;
@@ -1833,7 +1839,9 @@ export type MomentEffect =
   /** The intro happened; how it went. */
   | { k: 'introDone'; npcId: string; outcome: string }
   /** They jump on your remix: a remix with their verse lands in the vault. */
-  | { k: 'remixGuest'; npcId: string; songId: string };
+  | { k: 'remixGuest'; npcId: string; songId: string }
+  /** You pull your verse off their record. */
+  | { k: 'pullMyVerse'; songId: string; requestId: string };
 
 export interface Moment {
   id: string;

@@ -420,6 +420,7 @@ import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, 
 import { GENRE_BY_ID } from '../data/genres';
 import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, rollDice, playFixture, tableLimit, vipTier, type BlackjackHand, type RouletteBet, type DiceBet } from '../sim/casino';
 import { assignmentsFor, weekOfWork } from '../sim/assignments';
+import { VISIBLE_TRAITS, type VisibleTrait } from '../sim/traits';
 import { workStyleOf, weekEffort, effortLine, recordWeek, gradeOf, reviewLine, knowsStyle, warnOutcome, praiseOutcome, WORK_STYLE } from '../sim/crewWork';
 import { cypherSpecFor, playRound, finishCypher as finishCypherNight, MOVES as CYPHER_MOVES, ROUNDS as CYPHER_ROUNDS, VERDICT_LABEL, type CypherMove } from '../sim/freestyle';
 import { npcBirthday, birthdayOf, daysUntil, partyCost, dinnerCost, partyNight, wishLine, teamWish, fanWish, type Guest } from '../sim/birthdays';
@@ -5768,7 +5769,7 @@ function momentWorld(state: GameState, npcs: NPC[], serial: number): MomentWorld
     promoters: sampleNpcs(npcs, 2, (n) => (n.role === 'promoter' || n.role === 'venue_owner') && generated(n) && n.country === home),
     producers: sampleNpcs(npcs, 2, (n) => n.role === 'producer' && generated(n) && n.country === home && n.fame <= fame + 30),
     // A fan page from home writes to you; one from the other side of the world is rare.
-    fans: (() => { const local = sampleNpcs(npcs, 1, (n) => n.role === 'fan_account' && n.country === home); return local.length ? local : sampleNpcs(npcs, 1, (n) => n.role === 'fan_account' && fame >= 40); })(),
+    fans: p.career.fanbase < 400 ? [] : (() => { const local = sampleNpcs(npcs, 1, (n) => n.role === 'fan_account' && n.country === home); return local.length ? local : sampleNpcs(npcs, 1, (n) => n.role === 'fan_account' && fame >= 40); })(),
     stars: sampleNpcs(npcs, 3, (n) => n.role === 'artist' && generated(n) && n.fame >= fame + 8 && n.fame <= fame + 40 && n.relationshipScore >= 0),
     unreleased: (state.songs ?? []).filter((s) => !isSongReleased(s) && !s.archivedAt).slice(0, 3),
     hasUpcomingShow: state.scheduledShows.some((s) => s.serial - serial > 3),
@@ -6023,6 +6024,24 @@ function applyMomentEffects(state: GameState, effects: MomentEffect[], serial: n
         state.headlines.unshift({ id: uuidv4(), text: `${n.name} shares ${p.artistName}'s ${song ? `"${song.title}"` : 'music'}`, fullStory: `${n.name} posted ${p.artistName}'s ${song ? `"${song.title}"` : 'music'} to their story. Fans noticed within the hour.`, date: formatGameDate(state.gameDate), relatedEntities: [p.id, n.id], priority: 7, category: 'feature' });
         pushNotification(state, { kind: 'milestone', title: `👀 ${n.name} shared your ${song ? `"${song.title}"` : 'music'}`, body: 'Your phone is going crazy.', artSeed: `npc|${n.id}` });
         remember(state, 'career', `${n.name} shared your ${song ? `"${song.title}"` : 'music'} — a real co-sign.`, { npcIds: [n.id], weight: 4, tone: 'good' });
+        break;
+      }
+      case 'remixGuest': {
+        const n = state.npcs.find((x) => x.id === e.npcId);
+        const orig = state.songs.find((x) => x.id === e.songId);
+        if (!n || !orig || !isSongReleased(orig)) break;
+        if (state.songs.some((x) => x.originalSongId === orig.id && x.lineage === 'remix' && !isSongReleased(x))) break;
+        const rem: Song = {
+          ...orig, id: uuidv4(), title: `${orig.title} (Remix)`, version: 'remix', lineage: 'remix', originalSongId: orig.id,
+          masterStatus: 'mastered', releaseDate: formatGameDate(state.gameDate), recordingDate: formatGameDate(state.gameDate),
+          totalStreams: 0, weeklyStreams: 0, totalEarnings: 0, peakWeeklyStreams: 0, chartPositions: {}, certifications: [], revivals: undefined,
+          hasVideo: false, videoViews: 0, marketingBudget: 0, platformIds: undefined, weeksOut: 0, readyToRelease: true,
+          featuredArtists: [...(orig.featuredArtists ?? []), n.id], featureArtistNames: [...(orig.featureArtistNames ?? []), n.name],
+          quality: Math.min(99, Math.round((orig.quality + (n.fame > blendedFame(p) ? 3 : 1)) * 10) / 10),
+        };
+        state.songs.push(rem);
+        pushNotification(state, { kind: 'feature', title: `🎛️ "${rem.title}" ft. ${n.name} is in your vault`, body: 'Their verse is on it. Release it while the original is still hot.', artSeed: `song|${rem.id}`, action: { type: 'song', id: rem.id } });
+        remember(state, 'music', `${n.name} jumped on the remix of "${orig.title}".`, { npcIds: [n.id], weight: 3, tone: 'good' });
         break;
       }
       case 'introDone': {
@@ -6622,7 +6641,8 @@ function fanChatter(state: GameState, npcs: NPC[], serial: number, days: number)
   const released = (state.songs ?? []).filter((s) => isSongReleased(s));
   const latest = released[released.length - 1];
   const fresh = latest && state.platformStats?.[latest.id] && serial - state.platformStats[latest.id].release <= 14 ? latest : undefined;
-  const nom = Object.values(state.awardSeasons ?? {}).find((x) => x.phase === 'nominations' && x.categories.some((c) => c.nominees.some((n) => n.isPlayer)));
+  // Fans talk about a nomination the day after your team has told you, not before.
+  const nom = Object.values(state.awardSeasons ?? {}).find((x) => x.phase === 'nominations' && serial > x.cal.nominations && x.categories.some((c) => c.nominees.some((n) => n.isPlayer)));
   const nomBody = nom ? bodiesFor(state).find((b) => b.id === nom.bodyId) : undefined;
   const liveCase = (state.cases ?? []).find((c) => c.public && (c.status === 'served' || c.status === 'hearing'));
   const beef = state.beefs.find((b) => !b.resolution);
@@ -7615,6 +7635,34 @@ function teamPosts(state: GameState, manager: string, n: number, serial: number)
     post.comments.forEach((c, k) => { c.minute = when[k]; });
     state.socialPosts.unshift(post);
     stats[app].lastPostSerial = serial;
+  }
+}
+
+const GROW_TRAIT: Record<string, VisibleTrait> = { engineer: 'meticulous', producer: 'creative', songwriter: 'creative', publicist: 'charismatic', dj: 'charismatic', stylist: 'creative', photographer: 'creative', accountant: 'smart', lawyer: 'ruthless', personal_assistant: 'smart', trainer: 'brave', vocal_coach: 'meticulous' };
+
+/**
+ * People change. Six good months in and somebody can pick up a strength they
+ * didn't have; a lazy hire who got warned and then delivered can turn it
+ * around for good.
+ */
+function crewCharacterGrowth(state: GameState, c: CrewMember, log: string[]): void {
+  const months = c.monthsServed ?? 0;
+  const grades = c.perf?.grades ?? [];
+  const good = grades.length >= 2 && grades.slice(0, 2).every((g) => g === 'A' || g === 'B');
+  if ((c.hidden ?? []).includes('lazy') && c.warnedSerial !== undefined && good && (c.morale ?? 70) >= 55) {
+    c.hidden = (c.hidden ?? []).filter((t) => t !== 'lazy');
+    const line = `🌱 ${c.npcName} turned it around — two strong months since you had that talk. Not lazy any more.`;
+    log.push(line);
+    pushNotification(state, { kind: 'business', title: `🌱 ${c.npcName.split(' ')[0]} turned it around`, body: 'Two strong months since you had that talk. The work ethic is real now.', artSeed: `npc|${c.npcId}`, action: { type: 'team' } });
+    return;
+  }
+  if ((months === 6 || months === 12 || months === 24) && good && (c.morale ?? 70) >= 60 && (c.visible ?? []).length < 3) {
+    const t = GROW_TRAIT[c.role] ?? 'smart';
+    if ((c.visible ?? []).includes(t)) return;
+    c.visible = [...(c.visible ?? []), t];
+    const spec = VISIBLE_TRAITS[t];
+    log.push(`🌱 ${c.npcName} has grown with you: now ${spec.emoji} ${spec.label}.`);
+    pushNotification(state, { kind: 'business', title: `🌱 ${c.npcName.split(' ')[0]} has grown: ${spec.emoji} ${spec.label}`, body: `${months} months with you. ${spec.blurb}`, artSeed: `npc|${c.npcId}`, action: { type: 'team' } });
   }
 }
 
@@ -8881,7 +8929,16 @@ function awardsTick(state: GameState, serial: number, npcs: NPC[], npcSongs: Son
         s.invite = fame >= 45 && mine.some((c) => c.major) ? 'performer' : 'invited';
         s.rsvp = true;
         state.headlines.unshift({ id: uuidv4(), text: `${p.artistName} earns ${mine.length} nomination${mine.length > 1 ? 's' : ''} at the ${body.name}`, fullStory: mine.map((c) => c.name).join(', '), date: formatGameDate(state.gameDate), relatedEntities: [p.id], priority: 7, category: 'award' });
-        pushNotification(state, { kind: 'milestone', title: `${body.emoji} You're nominated: ${mine.length} at the ${body.name}`, body: `${mine.map((c) => c.name).join(', ')}. The night is ${new Date(s.cal.ceremony * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })} in ${body.city}.${s.invite === 'performer' ? ' They want you to perform.' : ''}`, artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
+        // Your people tell you before the internet does.
+        const teller = managerOf(state) ?? null;
+        const crewTeller = !teller ? (state.crew ?? [])[0] : undefined;
+        if (teller || crewTeller) {
+          const from = teller ? { from: teller.id, name: teller.name, role: 'manager' } : { from: crewTeller!.npcId, name: crewTeller!.npcName, role: crewTeller!.role };
+          const line = `${p.artistName.split(' ')[0]}!! I just got the call — we're nominated at the ${body.name}: ${mine.map((c) => c.name).join(', ')} 🏆 ${s.invite === 'performer' ? 'And they want you to perform.' : 'Clear the night.'}`;
+          pushTeamLines(state, [{ ...from, text: line, key: `nom:${key}` }], serial);
+          if (teller) pushDM(state, teller.id, { fromPlayer: false, content: `📞 ${line}` });
+        }
+        pushNotification(state, { kind: 'milestone', title: teller ? `📞 ${teller.name.split(' ')[0]}: "We're nominated!" — ${mine.length} at the ${body.name}` : `${body.emoji} A letter from the academy: you're nominated — ${mine.length} at the ${body.name}`, body: `${mine.map((c) => c.name).join(', ')}. The night is ${new Date(s.cal.ceremony * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })} in ${body.city}.${s.invite === 'performer' ? ' They want you to perform.' : ''}`, artSeed: `award|${key}|noms`, action: { type: 'awards', id: key } });
         remember(state, 'career', `You were nominated for ${mine.map((c) => c.name).join(', ')} at the ${body.name} ${s.cal.year}.`, { weight: 4, tone: 'good' });
       } else if (fame >= 55 && (relevant || fame >= 75)) {
         s.invite = 'invited';
@@ -9773,6 +9830,38 @@ function beatsTick(state: GameState, npcs: NPC[], serial: number, days: number):
   }
 }
 
+// ─── "PUT ME ON THE REMIX" ─────────────────────────────────────────────────
+// A record that is actually moving gets the calls: artists at your level (or a
+// bit above) want in on the remix. A record nobody is playing gets none.
+
+function remixAsksTick(state: GameState, npcs: NPC[], serial: number): void {
+  const p = state.player;
+  if (!p) return;
+  const fame = blendedFame(p);
+  const flags = state.lifeFlags ?? (state.lifeFlags = {});
+  const hot = state.songs.filter((x) => isSongReleased(x) && x.lineage !== 'remix' && serial - releaseSerialOf(state, x, serial) <= 75
+    && ((x.chartPositions?.[p.country] ?? 99) <= 20 || (x.weeklyStreams ?? 0) >= Math.max(4000, p.career.fanbase * 0.6)));
+  for (const song of hot) {
+    const asked = flags[`remixAsk:${song.id}`] ?? 0;
+    if (asked >= 2 || state.songs.some((x) => x.originalSongId === song.id && x.lineage === 'remix')) continue;
+    if ((state.moments ?? []).some((m) => m.kind === 'remix_ask' && m.status === 'open')) return;
+    if (Math.random() > 0.18) continue;
+    const beefs = activeBeefIds(state);
+    const n = sampleNpcs(npcs, 1, (x) => x.role === 'artist' && !isRealId(x.id) && x.country === p.country && x.fame >= fame - 12 && x.fame <= fame + 22 && !beefs.has(x.id) && !(song.featuredArtists ?? []).includes(x.id) && !isBlocked(state, x.id))[0];
+    if (!n) continue;
+    flags[`remixAsk:${song.id}`] = asked + 1;
+    const where = (song.chartPositions?.[p.country] ?? 99) <= 20 ? `#${song.chartPositions![p.country]} in ${p.country}` : 'everywhere right now';
+    deliverMoment(state, {
+      kind: 'remix_ask', channel: 'dm', npcId: n.id, npcName: n.name,
+      title: `${n.name} wants on the "${song.title}" remix`,
+      body: pickLine([`Yo "${song.title}" is ${where} 🔥 put me on the remix, I already wrote to it`, `Bro I can't stop playing "${song.title}". Remix. Me. Let's go 😤`, `"${song.title}" needs a remix and I'm the one. Free, I just want in.`], `${song.id}|${n.id}`),
+      options: [{ id: 'yes', label: 'Let\'s do it — send the verse', hint: 'A remix with their verse lands in your vault' }, { id: 'no', label: 'The original stays as it is' }, { id: 'ignore', label: 'Leave them on read' }],
+      expiresSerial: serial + 3,
+      data: { songId: song.id },
+    }, serial);
+  }
+}
+
 // ─── BIRTHDAYS ─────────────────────────────────────────────────────────────
 // Yours once a year — planned a week out, celebrated on the day. Everybody
 // else's too: the people you know have days that come round, and whether you
@@ -9972,6 +10061,7 @@ function momentsTick(state: GameState, npcs: NPC[], serial: number, days: number
     const song = state.songs.find((x) => x.id === r.songId);
     if (song && !isSongReleased(song)) checkFeatureTerms(state, song.id, false, false, npcs);
   }
+  remixAsksTick(state, npcs, serial);
   const list = state.moments ?? (state.moments = []);
   for (const m of list) {
     if (m.status === 'scheduled' && (m.dueSerial ?? 0) <= serial) {
@@ -9994,8 +10084,10 @@ function momentsTick(state: GameState, npcs: NPC[], serial: number, days: number
   const recent = list.slice(0, 8).map((m) => m.kind);
   const fame = blendedFame(state.player);
   let world: MomentWorld | null = null;
+  // Nobody knows you yet, so nobody is texting you much. The phone fills up
+  // as the name grows.
   const chances: [Moment['channel'], number, number][] = [
-    ['dm', 0.13 + fame / 900, 3],
+    ['dm', 0.03 + fame / 380, fame < 15 ? 1 : fame < 40 ? 2 : 3],
     ['team', 0.07 + state.crew.length * 0.012, 2],
     ['life', 0.11 + fame / 1500, 2],
   ];
@@ -11532,6 +11624,16 @@ export const useGameStore = create<GameState & GameActions>()(
     // is decide how much of an audience there is to build on — which is why a
     // remix of a song nobody heard stays small.
     createRemix: (data) => {
+      // One remix at a time per record: a second one this soon splits the audience.
+      {
+        const st0 = get();
+        const origin = st0.songs.find((x) => x.id === data.originalSongId);
+        const baseId = origin?.lineage === 'remix' && origin.originalSongId ? origin.originalSongId : data.originalSongId;
+        if (origin?.lineage === 'remix') return { ok: false, message: 'That one is already a remix. Remix the original instead.' };
+        const now = dateToSerial(st0.gameDate);
+        const recent = st0.songs.find((x) => x.originalSongId === baseId && x.lineage === 'remix' && (!isSongReleased(x) || now - serialOfGameDate(x.releaseDate, now) < 90));
+        if (recent) return { ok: false, message: isSongReleased(recent) ? `"${recent.title}" came out ${now - serialOfGameDate(recent.releaseDate, now)} days ago. Let it run — another remix this soon splits the audience.` : `"${recent.title}" is already in your vault. Release that one first.` };
+      }
       let result: RemixResult = { ok: false, message: 'That record is not out yet.' };
       set((state) => {
         if (!state.player) return;
@@ -20571,7 +20673,15 @@ export const useGameStore = create<GameState & GameActions>()(
 
             const npc = state.npcs.find((n) => n.id === member.npcId);
             if (!npc) continue;
-            const rate = growthPerMonth(npc);
+            crewCharacterGrowth(state, member, log);
+            // Who they are decides how fast they get better: grinders climb,
+            // the lazy stall, and the ones who have been with you from the
+            // start grow with you.
+            const st = workStyleOf(member);
+            const styleRate = st === 'grinder' ? 1.6 : st === 'loyalist' ? 1.3 : st === 'timer' ? 1.2 : st === 'coaster' ? 0.5 : st === 'diva' || st === 'mercenary' || st === 'hothead' ? 0.9 : 1;
+            const moodRate = (member.morale ?? 70) >= 70 ? 1.1 : (member.morale ?? 70) < 40 ? 0.6 : 1;
+            const tenure = (member.monthsServed ?? 0) >= 6 ? 1.25 : 1;
+            const rate = growthPerMonth(npc) * styleRate * moodRate * tenure;
             if (rate <= 0) continue;
 
             const before = npcSkill(npc);
@@ -20670,6 +20780,19 @@ export const useGameStore = create<GameState & GameActions>()(
         //
         // The odds and the sizes are `managerMonth`'s, so the number the Team
         // screen promises and the number the tick pays come from one place.
+        // A manager who signed you early grows with you: better at the job,
+        // and better known as your name gets bigger.
+        if (isMonth && currentManager) {
+          const mNpc = state.npcs.find((n) => n.id === currentManager.id);
+          if (mNpc && !isRealId(mNpc.id)) {
+            const gain = growthPerMonth(mNpc as NPC) * (traitsFor(mNpc as NPC).hidden.includes('hard_working') ? 1.5 : traitsFor(mNpc as NPC).hidden.includes('lazy') ? 0.5 : 1);
+            mNpc.skillBonus = (mNpc.skillBonus ?? 0) + gain;
+            const pf = blendedFame(state.player);
+            if (pf > mNpc.fame) mNpc.fame = Math.min(100, Math.round((mNpc.fame + (pf - mNpc.fame) * 0.04) * 10) / 10);
+            const mirror = rawNPCs.find((n) => n.id === mNpc.id);
+            if (mirror) { mirror.skillBonus = mNpc.skillBonus; mirror.fame = mNpc.fame; }
+          }
+        }
         if (isMonth && currentManager) {
           const mm = managerMonth({
             net: mgrNet,

@@ -853,6 +853,16 @@ const cypherInvite: Template = {
   },
 };
 
+const remixAsk: Template = {
+  id: 'remix_ask', channel: 'dm', weight: 0, build: () => null,
+  resolve: (m, o) => {
+    const id = m.npcId!;
+    if (o === 'yes') return { text: 'They sent the verse that night. The remix is in your vault.', effects: [{ k: 'remixGuest', npcId: id, songId: String(m.data?.songId ?? '') }, { k: 'rel', npcId: id, v: 6 }] };
+    if (o === 'no') return { text: '"Respect. The original is crazy anyway."', effects: [{ k: 'rel', npcId: id, v: -2 }] };
+    return { text: `${m.npcName} saw the read receipt.`, effects: [{ k: 'rel', npcId: id, v: -4 }] };
+  },
+};
+
 // ─── BIRTHDAYS ──────────────────────────────────────────────────────────────
 
 const birthdayPlan: Template = {
@@ -1501,7 +1511,7 @@ export const TEMPLATES: Template[] = [
   featureLate, featureSwap, featureLead, featureBreach,
   familyMoney, policeStop, phoneStolen, hacked, fanMob, oldFriend, charity, awardPresenter, healthScare, dumsor, movieSync, scamPromoter, viralMoment, breakIn, churchInvite, carTrouble,
   weddingGig, campusShow, radioPayola, producerPoints, leaseClash, fanCover,
-  cypherInvite, birthdayPlan, npcBirthday,
+  cypherInvite, birthdayPlan, npcBirthday, remixAsk,
 ];
 
 const BY_ID = new Map(TEMPLATES.map((t) => [t.id, t]));

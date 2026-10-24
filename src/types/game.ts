@@ -2605,6 +2605,8 @@ export interface GameState {
   managerPush?: { kind: 'shows' | 'features' | 'deals'; until: number };
   /** Projects you are still putting together: saved tracklists, not out yet. */
   albumDrafts?: AlbumDraft[];
+  /** Your fans' mood, what you've done for them, and your fan-war record. */
+  fanClub?: import('../sim/fanClub').FanClub;
   /** Two people on the team who need you to settle something. */
   teamDispute?: TeamDispute | null;
   /** The last day the team argued, so it doesn't happen every day. */

@@ -262,7 +262,7 @@ export function SocialScreen({ platform }: { platform: Platform }) {
               { id: 'feed', label: 'Feed' },
               { id: 'activity', label: 'Activity', badge: mentionsCount ? String(mentionsCount) : undefined },
               { id: 'profile', label: 'Profile' },
-              { id: 'rivals', label: 'Rivals', badge: liveRivals ? String(liveRivals) : undefined },
+              { id: 'rivals', label: 'Fans & Rivals', badge: liveRivals ? String(liveRivals) : undefined },
             ]}
           />
         </div>

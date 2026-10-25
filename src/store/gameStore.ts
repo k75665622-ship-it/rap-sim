@@ -3312,6 +3312,8 @@ interface GameActions {
   cypherRound: (move: CypherMove) => { ok: boolean; message: string };
   /** The cypher is over: what the room remembers, and what you learnt. */
   cypherFinish: () => FeatureActionResult;
+  /** A take you recorded for real goes on the record. */
+  applyBoothTake: (songId: string, take: { score: number; timing: number; presence: number; seconds: number }) => FeatureActionResult;
   /** Settle an argument in the team group. */
   settleTeamDispute: (optionId: 'a' | 'b' | 'calm') => FeatureActionResult;
   /** Don't go: text an excuse, or just don't show up. */
@@ -16463,6 +16465,33 @@ export const useGameStore = create<GameState & GameActions>()(
         if (res.verdict === 'legendary' || res.verdict === 'bodied') remember(state, 'music', res.verdict === 'legendary' ? `You bodied the cypher at ${a.place}.` : `You got bodied at the cypher at ${a.place}.`, { npcIds: [a.npcId], weight: 3, tone: res.verdict === 'legendary' ? 'good' : 'bad' });
         state.clockPaused = false;
         result = { ok: true, message: a.outcome ?? res.text };
+      });
+      return result;
+    },
+
+    applyBoothTake: (songId, take) => {
+      let result: FeatureActionResult = { ok: false, message: 'That record is not in your vault.' };
+      set((state) => {
+        const p = state.player;
+        const song = state.songs.find((x) => x.id === songId);
+        if (!p || !song) return;
+        if (isSongReleased(song)) { result.message = `"${song.title}" is already out — the vocal can't change now.`; return; }
+        if (!spendEnergy(state, 10)) { result.message = energyShortfallMessage(10, p.energy); return; }
+        const before = { ...p.stats };
+        const was = song.vocalPerformance ?? 50;
+        song.vocalPerformance = Math.round(was * 0.4 + take.score * 0.6);
+        const delta = Math.max(-6, Math.min(6, (song.vocalPerformance - was) * 0.15));
+        song.quality = Math.max(1, Math.min(99, Math.round((song.quality + delta) * 10) / 10));
+        song.boothTake = { score: take.score, timing: take.timing, at: dateToSerial(state.gameDate), seconds: take.seconds };
+        // Doing it for real is how you get better at it.
+        const grow = (k: keyof ArtistStats, v: number) => { p.stats[k] = Math.min(100, (p.stats[k] ?? 0) + v * Math.max(0.3, 1 - (p.stats[k] ?? 0) / 120)); };
+        grow('delivery', 0.25 + take.score / 400);
+        grow('flow', 0.2 + take.timing / 500);
+        grow('vocalAbility', 0.15);
+        grow('consistency', 0.1);
+        statUps(state, before, 'the booth');
+        const read = take.score >= 80 ? 'a great take' : take.score >= 60 ? 'a solid take' : take.score >= 40 ? 'a rough take' : 'not really a take';
+        result = { ok: true, message: `That's ${read} (${take.score}/100 — on-beat ${take.timing}, presence ${take.presence}). "${song.title}" ${delta >= 0.5 ? 'got better' : delta <= -0.5 ? 'lost a little' : 'held steady'}. ${describeScore(song.quality)}` };
       });
       return result;
     },

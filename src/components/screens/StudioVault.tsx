@@ -16,6 +16,8 @@
 //   2. Every action returns a reason. A button that does nothing when the money
 //      or the energy is not there is worse than a button that is not there.
 
+import { ListenButton } from '../studio/Listen';
+import { ArrangeDialog } from '../studio/ArrangeDialog';
 import { useMemo, useState } from 'react';
 import { useGameStore, type StudioSessionPayload } from '../../store/gameStore';
 import { Card, Button, Badge } from '../ui/Card';
@@ -268,6 +270,7 @@ function VaultRow({
   onRerecord: (payload: StudioSessionPayload) => void;
   onDelete: () => void;
 }) {
+  const [arranging, setArranging] = useState(false);
   const isArchived = !!song.archivedAt;
   const setScreen = useGameStore((st) => st.setScreen);
   const selectSong = useGameStore((st) => st.selectSong);
@@ -367,6 +370,9 @@ function VaultRow({
           </Button>
         ) : (
           <>
+            <ListenButton song={song} />
+            <Button size="sm" variant="secondary" onClick={() => setArranging(true)}>🎛️ Arrange</Button>
+            {arranging && <ArrangeDialog songId={song.id} onClose={() => setArranging(false)} />}
             {isMixed ? (
               <Button size="sm" variant="gold" onClick={onRelease}>
                 🚀 Release

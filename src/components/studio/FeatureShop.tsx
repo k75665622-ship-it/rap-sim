@@ -18,6 +18,8 @@
 //   · Silence is a real outcome and is reported as silence, not as a refusal.
 
 import { CONDITION_LABEL } from '../../sim/featureTerms';
+import { ListenButton } from './Listen';
+import { useGameStore } from '../../store/gameStore';
 import { serialToDate, formatGameDate } from '../../sim/gameClock';
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../ui/Card';
@@ -58,6 +60,7 @@ export function FeatureRequestRow({
 
   const canAfford = money >= request.fee;
   const canAdd = energy >= ENERGY_COSTS.addVerse;
+  const song = useGameStore((s) => s.songs.find((x) => x.id === request.songId));
   const round = request.negotiationRound ?? 0;
   const original = request.originalFee;
   const dropped = original !== undefined && original > request.fee;
@@ -178,6 +181,9 @@ export function FeatureRequestRow({
         </>
       )}
 
+      {(status === 'verse_ready' || status === 'added') && song && (
+        <div className="mt-2"><ListenButton song={{ ...song, featuredArtists: [...new Set([...(song.featuredArtists ?? []), request.npcId])] }} only={request.npcId} label="Hear their verse" /></div>
+      )}
       {status === 'verse_ready' && (
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           <Button size="sm" variant="gold" disabled={!canAdd} onClick={() => onAdd(request.id)}>

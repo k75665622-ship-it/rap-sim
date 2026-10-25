@@ -2,6 +2,8 @@
 import { useSyncExternalStore } from 'react';
 import { BeatPlayer, type BeatSpec } from './beat';
 import { voicesEnabled, renderLine } from './voices';
+import { playMix, DEFAULT_FX, type Mix } from './vocalfx';
+import type { VocalFx } from '../types/game';
 
 let ctx: AudioContext | null = null;
 let player: BeatPlayer | null = null;
@@ -9,6 +11,7 @@ let current: string | null = null;
 let line: string | null = null;
 let timers: number[] = [];
 let voice: AudioBufferSourceNode | null = null;
+let mix: Mix | null = null;
 export interface SongLine { bar: number; text: string; pitch: number; voice?: string }
 let timer: number | null = null;
 const subs = new Set<() => void>();
@@ -18,6 +21,7 @@ export function stopPreview(): void {
   player?.stop(); player = null;
   timers.forEach((t) => window.clearTimeout(t)); timers = [];
   try { voice?.stop(); } catch { /* done */ } voice = null;
+  mix?.stop(); mix = null;
   try { window.speechSynthesis?.cancel(); } catch { /* none */ }
   line = null;
   if (timer !== null) window.clearTimeout(timer); timer = null;
@@ -45,26 +49,33 @@ export function usePreviewing(): string | null {
  * Play a whole song: the beat, plus your recorded take or the written bars
  * performed by the device's voice (fictional people only).
  */
-export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | null; lines?: SongLine[]; seconds?: number }): Promise<void> {
+export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | null; lines?: SongLine[]; seconds?: number; fx?: VocalFx; lead?: number }): Promise<void> {
   if (current === key) { stopPreview(); return; }
   stopPreview();
   if (!ctx) ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
   const c = ctx;
   const at = c.currentTime + 0.1;
-  player = new BeatPlayer(c, spec, c.destination, o.take ? 0.6 : 0.75);
-  player.start(at);
   current = key;
   const bar = (60 / spec.bpm) * 4;
   if (o.take) {
+    // Your take, through the sound you set in the booth.
+    emit();
     try {
       const buf = await c.decodeAudioData(await o.take.arrayBuffer());
       if (current !== key) return;
-      const src = c.createBufferSource(); src.buffer = buf; src.connect(c.destination); src.start(at + bar); voice = src;
-    } catch { /* play the beat alone */ }
-  } else if (o.lines?.length && voicesEnabled()) {
+      mix = playMix(c, spec, buf, o.fx ?? DEFAULT_FX, o.lead ?? bar, () => { if (current === key) stopPreview(); });
+    } catch {
+      player = new BeatPlayer(c, spec, c.destination, 0.75);
+      player.start(c.currentTime + 0.05);
+    }
+  } else {
+    player = new BeatPlayer(c, spec, c.destination, 0.75);
+    player.start(at);
+  }
+  if (o.take) { /* playing */ } else if (o.lines?.length && voicesEnabled()) {
     // Real voices: render every line first, then lay them on the bars.
-    player.stop(); player = null;
+    player?.stop(); player = null;
     try {
       const bufs: (AudioBuffer | null)[] = [];
       for (let i = 0; i < o.lines.length; i++) {

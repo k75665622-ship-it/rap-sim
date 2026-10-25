@@ -218,9 +218,13 @@ export interface Song {
   /** What the current layout added (so changing it replaces, never stacks). */
   arrangementBonus?: { q: number; c: number };
   /** A take you recorded for real in the booth, and how it scored. */
-  boothTake?: { score: number; timing: number; at: number; seconds: number; lead?: number };
+  boothTake?: { score: number; timing: number; at: number; seconds: number; lead?: number; align?: number };
   /** How the recorded vocal is processed: levels, effects, timing. */
   vocalFx?: VocalFx;
+  /** Which bars of the recorded vocal are the hook (0 = first bar after the count-in). */
+  hookBars?: number[];
+  /** The mix that came back from whoever mixed it. */
+  engineerMix?: EngineerMix;
   /** The mixtape this record was filed under, if any. */
   mixtapeId?: string;
   /**
@@ -262,6 +266,27 @@ export interface VocalSettings {
 export interface VocalFx {
   preset: string; voice: number; beat: number; reverb: number; echo: number; echoTime: '1/8' | '3/16' | '1/4';
   double: boolean; tone: number; punch: number; grit: number; lofi: boolean; nudgeMs: number;
+  /** Auto-tune: how much (0 = off) and how fast it snaps (100 = robotic). */
+  tune?: number; tuneSpeed?: number;
+  /** The hook: how much bigger it hits, and a harmony stacked on it. */
+  hook?: number; harmony?: number;
+  /** An engineer's master: louder, clearer, glued. Only a mix brings this. */
+  polish?: number;
+}
+
+/** What you can ask the person mixing your record to change. */
+export type MixAsk = 'voice_up' | 'voice_down' | 'more_echo' | 'less_echo' | 'more_reverb' | 'drier' | 'brighter' | 'warmer' | 'more_tune' | 'less_tune' | 'bigger_hook' | 'tighter' | 'more_punch' | 'cleaner' | 'redo';
+
+/** The mix an engineer or producer sent back, and the back-and-forth on it. */
+export interface EngineerMix {
+  npcId: string; by: string; role: string; skill: number;
+  fx: VocalFx; notes: string[];
+  /** Your own sound when you sent it, so you can always compare. */
+  rough?: VocalFx;
+  round: number; freeRounds: number;
+  status: 'review' | 'revising' | 'approved' | 'rough';
+  asks?: MixAsk[]; dueSerial?: number;
+  history: { round: number; asks: MixAsk[]; reply: string }[];
 }
 
 export type SongMood =

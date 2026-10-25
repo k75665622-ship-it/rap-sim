@@ -2,7 +2,7 @@
 import { useSyncExternalStore } from 'react';
 import { BeatPlayer, type BeatSpec } from './beat';
 import { voicesEnabled, renderLine } from './voices';
-import { playMix, DEFAULT_FX, type Mix } from './vocalfx';
+import { playMix, prepareVocal, DEFAULT_FX, type Mix } from './vocalfx';
 import type { VocalFx } from '../types/game';
 
 let ctx: AudioContext | null = null;
@@ -49,7 +49,7 @@ export function usePreviewing(): string | null {
  * Play a whole song: the beat, plus your recorded take or the written bars
  * performed by the device's voice (fictional people only).
  */
-export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | null; lines?: SongLine[]; seconds?: number; fx?: VocalFx; lead?: number }): Promise<void> {
+export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | null; lines?: SongLine[]; seconds?: number; fx?: VocalFx; lead?: number; hookBars?: number[] }): Promise<void> {
   if (current === key) { stopPreview(); return; }
   stopPreview();
   if (!ctx) ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
@@ -64,7 +64,12 @@ export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | n
     try {
       const buf = await c.decodeAudioData(await o.take.arrayBuffer());
       if (current !== key) return;
-      mix = playMix(c, spec, buf, o.fx ?? DEFAULT_FX, o.lead ?? bar, () => { if (current === key) stopPreview(); });
+      const fx = o.fx ?? DEFAULT_FX;
+      if ((fx.tune ?? 0) > 0 || (fx.harmony ?? 0) > 0) { line = 'Tuning the vocal…'; emit(); }
+      const v = await prepareVocal(c, buf, fx, { root: spec.root, major: spec.major }, o.hookBars);
+      if (current !== key) return;
+      line = null; emit();
+      mix = playMix(c, spec, v, fx, o.lead ?? bar, o.hookBars, () => { if (current === key) stopPreview(); });
     } catch {
       player = new BeatPlayer(c, spec, c.destination, 0.75);
       player.start(c.currentTime + 0.05);

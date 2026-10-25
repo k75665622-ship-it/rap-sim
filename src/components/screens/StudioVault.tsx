@@ -17,6 +17,7 @@
 //      or the energy is not there is worse than a button that is not there.
 
 import { ListenButton } from '../studio/Listen';
+import { MixReview } from '../studio/MixReview';
 import { ArrangeDialog } from '../studio/ArrangeDialog';
 import { useMemo, useState } from 'react';
 import { useGameStore, type StudioSessionPayload } from '../../store/gameStore';
@@ -271,6 +272,7 @@ function VaultRow({
   onDelete: () => void;
 }) {
   const [arranging, setArranging] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const isArchived = !!song.archivedAt;
   const setScreen = useGameStore((st) => st.setScreen);
   const selectSong = useGameStore((st) => st.selectSong);
@@ -371,6 +373,8 @@ function VaultRow({
         ) : (
           <>
             <ListenButton song={song} />
+            {song.engineerMix && <Button size="sm" variant={song.engineerMix.status === 'review' ? 'gold' : 'secondary'} onClick={() => setReviewing(true)}>{song.engineerMix.status === 'review' ? `🎧 Mix v${song.engineerMix.round} is back` : song.engineerMix.status === 'revising' ? '⏳ Mix notes sent' : '🎚️ The mix'}</Button>}
+            {reviewing && <MixReview songId={song.id} onClose={() => setReviewing(false)} />}
             <Button size="sm" variant="secondary" onClick={() => setArranging(true)}>🎛️ Arrange</Button>
             {arranging && <ArrangeDialog songId={song.id} onClose={() => setArranging(false)} />}
             {isMixed ? (

@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { beatSpecFor } from '../../audio/beat';
+import { soundOf } from '../../audio/vocalfx';
 import { playSong, usePreviewing, useNowLine, type SongLine } from '../../audio/preview';
 import { loadTake } from '../../audio/take';
 import { linesFor, hookFor } from '../../audio/lyrics';
@@ -61,7 +62,7 @@ export function ListenButton({ song, only, label }: { song: Song; only?: string;
   const instrumental = song.ownerId ? isRealId(song.ownerId) : false;
   const go = () => {
     const lines = instrumental ? [] : songLines(song, npcs as NPC[], player?.id ?? 'player', player?.city ?? 'the city', only, note);
-    playSong(key, spec, { take: take && !only ? take : null, lines, seconds: only ? Math.ceil((lines.length + 2) * (240 / spec.bpm)) : 100, fx: song.vocalFx, lead: song.boothTake?.lead });
+    playSong(key, spec, { take: take && !only ? take : null, lines, seconds: only ? Math.ceil((lines.length + 2) * (240 / spec.bpm)) : 100, fx: soundOf(song), lead: song.boothTake?.lead, hookBars: song.hookBars });
   };
   return (
     <span className="inline-flex flex-col items-start gap-1 max-w-full">

@@ -2028,6 +2028,12 @@ export function StudioScreen() {
               tracked; a serious one re-arranges it and replaces sounds outright, so their skill
               sets how good the finished record can be — not just how close it gets to the rough.
             </p>
+            {mixSong.boothTake && (
+              <p className="text-xs text-amber/90 mb-3">
+                🎧 Your recorded vocal goes with it. You'll hear their actual mix when it comes back — the more
+                experienced they are, the better it sounds — and you can approve it or send notes for changes.
+              </p>
+            )}
             <input
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-yellow-500 text-sm mb-2"
               placeholder="Search producers..."

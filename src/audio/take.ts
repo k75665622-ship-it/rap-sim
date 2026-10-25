@@ -26,7 +26,7 @@ export async function loadTake(songId: string): Promise<Blob | null> {
   } catch { return null; }
 }
 
-export interface TakeScore { score: number; timing: number; presence: number; energy: number; seconds: number }
+export interface TakeScore { score: number; timing: number; presence: number; energy: number; seconds: number; phase: number; R: number }
 
 export async function scoreTake(ctx: BaseAudioContext, buf: AudioBuffer, bpm: number): Promise<TakeScore> {
   const data = buf.getChannelData(0);
@@ -58,5 +58,8 @@ export async function scoreTake(ctx: BaseAudioContext, buf: AudioBuffer, bpm: nu
   const pres = Math.round(Math.min(100, (presence / 0.6) * 100) * (presence > 0.95 ? 0.85 : 1));
   const score = presence < 0.12 ? Math.round(pres * 0.6) : Math.round(pres * 0.35 + (40 + timing * 0.6) * 0.45 + energy * 0.2);
   void ctx;
-  return { score: Math.max(5, Math.min(99, score)), timing, presence: pres, energy, seconds: Math.round(buf.duration) };
+  // Where, on average, your words land inside a 16th — what an engineer uses to line the vocal up.
+  let phase = Math.atan2(cy, cx) / (Math.PI * 2) * grid;
+  if (phase < 0) phase += grid;
+  return { score: Math.max(5, Math.min(99, score)), timing, presence: pres, energy, seconds: Math.round(buf.duration), phase, R };
 }

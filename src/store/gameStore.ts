@@ -8,7 +8,7 @@ import type {
   ActiveContract, Show, Investment, Business,
   Certification, Interview, ChartEntry,
   WeeklyStatement, Background, Gender, Genre, ArtistStats, RelationshipStage,
-  InterviewTone, GameDate, SongMood, VocalSettings, VocalFx,
+  InterviewTone, GameDate, SongMood, VocalSettings, VocalFx, MixAsk, EngineerMix,
   FeatureRequest, FeatureActionResult, JobListing,
   InboundRequest,
   Album, GlobalCertification, GameNotification, Subscription,
@@ -377,6 +377,8 @@ import {
   emptyBeats, storeCatalogue, dropInterval, teamBeat, orderQuote, customBeatQuality, takesOrder, beatName, beatGrade, LEASE_PENALTY, houseBeats,
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
+import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL } from '../sim/engineerMix';
+import { beatSpecFor } from '../audio/beat';
 import {
   MAX_ENERGY,
   sessionEnergy,
@@ -2187,6 +2189,9 @@ interface MixWork {
   songId: string;
   producerId: string;
   producerName: string;
+  /** Their ear, and what they are — it decides how the record actually sounds when it comes back. */
+  skill?: number;
+  role?: string;
   productionQuality: number;
   quality: number;
   commercialPotential?: number;
@@ -2225,6 +2230,52 @@ interface VerseWork {
   /** What the verse will score, from the player's own craft. */
   verseQuality: number;
   fee: number;
+}
+
+const MIX_KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+/** The beat under a record, exactly as the game plays it. */
+function songBeatSpec(state: GameState, song: Song) {
+  const owned = (state.beats?.library ?? []).find((b) => b.id === song.beatId || b.usedOnSongId === song.id);
+  return owned
+    ? beatSpecFor(String(owned.genre), owned.bpm, owned.id, owned.quality, owned.producerId ?? owned.producerName, owned.mood)
+    : beatSpecFor(String(song.genre), song.bpm, song.beatId ?? song.id, song.beatQuality ?? song.productionQuality ?? 60, song.producerId ?? song.producerName, song.mood);
+}
+function mixContext(state: GameState, song: Song) {
+  const spec = songBeatSpec(state, song);
+  return { style: spec.style, keyName: `${MIX_KEYS[spec.root]}${spec.major ? '' : 'm'}`, align: song.boothTake?.align, hookBars: song.hookBars, rough: song.vocalFx ?? { preset: 'clean', voice: 0.9, beat: 0.85, reverb: 12, echo: 0, echoTime: '1/8' as const, double: false, tone: 0, punch: 35, grit: 0, lofi: false, nudgeMs: 0 } };
+}
+
+/** The mix comes back: what they did, in their words, in the DMs. */
+function deliverEngineerMix(state: GameState, song: Song, w: MixWork): boolean {
+  const skill = Math.round(w.skill ?? 50);
+  const cx = mixContext(state, song);
+  const m = engineerMix({ ...cx, skill, seed: `${song.id}|${w.producerId}` });
+  song.engineerMix = {
+    npcId: w.producerId, by: w.producerName, role: w.role ?? 'producer', skill, fx: m.fx, notes: m.notes, rough: { ...cx.rough },
+    round: 1, freeRounds: skill >= 70 ? 3 : 2, status: 'review', history: [],
+  } satisfies EngineerMix;
+  if (state.npcs.some((n) => n.id === w.producerId)) {
+    pushDM(state, w.producerId, { fromPlayer: false, content: `Here's the mix of "${song.title}" 🎚️\n• ${m.notes.join('\n• ')}\nListen and tell me what you think — notes are part of the job.`, attachedSongId: song.id, attachedTitle: song.title });
+  }
+  return true;
+}
+
+/** Notes sent yesterday come back today. */
+function mixRevisionTick(state: GameState, serial: number): void {
+  for (const song of state.songs) {
+    const m = song.engineerMix;
+    if (!m || m.status !== 'revising' || (m.dueSerial ?? 0) > serial) continue;
+    const asks = m.asks ?? [];
+    const cx = mixContext(state, song);
+    const out = reviseMix(m, asks, { ...cx, rough: m.rough ?? cx.rough, seed: `${song.id}|${m.npcId}` });
+    m.fx = out.fx;
+    m.round += 1;
+    m.status = 'review';
+    m.history = [...m.history, { round: m.round, asks, reply: out.reply }].slice(-8);
+    m.asks = undefined; m.dueSerial = undefined;
+    if (state.npcs.some((n) => n.id === m.npcId)) pushDM(state, m.npcId, { fromPlayer: false, content: `Mix v${m.round} of "${song.title}": ${out.reply}`, attachedSongId: song.id, attachedTitle: song.title });
+    pushNotification(state, { kind: 'artist_release', title: `Mix v${m.round} of "${song.title}" is in`, body: `${m.by.split(' ')[0]}: ${out.reply}`, artSeed: `song|${song.id}`, action: { type: 'song', id: song.id } });
+  }
 }
 
 function finishWork(state: GameState, item: WorkItem, log: string[]): void {
@@ -2303,10 +2354,13 @@ function finishWork(state: GameState, item: WorkItem, log: string[]): void {
     log.push(
       `🎚️ ${w.producerName} mixed & mastered "${song.title}" — ${days} days, and it reads ${gradeLabel(song.quality)}.`,
     );
+    // A real recorded vocal comes back actually mixed — something you can hear,
+    // approve, or send notes on.
+    const heard = song.boothTake ? deliverEngineerMix(state, song, w) : false;
     pushNotification(state, {
       kind: 'artist_release',
-      title: `"${song.title}" is mixed`,
-      body: `${w.read} Ready to release.`,
+      title: heard ? `${w.producerName.split(' ')[0]} sent back the mix of "${song.title}"` : `"${song.title}" is mixed`,
+      body: heard ? `${w.read} Listen in Studio → Masters — approve it or ask for changes.` : `${w.read} Ready to release.`,
       artSeed: `song|${song.id}`,
       action: { type: 'song', id: song.id },
     });
@@ -3327,11 +3381,19 @@ interface GameActions {
   /** Lay the song out: which sections, and who takes each one. */
   setArrangement: (songId: string, arr: import('../sim/arrangement').Section[]) => { ok: boolean; message: string; notes: string[] };
   /** A take you recorded for real goes on the record. */
-  applyBoothTake: (songId: string, take: { score: number; timing: number; presence: number; seconds: number; lead?: number; fx?: VocalFx }) => FeatureActionResult;
+  applyBoothTake: (songId: string, take: { score: number; timing: number; presence: number; seconds: number; lead?: number; align?: number; fx?: VocalFx }) => FeatureActionResult;
   /** Save how the recorded vocal is processed. */
   setVocalFx: (songId: string, fx: VocalFx) => FeatureActionResult;
+  /** Mark which bars of the recorded vocal are the hook. */
+  setHookBars: (songId: string, bars: number[]) => FeatureActionResult;
+  /** Sign off on the mix that came back. */
+  approveMix: (songId: string) => FeatureActionResult;
+  /** Keep your own rough mix instead. */
+  keepRoughMix: (songId: string) => FeatureActionResult;
+  /** Send notes on the mix. */
+  askMixChanges: (songId: string, asks: MixAsk[]) => FeatureActionResult;
   /** A song made straight from the booth: pick a beat, rap, keep the take. No writing required. */
-  createRecordedSong: (o: { beat: { kind: 'owned' | 'house'; id: string }; title: string; mood?: SongMood; lyrics?: string; fx?: VocalFx; take: { score: number; timing: number; presence: number; seconds: number; lead?: number } }) => FeatureActionResult & { songId?: string };
+  createRecordedSong: (o: { beat: { kind: 'owned' | 'house'; id: string }; title: string; mood?: SongMood; lyrics?: string; fx?: VocalFx; hookBars?: number[]; take: { score: number; timing: number; presence: number; seconds: number; lead?: number; align?: number } }) => FeatureActionResult & { songId?: string };
   /** Settle an argument in the team group. */
   settleTeamDispute: (optionId: 'a' | 'b' | 'calm') => FeatureActionResult;
   /** Don't go: text an excuse, or just don't show up. */
@@ -10884,6 +10946,8 @@ export const useGameStore = create<GameState & GameActions>()(
             songId: song.id,
             producerId: producer.id,
             producerName: producer.name,
+            skill,
+            role: producer.role,
             productionQuality: productionAfter,
             quality: qualityAfter,
             commercialPotential: commercialAfter,
@@ -16571,7 +16635,7 @@ export const useGameStore = create<GameState & GameActions>()(
         song.vocalPerformance = Math.round(was * 0.4 + take.score * 0.6);
         const delta = Math.max(-6, Math.min(6, (song.vocalPerformance - was) * 0.15));
         song.quality = Math.max(1, Math.min(99, Math.round((song.quality + delta) * 10) / 10));
-        song.boothTake = { score: take.score, timing: take.timing, at: dateToSerial(state.gameDate), seconds: take.seconds, lead: take.lead };
+        song.boothTake = { score: take.score, timing: take.timing, at: dateToSerial(state.gameDate), seconds: take.seconds, lead: take.lead, align: take.align };
         if (take.fx) song.vocalFx = { ...take.fx };
         // Doing it for real is how you get better at it.
         const grow = (k: keyof ArtistStats, v: number) => { p.stats[k] = Math.min(100, (p.stats[k] ?? 0) + v * Math.max(0.3, 1 - (p.stats[k] ?? 0) / 120)); };
@@ -16594,6 +16658,90 @@ export const useGameStore = create<GameState & GameActions>()(
         if (isSongReleased(song)) { result.message = `"${song.title}" is already out — the mix is final.`; return; }
         song.vocalFx = { ...fx };
         result = { ok: true, message: `Sound saved on "${song.title}".` };
+      });
+      return result;
+    },
+
+    setHookBars: (songId, bars) => {
+      let result: FeatureActionResult = { ok: false, message: 'That record is not in your vault.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId && !x.ownerId);
+        if (!song) return;
+        if (isSongReleased(song)) { result.message = `"${song.title}" is already out.`; return; }
+        song.hookBars = [...new Set(bars)].filter((b) => b >= 0 && b < 80).sort((a, b) => a - b);
+        result = { ok: true, message: song.hookBars.length ? `Hook marked on ${song.hookBars.length} bar${song.hookBars.length > 1 ? 's' : ''}.` : 'Hook cleared.' };
+      });
+      return result;
+    },
+
+    approveMix: (songId) => {
+      let result: FeatureActionResult = { ok: false, message: 'There is no mix to approve.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId);
+        const m = song?.engineerMix;
+        if (!song || !m || m.status !== 'review') return;
+        m.status = 'approved';
+        song.vocalFx = { ...m.fx };
+        // How well the final mix suits the record shows in how it lands.
+        const fit = mixFit(m.fx, mixContext(state, song).style);
+        const delta = Math.max(-2.5, Math.min(2, (fit - 60) * 0.06));
+        song.quality = Math.max(1, Math.min(99, Math.round((song.quality + delta) * 10) / 10));
+        const npc = state.npcs.find((n) => n.id === m.npcId);
+        if (npc) {
+          npc.relationshipScore = Math.min(100, npc.relationshipScore + 2);
+          pushDM(state, m.npcId, { fromPlayer: true, content: `The mix of "${song.title}" is hard. Approved ✅` });
+          pushDM(state, m.npcId, { fromPlayer: false, content: pick3(['Let\'s gooo 🔥 Glad you love it.', 'Appreciate you. That one\'s going to knock 🙏🏾', 'Love to hear it. Send the next one 🎚️'], song.id) });
+        }
+        result = { ok: true, message: `Mix approved. ${fit >= 75 ? 'It sits exactly right for the record.' : fit >= 55 ? 'It works for the record.' : 'Some of it fights the record — people may hear that.'}` };
+      });
+      return result;
+    },
+
+    keepRoughMix: (songId) => {
+      let result: FeatureActionResult = { ok: false, message: 'There is no mix to turn down.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId);
+        const m = song?.engineerMix;
+        if (!song || !m || (m.status !== 'review' && m.status !== 'approved')) return;
+        m.status = 'rough';
+        if (m.rough) song.vocalFx = { ...m.rough };
+        const npc = state.npcs.find((n) => n.id === m.npcId);
+        if (npc) {
+          npc.relationshipScore = Math.max(-100, npc.relationshipScore - 1);
+          pushDM(state, m.npcId, { fromPlayer: false, content: pick3(['All good, it\'s your record. 🤝🏾', 'Respect. Your vision, your call.'], song.id + 'r') });
+        }
+        result = { ok: true, message: `Keeping your own sound on "${song.title}". The master's polish stays out too.` };
+      });
+      return result;
+    },
+
+    askMixChanges: (songId, asks) => {
+      let result: FeatureActionResult = { ok: false, message: 'There is no mix to send notes on.' };
+      set((state) => {
+        const p = state.player;
+        const song = state.songs.find((x) => x.id === songId);
+        const m = song?.engineerMix;
+        if (!p || !song || !m) return;
+        if (m.status === 'revising') { result.message = `${m.by.split(' ')[0]} is already on your last notes.`; return; }
+        if (m.status !== 'review') return;
+        if (isSongReleased(song)) { result.message = `"${song.title}" is already out — the mix is final.`; return; }
+        const list = [...new Set(asks)].slice(0, 3);
+        if (!list.length) { result.message = 'Pick what you want changed.'; return; }
+        const fee = revisionFee(m.skill, m.round, m.freeRounds, producerFee(m.skill));
+        if (p.career.money < fee) { result.message = `Another round costs $${fee.toLocaleString()}. You have $${Math.floor(p.career.money).toLocaleString()}.`; return; }
+        p.career.money -= fee;
+        const npc = state.npcs.find((n) => n.id === m.npcId);
+        const tired = m.round > m.freeRounds;
+        if (npc && tired) npc.relationshipScore = Math.max(-100, npc.relationshipScore - 2);
+        m.status = 'revising';
+        m.asks = list;
+        m.dueSerial = dateToSerial(state.gameDate) + 1;
+        if (npc) {
+          pushDM(state, m.npcId, { fromPlayer: true, content: `Notes on "${song.title}": ${list.map((a) => ASK_LABEL[a].replace(/^\S+\s/, '')).join(', ').toLowerCase()}.` });
+          pushDM(state, m.npcId, { fromPlayer: false, content: tired ? pick3([`Again? 😮‍💨 Alright. That's $${fee.toLocaleString()} for this round — back tomorrow.`, `Okay… one more. $${fee.toLocaleString()} this time. Tomorrow.`], song.id + m.round) : pick3(['Got you. Back tomorrow 🎚️', 'Say less — I\'ll have it for you tomorrow.', 'On it. Tomorrow.'], song.id + m.round) });
+        }
+        const left = Math.max(0, m.freeRounds - m.round);
+        result = { ok: true, message: `Notes sent to ${m.by.split(' ')[0]} — the new version lands tomorrow.${fee ? ` That round cost $${fee.toLocaleString()}.` : left ? ` ${left} free round${left > 1 ? 's' : ''} left after this.` : ' That was the last free round.'}` };
       });
       return result;
     },
@@ -16634,7 +16782,8 @@ export const useGameStore = create<GameState & GameActions>()(
           commercialPotential: Math.round(quality * 0.9 + (o.take.timing - 50) * 0.1),
           criticalPotential: Math.round(quality * 0.85 + (lq - 50) * 0.15),
           recordingCost: 0, masterStatus: 'recorded', recordingDate: date,
-          boothTake: { score: o.take.score, timing: o.take.timing, at: serial, seconds: o.take.seconds, lead: o.take.lead },
+          boothTake: { score: o.take.score, timing: o.take.timing, at: serial, seconds: o.take.seconds, lead: o.take.lead, align: o.take.align },
+          hookBars: o.hookBars?.length ? [...o.hookBars] : undefined,
           vocalFx: o.fx ? { ...o.fx } : undefined,
         };
         state.songs.push(song);
@@ -21598,6 +21747,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // each person on the payroll was put on this week.
         moneyTick(state, targetSerial, days, log);
         teamWorkTick(state, targetSerial, days, (streamRun.revenue / Math.max(1, days)) * 7, log);
+        mixRevisionTick(state, targetSerial);
 
         // ─── INDUSTRY & LIFE TICK ─────────────────────────────────────
         const todaySerial = dateToSerial(state.gameDate);

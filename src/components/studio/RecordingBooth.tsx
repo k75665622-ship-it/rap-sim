@@ -13,7 +13,8 @@ import { useGameStore, isSongReleased } from '../../store/gameStore';
 import { BeatPlayer, beatSpecFor, STYLE_LABEL, LEAD_LABEL, type BeatSpec } from '../../audio/beat';
 import { saveTake, loadTake, scoreTake } from '../../audio/take';
 import { stopPreview } from '../../audio/preview';
-import { DEFAULT_FX, FX_PRESETS, withPreset, suggestedPreset, playMix, renderSong, downloadBlob, createBus, type Mix } from '../../audio/vocalfx';
+import { DEFAULT_FX, FX_PRESETS, withPreset, suggestedPreset, playMix, renderSong, downloadBlob, createBus, prepareVocal, type Mix, type Prepared } from '../../audio/vocalfx';
+import { BarStrip } from './BarStrip';
 import { houseBeats, beatGrade, type OwnedBeat } from '../../sim/beats';
 import { MOODS } from '../../sim/studio';
 import { dateToSerial } from '../../sim/gameClock';
@@ -49,6 +50,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const apply = useGameStore((s) => s.applyBoothTake);
   const create = useGameStore((s) => s.createRecordedSong);
   const saveFx = useGameStore((s) => s.setVocalFx);
+  const saveHook = useGameStore((s) => s.setHookBars);
   const player = useGameStore((s) => s.player);
   const gameDate = useGameStore((s) => s.gameDate);
   const library = useGameStore((s) => s.beats?.library);
@@ -83,6 +85,9 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     return b ? withPreset(DEFAULT_FX, suggestedPreset(specOf(b).style)) : DEFAULT_FX;
   });
   const [fxTouched, setFxTouched] = useState(false);
+  const [hookBars, setHookBars] = useState<number[]>(() => (fresh ? [] : songs.find((x) => x.id === (initial ?? vault[0]?.id))?.hookBars ?? []));
+  const [tuning, setTuning] = useState<number | null>(null);
+  const [playBar, setPlayBar] = useState<number | null>(null);
   const [more, setMore] = useState(false);
   const suggested = spec ? suggestedPreset(spec.style) : 'clean';
 
@@ -107,6 +112,11 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const decoded = useRef(new WeakMap<Blob, AudioBuffer>());
 
   useEffect(() => { let on = true; if (!fresh && songId) loadTake(songId).then((b) => { if (on) setSaved(b); }); return () => { on = false; }; }, [songId, fresh]);
+  useEffect(() => {
+    if (mode !== 'play' || !spec) { setPlayBar(null); return; }
+    const id = window.setInterval(() => { const m = mixRef.current; const c = ctxRef.current; if (!m || !c) return; setPlayBar(Math.floor((c.currentTime - m.startedAt) / barOf(spec)) - 1); }, 150);
+    return () => window.clearInterval(id);
+  }, [mode, spec]);
   useEffect(() => () => { stopAll(); takes.forEach((t) => URL.revokeObjectURL(t.url)); ctxRef.current?.close().catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function ctx(): AudioContext {
@@ -125,6 +135,14 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     const buf = await ctx().decodeAudioData(await blob.arrayBuffer());
     decoded.current.set(blob, buf);
     return buf;
+  }
+  /** The take as it should sound: tuned into the beat's key, and a harmony for the hook if asked. */
+  async function ready(blob: Blob): Promise<Prepared> {
+    const buf = await decode(blob);
+    const slow = (fx.tune ?? 0) > 0 || ((fx.harmony ?? 0) > 0 && hookBars.length > 0);
+    if (slow) setTuning(0);
+    try { return await prepareVocal(ctx(), buf, fx, { root: spec!.root, major: spec!.major }, hookBars, (p) => setTuning(p)); }
+    finally { setTuning(null); }
   }
   function stopAll() {
     beatRef.current?.stop(); beatRef.current = null;
@@ -235,8 +253,8 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     stopAll(); stopPreview();
     if (!spec) return;
     try {
-      const voice = await decode(blob);
-      mixRef.current = playMix(ctx(), spec, voice, fx, lead, () => { mixRef.current = null; setPlayingId(null); setMode('idle'); });
+      const voice = await ready(blob);
+      mixRef.current = playMix(ctx(), spec, voice, fx, lead, hookBars, () => { mixRef.current = null; setPlayingId(null); setMode('idle'); });
       setPlayingId(id);
       setMode('play');
     } catch {
@@ -247,7 +265,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     if (!spec || rendering) return;
     setRendering(id);
     try {
-      const out = await renderSong(spec, await decode(blob), fx, lead);
+      const out = await renderSong(spec, await ready(blob), fx, lead, hookBars);
       downloadBlob(out, `${name}${player?.artistName ? ` - ${player.artistName}` : ''}.wav`);
     } catch {
       setMsg('Could not render the song on this device.');
@@ -261,9 +279,13 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     try {
       const buf = await decode(t.blob);
       const sc = await scoreTake(ctx(), buf, spec.bpm);
+      // How far your words sit from the beat's grid — what an engineer uses to line the vocal up.
+      const grid = 60 / spec.bpm / 4;
+      let off = (sc.phase + t.lead) % grid; if (off > grid / 2) off -= grid;
+      const align = sc.R >= 0.3 ? Math.max(-150, Math.min(150, Math.round(-(off - 0.015) * 1000))) : undefined;
       if (fresh) {
         if (!picked) return;
-        const r = create({ beat: { kind: library?.some((b) => b.id === picked.id) ? 'owned' : 'house', id: picked.id }, title, mood: mood || undefined, lyrics, fx, take: { ...sc, lead: t.lead } });
+        const r = create({ beat: { kind: library?.some((b) => b.id === picked.id) ? 'owned' : 'house', id: picked.id }, title, mood: mood || undefined, lyrics, fx, hookBars, take: { ...sc, lead: t.lead, align } });
         if (r.ok && r.songId) { await saveTake(r.songId, t.blob); setMade({ id: r.songId, blob: t.blob, lead: t.lead }); }
         setMsg(r.message);
         return;
@@ -273,7 +295,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
       const have = song.vocalPerformance ?? 50;
       if (sc.score + 5 < have && confirmId !== t.id) { setConfirmId(t.id); setMsg(`That take scores ${sc.score}/100 (on-beat ${sc.timing}) — weaker than the vocal you already have (${have}). Tap "Use it" again to use it anyway, or record another.`); return; }
       setConfirmId(null);
-      const r = apply(song.id, { ...sc, lead: t.lead, fx });
+      const r = apply(song.id, { ...sc, lead: t.lead, align, fx });
       if (r.ok) { await saveTake(song.id, t.blob); setSaved(t.blob); }
       setMsg(r.message);
     } catch {
@@ -282,7 +304,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   }
   function another() {
     takes.forEach((t) => URL.revokeObjectURL(t.url));
-    setTakes([]); setMade(null); setMsg(null); setTitle(''); setLyrics('');
+    setTakes([]); setMade(null); setMsg(null); setTitle(''); setLyrics(''); setHookBars([]);
     const next = [...mine, ...house].find((b) => b.id !== beatKey && !(library ?? []).some((x) => x.id === b.id && x.usedOnSongId));
     if (next) setBeatKey(next.id);
   }
@@ -291,6 +313,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const live = mode === 'rec' || mode === 'count';
   const close = () => { stopAll(); onClose(); };
   const savedLead = song?.boothTake?.lead ?? barOf(spec);
+  const stripBars = Math.min(60, Math.ceil(Math.max(song?.boothTake?.seconds ?? 0, ...takes.map((t) => t.seconds), 8) / barOf(spec)));
   const songName = (fresh ? title.trim() || picked?.name : song?.title) || 'My song';
 
   const beatCard = (b: OwnedBeat, free: boolean) => {
@@ -324,6 +347,23 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
         <Knob label="🎤 Voice" value={fx.voice} min={0} max={1.5} step={0.05} show={`${Math.round(fx.voice * 100)}%`} onChange={(v) => change({ ...fx, voice: v })} />
         <Knob label="🥁 Beat" value={fx.beat} min={0} max={1.3} step={0.05} show={`${Math.round(fx.beat * 100)}%`} onChange={(v) => change({ ...fx, beat: v })} />
       </div>
+      <div className="rounded-[12px] border border-line/70 p-2.5 space-y-2">
+        <div className="flex items-center justify-between text-[11px]"><span className="font-semibold text-ink">🎶 Auto-tune</span><span className="text-ink3">{spec ? `in ${keyOf(spec)} — the beat's key` : ''}</span></div>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Knob label="Amount" value={fx.tune ?? 0} min={0} max={100} show={(fx.tune ?? 0) === 0 ? 'off' : `${Math.round(fx.tune ?? 0)}`} onChange={(v) => change({ ...fx, tune: v, preset: 'custom' })} />
+          <Knob label="Snap" value={fx.tuneSpeed ?? 50} min={0} max={100} show={(fx.tuneSpeed ?? 50) >= 85 ? 'robotic' : (fx.tuneSpeed ?? 50) >= 45 ? 'quick' : 'natural'} onChange={(v) => change({ ...fx, tuneSpeed: v, preset: 'custom' })} />
+        </div>
+      </div>
+      <div className="rounded-[12px] border border-line/70 p-2.5 space-y-2">
+        <div className="flex items-center justify-between text-[11px]"><span className="font-semibold text-ink">📣 Hook</span><span className="text-ink3">{hookBars.length ? `${hookBars.length} bar${hookBars.length > 1 ? 's' : ''} marked` : 'tap the bars where your hook is'}</span></div>
+        <BarStrip bars={stripBars} hook={hookBars} now={playBar} onToggle={(b) => setHookBars((h) => (h.includes(b) ? h.filter((x) => x !== b) : [...h, b].sort((x, y) => x - y)))} />
+        <div className="grid grid-cols-2 gap-x-4">
+          <Knob label="Hook lift" value={fx.hook ?? 0} min={0} max={100} show={(fx.hook ?? 0) === 0 ? 'off' : `${Math.round(fx.hook ?? 0)}`} onChange={(v) => change({ ...fx, hook: v, preset: 'custom' })} />
+          <Knob label="Harmony" value={fx.harmony ?? 0} min={0} max={100} show={(fx.harmony ?? 0) === 0 ? 'off' : `${Math.round(fx.harmony ?? 0)}`} onChange={(v) => change({ ...fx, harmony: v, preset: 'custom' })} />
+        </div>
+      </div>
+      {tuning !== null && <div className="text-[11px] text-amber">🎶 Tuning the vocal… {Math.round(tuning * 100)}%</div>}
+      <div className="text-[10px] text-ink3 -mt-1">Auto-tune, hook bars and timing apply the next time you press play.</div>
       {more && (
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -341,12 +381,11 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
             <label className="flex items-center gap-2"><input type="checkbox" checked={fx.lofi} onChange={(e) => change({ ...fx, lofi: e.target.checked, preset: 'custom' })} /> Lo-fi</label>
           </div>
           <Knob label="⏱️ Timing — voice sounds late? slide left" value={fx.nudgeMs} min={-300} max={300} step={10} show={`${fx.nudgeMs > 0 ? '+' : ''}${fx.nudgeMs} ms`} onChange={(v) => change({ ...fx, nudgeMs: v })} />
-          <div className="text-[10px] text-ink3 -mt-1">Timing applies the next time you press play.</div>
         </div>
       )}
       <div className="flex items-center justify-between">
         <button onClick={() => setMore((v) => !v)} className="text-[11px] text-ink3 hover:text-ink2">{more ? '▴ Fewer controls' : '▾ Reverb, echo, tone, punch, grit, double, timing'}</button>
-        {!fresh && song && <button onClick={() => setMsg(saveFx(song.id, fx).message)} className="h-7 px-3 rounded-full border border-line text-[11px] text-ink2 hover:text-ink">💾 Save sound</button>}
+        {!fresh && song && <button onClick={() => { saveHook(song.id, hookBars); setMsg(saveFx(song.id, fx).message); }} className="h-7 px-3 rounded-full border border-line text-[11px] text-ink2 hover:text-ink">💾 Save sound</button>}
       </div>
     </div>
   );
@@ -394,7 +433,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
             </>
           )
         ) : !vault.length ? <div className="text-[13px] text-ink2">Nothing in your vault yet. Close this and use ● Record a song on the Studio home.</div> : (
-          <select value={songId} disabled={busy} onChange={(e) => { const id = e.target.value; stopAll(); setMode('idle'); setSongId(id); setTakes([]); setMsg(null); setFx(songs.find((x) => x.id === id)?.vocalFx ?? DEFAULT_FX); }} className="w-full h-10 rounded-[10px] bg-sidebar border border-line px-3 text-[13px] text-ink">
+          <select value={songId} disabled={busy} onChange={(e) => { const id = e.target.value; stopAll(); setMode('idle'); setSongId(id); setTakes([]); setMsg(null); setFx(songs.find((x) => x.id === id)?.vocalFx ?? DEFAULT_FX); setHookBars(songs.find((x) => x.id === id)?.hookBars ?? []); }} className="w-full h-10 rounded-[10px] bg-sidebar border border-line px-3 text-[13px] text-ink">
             {vault.map((x) => <option key={x.id} value={x.id}>{x.title}{x.boothTake ? ` · take ${x.boothTake.score}` : ''}</option>)}
           </select>
         )}

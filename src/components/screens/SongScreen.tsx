@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { useGameStore, isSongReleased } from '../../store/gameStore';
+import { ListenButton } from '../studio/Listen';
 import { cn } from '@/utils/cn';
 import { compact, genreLabel } from '@/utils/format';
 import { Button, EmptyState, Panel, SectionTitle, Tag } from '../ui/kit';
@@ -163,6 +164,7 @@ export function SongScreen() {
               {!isSongReleased(song) && !song.archivedAt ? <Tag tone="amber">In the vault</Tag> : null}
               {chartRow ? <Tag tone="accent">#{chartRow.position} Global</Tag> : null}
             </div>
+            <div className="mt-2"><ListenButton song={song} /></div>
 
             {/* Lineage. Both halves are links, because "which one am I on?" is
                 the first question a player asks about a remix. */}

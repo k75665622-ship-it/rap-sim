@@ -213,6 +213,10 @@ export interface Song {
   readyToRelease?: boolean;
   /** Free-text note the player left on a vault master. */
   vaultNote?: string;
+  /** How the song is laid out — intro, hooks, verses — and who takes which part. */
+  arrangement?: import('../sim/arrangement').Section[];
+  /** What the current layout added (so changing it replaces, never stacks). */
+  arrangementBonus?: { q: number; c: number };
   /** A take you recorded for real in the booth, and how it scored. */
   boothTake?: { score: number; timing: number; at: number; seconds: number };
   /** The mixtape this record was filed under, if any. */

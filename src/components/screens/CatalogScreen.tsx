@@ -7,6 +7,7 @@ import { useGameStore, isSongReleased } from '../../store/gameStore';
 import { trackTotals } from '../../store/musicSelectors';
 import { PageTitle, Panel, Tag } from '../ui/kit';
 import { Avatar } from '../social/shared';
+import { ListenButton } from '../studio/Listen';
 import { cn } from '@/utils/cn';
 import { compact, money } from '@/utils/format';
 import type { Song } from '../../types/game';
@@ -92,6 +93,7 @@ export function CatalogScreen() {
                   </button>
                   <div className="text-right shrink-0"><div className="text-[14px] font-bold text-ink num">{compact(r.week)}</div><div className="text-[10px] text-ink3">this week</div></div>
                 </div>
+                <div className="mt-2"><ListenButton song={r.song} /></div>
                 {owner && (
                   <div className="mt-2 flex items-center gap-2 text-[11px] text-ink3">
                     <span>Chemistry with {owner.name.split(' ')[0]}: <b className={owner.relationshipScore >= 40 ? 'text-rise' : owner.relationshipScore >= 0 ? 'text-ink2' : 'text-fall'}>{owner.relationshipScore >= 60 ? 'tight' : owner.relationshipScore >= 30 ? 'good' : owner.relationshipScore >= 0 ? 'getting there' : 'cold'}</b></span>

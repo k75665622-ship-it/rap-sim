@@ -426,6 +426,7 @@ import { cypherSpecFor, playRound, finishCypher as finishCypherNight, MOVES as C
 import { npcBirthday, birthdayOf, daysUntil, partyCost, dinnerCost, partyNight, wishLine, teamWish, fanWish, type Guest } from '../sim/birthdays';
 import { pitchChoices, resolvePitch, introPitchLine } from '../sim/starIntro';
 import { discloseFor, judgeTerms, myBreaches, MY_TERMS, type MyTerm } from '../sim/myTerms';
+import { arrangementEffect } from '../sim/arrangement';
 import { newFanClub, fanAction, fanDay, costOf as fanCost, FAN_ACTIONS, MILESTONES as FAN_MILESTONES, type FanClub, type FanActionId } from '../sim/fanClub';
 import { specialSkillOf, crewWithSkill, personaOf } from '../sim/persona';
 import { isSilentOption, playerLine, npcReply, toneOf, followUpFor, outcomeChips } from '../sim/dmVoice';
@@ -3312,6 +3313,8 @@ interface GameActions {
   cypherRound: (move: CypherMove) => { ok: boolean; message: string };
   /** The cypher is over: what the room remembers, and what you learnt. */
   cypherFinish: () => FeatureActionResult;
+  /** Lay the song out: which sections, and who takes each one. */
+  setArrangement: (songId: string, arr: import('../sim/arrangement').Section[]) => { ok: boolean; message: string; notes: string[] };
   /** A take you recorded for real goes on the record. */
   applyBoothTake: (songId: string, take: { score: number; timing: number; presence: number; seconds: number }) => FeatureActionResult;
   /** Settle an argument in the team group. */
@@ -16465,6 +16468,27 @@ export const useGameStore = create<GameState & GameActions>()(
         if (res.verdict === 'legendary' || res.verdict === 'bodied') remember(state, 'music', res.verdict === 'legendary' ? `You bodied the cypher at ${a.place}.` : `You got bodied at the cypher at ${a.place}.`, { npcIds: [a.npcId], weight: 3, tone: res.verdict === 'legendary' ? 'good' : 'bad' });
         state.clockPaused = false;
         result = { ok: true, message: a.outcome ?? res.text };
+      });
+      return result;
+    },
+
+    setArrangement: (songId, arr) => {
+      let result: { ok: boolean; message: string; notes: string[] } = { ok: false, message: 'That record is not in your vault.', notes: [] };
+      set((state) => {
+        const p = state.player;
+        const song = state.songs.find((x) => x.id === songId);
+        if (!p || !song) return;
+        if (isSongReleased(song)) { result = { ok: false, message: `"${song.title}" is out — the layout is fixed now.`, notes: [] }; return; }
+        const guests = (song.featuredArtists ?? []).map((id) => state.npcs.find((n) => n.id === id)).filter((n): n is NPC => !!n)
+          .map((n) => ({ id: n.id, name: n.name, fame: n.fame, singer: /afro|rnb|r&b|dancehall|highlife|pop|soul|gospel|reggae/i.test(String(n.genre ?? '')) }));
+        const clean = arr.filter((x) => x.who === 'player' || guests.some((g) => g.id === x.who)).slice(0, 14);
+        const e = arrangementEffect(clean, guests, { playerFame: blendedFame(p), genre: String(song.genre) });
+        const prev = song.arrangementBonus ?? { q: 0, c: 0 };
+        song.quality = Math.max(1, Math.min(99, Math.round((song.quality + e.quality - prev.q) * 10) / 10));
+        song.commercialPotential = Math.max(1, Math.min(100, (song.commercialPotential ?? 50) + e.commercial - prev.c));
+        song.arrangement = clean;
+        song.arrangementBonus = { q: e.quality, c: e.commercial };
+        result = { ok: true, message: `Layout saved. "${song.title}" now reads ${describeScore(song.quality)}`, notes: e.notes };
       });
       return result;
     },

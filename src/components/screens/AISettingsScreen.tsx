@@ -4,6 +4,7 @@
 // the game plays offline with its built-in writing. Keys stay in this browser,
 // per account.
 
+import { voicesEnabled, setVoicesEnabled, loadVoices } from '../../audio/voices';
 import { useEffect, useState } from 'react';
 import { AI_BUILD, rankChatModels, PROVIDERS, activeProvider, aiConfigured, aiSettings, aiUsage, estimateCost, fetchModels, onAIChange, saveAISettings, testKey, type AIFeature } from '../../sim/ai';
 import { currentAccount } from '../../store/accounts';
@@ -59,6 +60,7 @@ export function AISettingsScreen() {
 
   return (
     <div className="max-w-[760px] mx-auto space-y-4 pb-10">
+      <VoicesPanel />
       <div className="rounded-[20px] p-5 border border-re/40 overflow-hidden" style={{ background: 'radial-gradient(120% 140% at 0% 0%, rgba(181,123,255,0.25), rgba(10,11,16,0) 60%), #14161e' }}>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -187,6 +189,30 @@ export function AISettingsScreen() {
       </section>
 
       <div className="text-[11px] text-ink3 leading-snug px-1">The AI only ever writes for the game's fictional people. Real artists in the game never get words put in their mouths, and anything that mentions them is thrown away.</div>
+    </div>
+  );
+}
+
+// ─── REAL VOICES ───────────────────────────────────────────────────────────
+function VoicesPanel() {
+  const [on, setOn] = useState(voicesEnabled());
+  const [pct, setPct] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function enable() {
+    setErr(null); setPct(0);
+    try { await loadVoices((p) => setPct(p)); setVoicesEnabled(true); setOn(true); setPct(null); }
+    catch { setErr('The voices could not download. Check your connection and try again — the phone voice still works.'); setPct(null); }
+  }
+  return (
+    <div className="rounded-[16px] border border-line bg-card p-4 space-y-2">
+      <div className="text-[14px] font-bold text-ink">🗣️ Real voices for songs</div>
+      <div className="text-[12px] text-ink2 leading-snug">Artists' verses and hooks are performed by a free AI voice model (Kokoro) that runs on your phone — no key, no cost. It downloads once (roughly 80–90 MB), then works offline. Off = the phone's built-in robot voice.</div>
+      {on ? (
+        <div className="flex items-center gap-2"><span className="text-[12px] text-rise font-semibold">✓ Real voices on</span><button onClick={() => { setVoicesEnabled(false); setOn(false); }} className="h-8 px-3 rounded-full border border-line text-[12px] text-ink2">Turn off</button></div>
+      ) : (
+        <button disabled={pct !== null} onClick={enable} className="h-9 px-4 rounded-full bg-amber text-black text-[13px] font-bold disabled:opacity-60">{pct !== null ? `Downloading… ${pct}%` : 'Download & turn on'}</button>
+      )}
+      {err && <div className="text-[12px] text-fall">{err}</div>}
     </div>
   );
 }

@@ -45,6 +45,7 @@ import { useAccount } from './hooks/useAccount';
 import { JournalScreen } from './components/screens/JournalScreen';
 import { AppointmentModal } from './components/moments/AppointmentModal';
 import { CatalogScreen } from './components/screens/CatalogScreen';
+import { CreateArtistNpcScreen } from './components/screens/CreateArtistNpcScreen';
 import { CourtModal } from './components/moments/CourtModal';
 import { CeremonyModal } from './components/moments/CeremonyModal';
 import { AwardsScreen } from './components/screens/AwardsScreen';
@@ -156,6 +157,8 @@ export default function App() {
         return <StreamsHomeScreen />;
       case 'catalog':
         return <CatalogScreen />;
+      case 'create_npc':
+        return <CreateArtistNpcScreen />;
       // The global charts are their own destination. Pointing this at the
       // Streams home made the "Global Charts" button, the shell's "Top Charts"
       // entry and the sidebar's "Charts" entry all silent no-ops, and left the

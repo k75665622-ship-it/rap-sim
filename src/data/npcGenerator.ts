@@ -18,13 +18,13 @@ import { LOCATIONS } from './locations';
 const FIRST_NAMES: Record<string, { male: string[]; female: string[] }> = {
   Ghana: {
     male: ['Kwame', 'Kofi', 'Yaw', 'Kwabena', 'Kojo', 'Kwaku', 'Kwesi', 'Nana', 'Fiifi', 'Ato',
-           'Ebo', 'Paa', 'Kwadwo', 'Elikem', 'Sena', 'Yoofi', 'Nii', 'Abeiku', 'Kobby', 'Sarkodie'],
+           'Ebo', 'Paa', 'Kwadwo', 'Elikem', 'Sena', 'Yoofi', 'Nii', 'Abeiku', 'Kobby', 'Kwabena'],
     female: ['Ama', 'Akosua', 'Adwoa', 'Afia', 'Esi', 'Yaa', 'Abena', 'Efua', 'Araba', 'Naa',
              'Mawusi', 'Dzifa', 'Enyonam', 'Sena', 'Akua', 'Baaba', 'Serwaa', 'Maame', 'Adjoa', 'Nana Ama'],
   },
   Nigeria: {
     male: ['Chidi', 'Emeka', 'Tunde', 'Bola', 'Seyi', 'Kunle', 'Obi', 'Ifeanyi', 'Femi', 'Wale',
-           'Ade', 'Chinedu', 'Davido', 'Uche', 'Segun', 'Nnamdi', 'Tobi', 'Gbenga', 'Chuka', 'Burna'],
+           'Ade', 'Chinedu', 'Davido', 'Uche', 'Segun', 'Nnamdi', 'Tobi', 'Gbenga', 'Chuka', 'Blaze'],
     female: ['Amara', 'Ngozi', 'Temi', 'Bisi', 'Yemi', 'Ada', 'Chioma', 'Funke', 'Kemi', 'Ife',
              'Tola', 'Nneka', 'Zainab', 'Sade', 'Uzo', 'Aisha', 'Titi', 'Blessing', 'Rita', 'Tiwa'],
   },
@@ -428,8 +428,10 @@ const ARTIST_SYLL_B = ['xo', 'zo', 'ro', 'ko', 'do', 'go', 'lo', 'mo', 'no', 'po
 const ARTIST_SYLL_C = ['', '', '', 'z', 'x', 'sh', 'th', 'k', 'n', 'r', 's'];
 
 
-const LABEL_NAMES = ['Sony Music', 'Universal', 'Warner Bros', 'Def Jam', 'Island Records', 'EMI', 'Atlantic',
-                     'Columbia', 'RCA', 'Capitol', 'Interscope', 'Motown', 'Quality Control', 'Empire'];
+// Fictional labels only — no real companies in the world.
+const LABEL_NAMES = ['Gold Coast Records', 'Night Shift Music', 'Crown Sound', 'Eastside Vinyl', 'Harbor Lights', 'Northstar Records',
+                     'Red Clay Music', 'Blue Lagoon Records', 'Iron Lion', 'Paper Planes', 'Sunset Records', 'Highlife House', 'Kingmaker Music', 'Afterhours'];
+export const FICTIONAL_LABELS = LABEL_NAMES;
 
 const MEDIA_NAMES = ['The Beat', 'Hype Nation', 'Sound Check', 'The Wave', 'Front Row', 'Backstage',
                      'The Plug', 'Noise Report', 'Turntable', 'The Scoop'];
@@ -834,4 +836,19 @@ export function sceneRanking(): Array<{ country: string; sceneSize: number; cont
   return [...LOCATIONS]
     .map((c) => ({ country: c.name, sceneSize: c.sceneSize, continent: c.continent }))
     .sort((a, b) => b.sceneSize - a.sceneSize);
+}
+
+/** A made-up stage name (and legal name) for somebody from this country — the same seed always gives the same person. */
+export function fictionalAlias(seed: string, country: string, gender: string): { alias: string; real: string } {
+  const rng = makeRng(hashString(`alias|${seed}`));
+  const { pool, surnames } = namesFor(country);
+  const firsts = gender === 'female' ? pool.female : pool.male;
+  return artistAlias(rng, pick(rng, firsts), pick(rng, surnames));
+}
+
+/** A made-up full name for a non-artist (a manager, an exec). */
+export function fictionalPerson(seed: string, country: string): string {
+  const rng = makeRng(hashString(`person|${seed}`));
+  const { pool, surnames } = namesFor(country);
+  return `${pick(rng, rng() < 0.5 ? pool.male : pool.female)} ${pick(rng, surnames)}`;
 }

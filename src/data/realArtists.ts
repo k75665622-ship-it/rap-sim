@@ -13,6 +13,7 @@
 // `buildRealArtists()`, so every artist's team is reachable from their profile.
 
 import type { Genre, Gender, NPC, NPCTier } from '../types/game';
+import { fictionalAlias, fictionalPerson, FICTIONAL_LABELS } from './npcGenerator';
 
 interface Seed {
   /** roster id */
@@ -249,20 +250,42 @@ function managerPersonality(artist: Seed): string[] {
  * survive a reload.
  */
 /** Every real person in the roster: the artists, and the managers named after real ones. */
+/** Nobody in the world is a real person any more. */
 export function realPersonIds(): Set<string> {
-  const out = new Set<string>();
-  for (const s of SEEDS) {
-    out.add(s.id);
-    if (s.mgr) out.add(`mgr_${s.id}`);
-  }
-  return out;
+  return new Set<string>();
+}
+
+const h = (x: string) => { let v = 2166136261; for (let i = 0; i < x.length; i++) { v ^= x.charCodeAt(i); v = Math.imul(v, 16777619); } return v >>> 0; };
+export function artistLevel(fame: number): 'A' | 'B' | 'C' | 'D' | 'Underground' {
+  return fame >= 80 ? 'A' : fame >= 60 ? 'B' : fame >= 40 ? 'C' : fame >= 20 ? 'D' : 'Underground';
+}
+function fictionalBio(alias: string, s: Seed): string {
+  const lvl = artistLevel(s.f);
+  const lines: Record<string, string[]> = {
+    A: ['One of the biggest names out of', 'A household name from'],
+    B: ['A national star from', 'Big at home, growing abroad — out of'],
+    C: ['A rising name from', 'Building a real following in'],
+    D: ['Grinding in', 'An underground favourite in'],
+    Underground: ['Underground in', 'Unknown outside'],
+  };
+  return `${lines[lvl][h(alias) % 2]} ${s.city}. ${lvl}-level ${String(s.g).replace(/_/g, ' ')} artist.`;
 }
 
 export function buildRealArtists(): NPC[] {
   const out: NPC[] = [];
   const seenManagers = new Map<string, string>(); // manager name → id
 
-  for (const s of SEEDS) {
+  for (const s0 of SEEDS) {
+    // Same slot in the world, made-up person: names, team, label and bio.
+    const alias = fictionalAlias(s0.id, s0.c, s0.gd).alias;
+    const s: Seed = {
+      ...s0, n: alias, rn: undefined,
+      mgr: s0.mgr ? fictionalPerson(`mgr|${s0.mgr}`, s0.c) : undefined,
+      label: s0.label ? FICTIONAL_LABELS[h(s0.label) % FICTIONAL_LABELS.length] : undefined,
+      crew: s0.crew ? `${alias.split(' ')[0]} Nation` : undefined, prod: undefined, extras: undefined,
+      bio: '',
+    };
+    s.bio = fictionalBio(alias, s0);
     let managerId: string | undefined;
 
     if (s.mgr) {

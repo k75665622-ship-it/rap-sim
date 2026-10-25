@@ -13,6 +13,7 @@ import { isRealId } from '../../sim/realPeople';
 import { cn } from '@/utils/cn';
 import type { NPC, Song } from '../../types/game';
 import type { SongNote } from '../../sim/songNotes';
+import { voiceFor } from '../../audio/voices';
 
 export function songLines(song: Song, npcs: NPC[], playerId: string, city: string, only?: string, note?: SongNote): SongLine[] {
   const owner = song.ownerId ?? 'player';
@@ -31,7 +32,8 @@ export function songLines(song: Song, npcs: NPC[], playerId: string, city: strin
       const lines = s.part === 'hook' ? (note?.hook.length ? [...note.hook, ...note.hook].slice(0, 4) : hookFor(`${song.id}|hook`, song.title)) : (who === 'player' && own.length ? own.slice(ownAt, ownAt + 8) : ownerWords && s.part === 'verse' ? note!.verse : linesFor(`${song.id}|${who}|${bar}`, s.part === 'bridge' ? 4 : 8, { city, title: song.title }));
       if (who === 'player' && own.length && s.part === 'verse') ownAt += 8;
       const step = s.part === 'verse' ? 1 : 1;
-      lines.forEach((t, i) => out.push({ bar: bar + i * step, text: t, pitch: pitchOf(who) }));
+      const v = voiceFor(who === 'player' || who === playerId ? { id: playerId } : (npcs.find((x) => x.id === who) as { id: string; gender?: string; voice?: string } | undefined) ?? { id: who });
+      lines.forEach((t, i) => out.push({ bar: bar + i * step, text: t, pitch: pitchOf(who), voice: v }));
     }
     bar += PART_BARS[s.part];
     if (only && out.length && who !== only) break;

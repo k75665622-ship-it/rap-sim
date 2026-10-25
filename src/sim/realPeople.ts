@@ -10,8 +10,9 @@ import { realPersonIds } from '../data/realArtists';
 let ids: Set<string> | null = null;
 
 export function isRealId(id: string | undefined | null): boolean {
+  // The world is fictional now: every artist is made up, and the ones players
+  // create are theirs. Kept as a function so the old guards stay in one place.
   if (!id) return false;
-  if (id.endsWith('_real')) return true;
   if (!ids) ids = realPersonIds();
   return ids.has(id);
 }

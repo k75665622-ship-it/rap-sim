@@ -851,6 +851,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         lifeFlags: state.lifeFlags,
         managerPush: state.managerPush,
         fanClub: state.fanClub,
+        customNpcs: (raw(state.npcs) as NPC[]).filter((n) => n.custom),
         songNotes: Object.fromEntries(Object.entries(state.songNotes ?? {}).slice(-60)),
         teamDispute: state.teamDispute ?? null,
         lastDisputeSerial: state.lastDisputeSerial,
@@ -1047,7 +1048,8 @@ function applySlotPayload(state: GameState, saved: Partial<GameState>): void {
       if (d.t !== undefined) npc.lastReachOut = d.t;
     }
   }
-  state.npcs = roster;
+  // Artists the player created come back exactly as they were.
+  state.npcs = [...roster, ...((saved.customNpcs ?? []) as NPC[]).filter((n) => !roster.some((r) => r.id === n.id))];
 
   // Saves written before the energy system existed have no `energy`
   // field. Fill it in rather than letting every action silently refuse.
@@ -3314,6 +3316,9 @@ interface GameActions {
   cypherRound: (move: CypherMove) => { ok: boolean; message: string };
   /** The cypher is over: what the room remembers, and what you learnt. */
   cypherFinish: () => FeatureActionResult;
+  /** Create your own artist: name, level, country, genre, personality, voice. */
+  createCustomArtist: (i: { name: string; gender: 'male' | 'female'; country: string; city: string; genre: string; level: 'A' | 'B' | 'C' | 'D' | 'Underground'; traits: string[]; bio: string; voice?: string; age?: number }) => { ok: boolean; message: string; id?: string };
+  deleteCustomArtist: (id: string) => void;
   /** What a song is about (from the AI or the game). */
   setSongNote: (songId: string, note: import('../sim/songNotes').SongNote) => void;
   /** Start a new song inspired by another one. */
@@ -16477,6 +16482,35 @@ export const useGameStore = create<GameState & GameActions>()(
       });
       return result;
     },
+
+    createCustomArtist: (i) => {
+      let result: { ok: boolean; message: string; id?: string } = { ok: false, message: 'Give them a name.' };
+      set((state) => {
+        const name = i.name.trim().slice(0, 40);
+        if (!name) return;
+        if (state.npcs.some((n) => n.name.toLowerCase() === name.toLowerCase())) { result = { ok: false, message: `There's already somebody called ${name} in this world.` }; return; }
+        const fame = { A: 86, B: 68, C: 50, D: 30, Underground: 12 }[i.level];
+        const tier: NPC['tier'] = fame >= 70 ? 'international' : fame >= 40 ? 'national' : 'local';
+        const id = `custom_${uuidv4().slice(0, 8)}`;
+        const npc = {
+          id, name, tier, role: 'artist', personality: i.traits.slice(0, 4), genre: i.genre, country: i.country, city: i.city,
+          relationshipScore: 0, relationshipStage: 'acquainted', memoryLog: [], fame, isAvailable: true, gender: i.gender,
+          age: i.age ?? 25, bio: i.bio.trim().slice(0, 300) || `${i.level}-level ${i.genre.replace(/_/g, ' ')} artist from ${i.city}.`, custom: true, voice: i.voice,
+        } as unknown as NPC;
+        state.npcs.push(npc);
+        // They have records out from day one, like everybody else at their level.
+        if (fame >= 30) for (let k = 0; k < (fame >= 70 ? 2 : 1); k++) state.npcSongs.push(createNPCSong(npc, state.gameDate));
+        result = { ok: true, id, message: `${name} is in the world now — ${i.level}-level, ${i.city}. They'll release music, show up on charts, and you can reach out to them.` };
+      });
+      return result;
+    },
+
+    deleteCustomArtist: (id) => set((state) => {
+      const n = state.npcs.find((x) => x.id === id);
+      if (!n?.custom) return;
+      state.npcs = state.npcs.filter((x) => x.id !== id);
+      state.npcSongs = state.npcSongs.filter((x) => x.ownerId !== id);
+    }),
 
     setSongNote: (songId, note) => set((state) => {
       const notes = state.songNotes ?? (state.songNotes = {});

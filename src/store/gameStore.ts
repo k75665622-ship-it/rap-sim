@@ -851,6 +851,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         lifeFlags: state.lifeFlags,
         managerPush: state.managerPush,
         fanClub: state.fanClub,
+        songNotes: Object.fromEntries(Object.entries(state.songNotes ?? {}).slice(-60)),
         teamDispute: state.teamDispute ?? null,
         lastDisputeSerial: state.lastDisputeSerial,
         birthday: state.birthday,
@@ -3313,6 +3314,11 @@ interface GameActions {
   cypherRound: (move: CypherMove) => { ok: boolean; message: string };
   /** The cypher is over: what the room remembers, and what you learnt. */
   cypherFinish: () => FeatureActionResult;
+  /** What a song is about (from the AI or the game). */
+  setSongNote: (songId: string, note: import('../sim/songNotes').SongNote) => void;
+  /** Start a new song inspired by another one. */
+  inspireStudio: (songId: string) => void;
+  consumeInspiration: () => { genre: string; bpm?: number; mood?: string; fromTitle: string } | null;
   /** Lay the song out: which sections, and who takes each one. */
   setArrangement: (songId: string, arr: import('../sim/arrangement').Section[]) => { ok: boolean; message: string; notes: string[] };
   /** A take you recorded for real goes on the record. */
@@ -16470,6 +16476,27 @@ export const useGameStore = create<GameState & GameActions>()(
         result = { ok: true, message: a.outcome ?? res.text };
       });
       return result;
+    },
+
+    setSongNote: (songId, note) => set((state) => {
+      const notes = state.songNotes ?? (state.songNotes = {});
+      notes[songId] = note;
+      const keys = Object.keys(notes);
+      if (keys.length > 80) for (const k of keys.slice(0, keys.length - 80)) delete notes[k];
+    }),
+
+    inspireStudio: (songId) => set((state) => {
+      const x = state.songs.find((y) => y.id === songId) ?? state.npcSongs.find((y) => y.id === songId);
+      if (!x) return;
+      state.studioInspiration = { genre: String(x.genre), bpm: x.bpm, mood: x.mood, fromTitle: x.title };
+      state.pendingStudioMode = 'single';
+      state.screen = 'studio';
+    }),
+
+    consumeInspiration: () => {
+      const v = get().studioInspiration ?? null;
+      if (v) set((state) => { state.studioInspiration = null; });
+      return v;
     },
 
     setArrangement: (songId, arr) => {

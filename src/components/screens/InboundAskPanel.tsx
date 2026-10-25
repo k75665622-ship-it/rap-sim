@@ -23,6 +23,7 @@ import { playerVerseRate } from '../../sim/inbound';
 import type { InboundRequest, NPC } from '../../types/game';
 import { discloseFor, MY_TERMS, type MyTerm, type MyTermKind } from '../../sim/myTerms';
 import { personaOf } from '../../sim/persona';
+import { SongAbout } from '../studio/SongAbout';
 import { isRealId } from '../../sim/realPeople';
 
 /** A confidence bar, because "0.62" means nothing to anybody. */
@@ -130,6 +131,7 @@ export function InboundAskPanel({ request }: { request: InboundRequest }) {
       {/* What they actually said is the letter itself, printed above this panel
           by the Mailbox. Repeating it here would be the same paragraph twice. */}
 
+      {(() => { const hs = useGameStore.getState().npcSongs.find((x) => x.id === r.npcSongId); return hs ? <SongAbout song={hs} forVerse /> : null; })()}
       <VerseTerms request={r} />
 
       {/* ── The manager's read ────────────────────────────────────────── */}

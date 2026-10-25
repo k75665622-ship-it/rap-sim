@@ -106,7 +106,7 @@ export class BeatPlayer {
   private rand: () => number;
   private motif: number[];
   private counter: number[];
-  constructor(ctx: BaseAudioContext, spec: BeatSpec, dest: AudioNode, volume = 0.8) {
+  constructor(ctx: BaseAudioContext, spec: BeatSpec, dest: AudioNode, volume = 0.8, clarity = 0) {
     this.ctx = ctx;
     this.spec = spec;
     this.out = ctx.createGain();
@@ -114,7 +114,8 @@ export class BeatPlayer {
     // A weak producer's mix is muddy; a great one is open and bright.
     const tone = ctx.createBiquadFilter();
     tone.type = 'lowpass';
-    tone.frequency.value = 2500 + (spec.quality / 100) * 15000;
+    // An engineer's master opens a muddy beat up too.
+    tone.frequency.value = Math.min(19000, 2500 + (spec.quality / 100) * 15000 + clarity * 70);
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 3;
     // A brick wall at the end so a heavy 808 never clips.

@@ -2611,6 +2611,10 @@ export interface GameState {
   managerPush?: { kind: 'shows' | 'features' | 'deals'; until: number };
   /** Projects you are still putting together: saved tracklists, not out yet. */
   albumDrafts?: AlbumDraft[];
+  /** What songs are about — the theme, the hook, the verse (AI- or game-written). */
+  songNotes?: Record<string, import('../sim/songNotes').SongNote>;
+  /** "Make one like this": the song that inspired the next session. */
+  studioInspiration?: { genre: string; bpm?: number; mood?: string; fromTitle: string } | null;
   /** Your fans' mood, what you've done for them, and your fan-war record. */
   fanClub?: import('../sim/fanClub').FanClub;
   /** Two people on the team who need you to settle something. */

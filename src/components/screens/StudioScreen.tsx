@@ -540,10 +540,11 @@ export function StudioScreen() {
    * session is ordered.
    */
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [inspo] = useState(() => useGameStore.getState().consumeInspiration());
   const [title, setTitle] = useState('');
-  const [genre, setGenre] = useState<Genre>(player?.genre ?? 'hip_hop');
-  const [bpm, setBpm] = useState(95);
-  const [mood, setMood] = useState<SongMood>('defiant');
+  const [genre, setGenre] = useState<Genre>((inspo?.genre as Genre) ?? player?.genre ?? 'hip_hop');
+  const [bpm, setBpm] = useState(inspo?.bpm ?? 95);
+  const [mood, setMood] = useState<SongMood>((inspo?.mood as SongMood) ?? 'defiant');
   const [lyrics, setLyrics] = useState('');
   // A hired pen, when the player is not writing it themselves. The fee is
   // folded into the session cost, so hiring is decided here and paid at record.

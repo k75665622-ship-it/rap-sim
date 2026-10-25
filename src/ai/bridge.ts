@@ -486,3 +486,29 @@ export async function interviewFollowUp(): Promise<void> {
     if (out?.host && !mentionsAny(out.host, names)) useGameStore.getState().rewriteInterviewQuestion(live.idx, out.host);
   } catch { /* keep the written question */ }
 }
+
+// ─── WHAT A SONG IS ABOUT ──────────────────────────────────────────────────
+// Fictional artists only: the AI writes the song's theme, hook and a verse,
+// and says what kind of guest verse would fit. Never for real artists.
+
+export async function writeSongNote(songId: string): Promise<boolean> {
+  if (!aiActiveFor('director')) return false;
+  const st = useGameStore.getState();
+  const song = st.songs.find((x) => x.id === songId) ?? st.npcSongs.find((x) => x.id === songId);
+  if (!song || !st.player) return false;
+  const ownerId = song.ownerId ?? 'player';
+  if (isRealId(ownerId)) return false;
+  const owner = ownerId === 'player' ? st.player.artistName : st.npcs.find((n) => n.id === ownerId)?.name ?? 'the artist';
+  const guests = (song.featuredArtists ?? []).map((id) => st.npcs.find((n) => n.id === id)).filter((n): n is NPC => !!n && !isRealId(n.id)).map((n) => n.name);
+  const context = `Song: "${song.title}" by ${owner}${guests.length ? ` featuring ${guests.join(', ')}` : ''}. Genre: ${song.genre}. Mood: ${song.mood ?? 'unknown'}. Tempo: ${song.bpm ?? '?'} bpm. City: ${st.npcs.find((n) => n.id === ownerId)?.city ?? st.player.city}.`;
+  const ask = 'Write what this song is about and its words. Original lyrics only — never quote or imitate real songs, never mention real people. Keep it clean enough for radio. Answer as JSON: {"about":"one sentence","hook":["line","line"],"verse":["8 short rap lines"],"fit":"one or two sentences: what kind of guest verse would fit this song"}';
+  try {
+    const text = await callClaude({ json: true, feature: 'director', rules: RULES, context, messages: [{ role: 'user', content: ask }], maxTokens: 450 });
+    const out = parseJSON<{ about?: string; hook?: string[]; verse?: string[]; fit?: string }>(text);
+    const names = realNames(st);
+    const all = `${out?.about ?? ''} ${(out?.hook ?? []).join(' ')} ${(out?.verse ?? []).join(' ')} ${out?.fit ?? ''}`;
+    if (!out?.about || !out.verse?.length || mentionsAny(all, names)) return false;
+    useGameStore.getState().setSongNote(songId, { about: String(out.about).slice(0, 220), hook: (out.hook ?? []).slice(0, 4).map((l) => String(l).slice(0, 90)), verse: out.verse.slice(0, 8).map((l) => String(l).slice(0, 90)), fit: String(out.fit ?? '').slice(0, 240), by: 'ai' });
+    return true;
+  } catch { return false; }
+}

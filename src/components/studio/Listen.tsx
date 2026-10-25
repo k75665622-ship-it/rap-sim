@@ -12,8 +12,9 @@ import { defaultArrangement, PART_BARS } from '../../sim/arrangement';
 import { isRealId } from '../../sim/realPeople';
 import { cn } from '@/utils/cn';
 import type { NPC, Song } from '../../types/game';
+import type { SongNote } from '../../sim/songNotes';
 
-export function songLines(song: Song, npcs: NPC[], playerId: string, city: string, only?: string): SongLine[] {
+export function songLines(song: Song, npcs: NPC[], playerId: string, city: string, only?: string, note?: SongNote): SongLine[] {
   const owner = song.ownerId ?? 'player';
   const guests = (song.featuredArtists ?? []).filter((id) => id !== owner);
   const arr = song.arrangement ?? (owner === 'player' ? defaultArrangement(guests) : defaultArrangement([]).map((s) => ({ ...s, who: s.who === 'player' ? owner : s.who })).concat(guests.map((g) => ({ part: 'verse' as const, who: g }))));
@@ -26,7 +27,8 @@ export function songLines(song: Song, npcs: NPC[], playerId: string, city: strin
     const who = s.who === 'player' && owner !== 'player' ? owner : s.who;
     const silent = isRealId(who) || (only && who !== only);
     if (!silent && (s.part === 'verse' || s.part === 'hook' || s.part === 'bridge')) {
-      const lines = s.part === 'hook' ? hookFor(`${song.id}|hook`, song.title) : (who === 'player' && own.length ? own.slice(ownAt, ownAt + 8) : linesFor(`${song.id}|${who}|${bar}`, s.part === 'bridge' ? 4 : 8, { city, title: song.title }));
+      const ownerWords = note && who === owner;
+      const lines = s.part === 'hook' ? (note?.hook.length ? [...note.hook, ...note.hook].slice(0, 4) : hookFor(`${song.id}|hook`, song.title)) : (who === 'player' && own.length ? own.slice(ownAt, ownAt + 8) : ownerWords && s.part === 'verse' ? note!.verse : linesFor(`${song.id}|${who}|${bar}`, s.part === 'bridge' ? 4 : 8, { city, title: song.title }));
       if (who === 'player' && own.length && s.part === 'verse') ownAt += 8;
       const step = s.part === 'verse' ? 1 : 1;
       lines.forEach((t, i) => out.push({ bar: bar + i * step, text: t, pitch: pitchOf(who) }));
@@ -41,6 +43,7 @@ export function ListenButton({ song, only, label }: { song: Song; only?: string;
   const npcs = useGameStore((s) => s.npcs);
   const player = useGameStore((s) => s.player);
   const library = useGameStore((s) => s.beats?.library);
+  const note = useGameStore((s) => s.songNotes?.[song.id]);
   const playing = usePreviewing();
   const now = useNowLine();
   const [take, setTake] = useState<Blob | null>(null);
@@ -55,7 +58,7 @@ export function ListenButton({ song, only, label }: { song: Song; only?: string;
   const on = playing === key;
   const instrumental = song.ownerId ? isRealId(song.ownerId) : false;
   const go = () => {
-    const lines = instrumental ? [] : songLines(song, npcs as NPC[], player?.id ?? 'player', player?.city ?? 'the city', only);
+    const lines = instrumental ? [] : songLines(song, npcs as NPC[], player?.id ?? 'player', player?.city ?? 'the city', only, note);
     playSong(key, spec, { take: take && !only ? take : null, lines, seconds: only ? Math.ceil((lines.length + 2) * (240 / spec.bpm)) : 90 });
   };
   return (

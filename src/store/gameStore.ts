@@ -374,7 +374,7 @@ import {
   type GearSlotId,
 } from '../sim/room';
 import {
-  emptyBeats, storeCatalogue, dropInterval, teamBeat, orderQuote, customBeatQuality, takesOrder, beatName, beatGrade, LEASE_PENALTY,
+  emptyBeats, storeCatalogue, dropInterval, teamBeat, orderQuote, customBeatQuality, takesOrder, beatName, beatGrade, LEASE_PENALTY, houseBeats,
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
 import {
@@ -3328,6 +3328,8 @@ interface GameActions {
   setArrangement: (songId: string, arr: import('../sim/arrangement').Section[]) => { ok: boolean; message: string; notes: string[] };
   /** A take you recorded for real goes on the record. */
   applyBoothTake: (songId: string, take: { score: number; timing: number; presence: number; seconds: number }) => FeatureActionResult;
+  /** A song made straight from the booth: pick a beat, rap, keep the take. No writing required. */
+  createRecordedSong: (o: { beat: { kind: 'owned' | 'house'; id: string }; title: string; mood?: SongMood; lyrics?: string; take: { score: number; timing: number; presence: number; seconds: number } }) => FeatureActionResult & { songId?: string };
   /** Settle an argument in the team group. */
   settleTeamDispute: (optionId: 'a' | 'b' | 'calm') => FeatureActionResult;
   /** Don't go: text an excuse, or just don't show up. */
@@ -16577,6 +16579,67 @@ export const useGameStore = create<GameState & GameActions>()(
         statUps(state, before, 'the booth');
         const read = take.score >= 80 ? 'a great take' : take.score >= 60 ? 'a solid take' : take.score >= 40 ? 'a rough take' : 'not really a take';
         result = { ok: true, message: `That's ${read} (${take.score}/100 — on-beat ${take.timing}, presence ${take.presence}). "${song.title}" ${delta >= 0.5 ? 'got better' : delta <= -0.5 ? 'lost a little' : 'held steady'}. ${describeScore(song.quality)}` };
+      });
+      return result;
+    },
+
+    createRecordedSong: (o) => {
+      let result: FeatureActionResult & { songId?: string } = { ok: false, message: 'Something went wrong in the booth.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const serial = dateToSerial(state.gameDate);
+        const beat = o.beat.kind === 'owned'
+          ? (state.beats?.library ?? []).find((b) => b.id === o.beat.id)
+          : houseBeats(p.genre, Math.floor(serial / 7), p.stats.productionKnowledge ?? 0).find((b) => b.id === o.beat.id);
+        if (!beat) { result.message = 'That beat is not available any more.'; return; }
+        if (beat.usedOnSongId) { result.message = `That beat is already on "${beat.usedOnTitle ?? 'a record'}".`; return; }
+        if (!spendEnergy(state, 15)) { result.message = energyShortfallMessage(15, p.energy); return; }
+        if (state.legacy.retired) unretire(state, 'semi', 'You went back in the booth. Semi-retired now.');
+        const before = { ...p.stats };
+        const st = p.stats;
+        const title = o.title.trim().slice(0, 60) || beat.name;
+        const written = (o.lyrics ?? '').split('\n').filter((l) => l.trim().length > 3).length;
+        // Written bars lean on your pen; off the top leans on your freestyle.
+        const lyricsQuality = Math.round(written >= 8
+          ? st.lyricism * 0.55 + st.songwriting * 0.35 + st.creativity * 0.1 + 3
+          : written >= 3
+            ? st.lyricism * 0.45 + st.songwriting * 0.25 + (st.freestyle ?? 0) * 0.3
+            : (st.freestyle ?? 0) * 0.55 + st.lyricism * 0.25 + st.creativity * 0.2 - 3);
+        const lq = Math.max(5, Math.min(99, lyricsQuality));
+        const quality = Math.max(5, Math.min(97, Math.round((beat.quality * 0.38 + o.take.score * 0.37 + lq * 0.25) * 10) / 10));
+        const date = formatGameDate(state.gameDate);
+        const song: Song = {
+          id: uuidv4(), title, genre: beat.genre, quality, releaseDate: date, marketingBudget: 0, totalStreams: 0, weeklyStreams: 0,
+          totalEarnings: 0, version: 'original', featuredArtists: [], chartPositions: {}, certifications: [], hasVideo: false, videoViews: 0,
+          bpm: beat.bpm, mood: o.mood ?? beat.mood, lyrics: o.lyrics?.trim() || undefined, lyricsQuality: lq,
+          productionQuality: beat.quality, vocalPerformance: o.take.score,
+          producerId: beat.producerId, producerName: beat.producerName === 'House beat' ? undefined : beat.producerName,
+          beatId: beat.id, beatName: beat.name, beatQuality: beat.quality,
+          commercialPotential: Math.round(quality * 0.9 + (o.take.timing - 50) * 0.1),
+          criticalPotential: Math.round(quality * 0.85 + (lq - 50) * 0.15),
+          recordingCost: 0, masterStatus: 'recorded', recordingDate: date,
+          boothTake: { score: o.take.score, timing: o.take.timing, at: serial, seconds: o.take.seconds },
+        };
+        state.songs.push(song);
+        if (o.beat.kind === 'owned') { beat.usedOnSongId = song.id; beat.usedOnTitle = title; }
+        else {
+          // A house beat becomes yours the moment you rap on it.
+          if (!state.beats) state.beats = emptyBeats();
+          state.beats.library.push({ ...beat, usedOnSongId: song.id, usedOnTitle: title, acquiredSerial: serial });
+        }
+        const grow = (k: keyof ArtistStats, v: number) => { st[k] = Math.min(100, (st[k] ?? 0) + v * Math.max(0.3, 1 - (st[k] ?? 0) / 120)); };
+        grow('delivery', 0.3 + o.take.score / 400);
+        grow('flow', 0.25 + o.take.timing / 500);
+        grow('vocalAbility', 0.15);
+        grow(written >= 3 ? 'songwriting' : 'freestyle', 0.3);
+        grow('consistency', 0.1);
+        statUps(state, before, 'the booth');
+        addMomentum(state, 1);
+        const read = o.take.score >= 80 ? 'a great take' : o.take.score >= 60 ? 'a solid take' : o.take.score >= 40 ? 'a rough take' : 'barely a take';
+        state.lastEventLog.unshift(`🎙️ "${title}" — recorded in the booth (${read}, ${o.take.score}/100). ${describeScore(quality)}`);
+        state.lastEventLog = state.lastEventLog.slice(0, 10);
+        result = { ok: true, songId: song.id, message: `"${title}" is in your vault — ${read} (${o.take.score}/100, on-beat ${o.take.timing}). ${describeScore(quality)} Mix and master it before it drops.` };
       });
       return result;
     },

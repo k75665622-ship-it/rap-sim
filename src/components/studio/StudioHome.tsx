@@ -21,7 +21,7 @@ const ROLE_DOES: Record<string, string> = {
   vocal_coach: 'Improves your delivery and vocals every week — it shows in the booth.',
 };
 
-export function StudioHome({ go, onUseBeat }: { go: (to: Go) => void; onUseBeat: (b: OwnedBeat) => void }) {
+export function StudioHome({ go, onRecord }: { go: (to: Go) => void; onUseBeat?: (b: OwnedBeat) => void; onRecord: (beatId?: string) => void }) {
   const songs = useGameStore((s) => s.songs);
   const crew = useGameStore((s) => s.crew);
   const beats = useGameStore((s) => s.beats);
@@ -44,12 +44,22 @@ export function StudioHome({ go, onUseBeat }: { go: (to: Go) => void; onUseBeat:
     <div className="space-y-5">
       {/* Start */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4">
-        <button onClick={() => go('single')} className="text-left rounded-[18px] p-6 border border-amber/40 hover:border-amber transition group" style={{ background: 'linear-gradient(135deg, rgba(245,179,1,0.18), rgba(245,179,1,0.02) 70%)' }}>
-          <div className="text-[34px]">🎙️</div>
-          <div className="text-[22px] font-bold text-ink mt-2">Record a new song</div>
-          <div className="text-[13px] text-ink2 mt-1 max-w-md">Write it (or hire a pen), pick a beat, set how you perform it, and book the room. You'll see how good it is before you pay.</div>
-          <div className="mt-4 inline-flex items-center gap-2 text-[13px] font-semibold text-amber group-hover:gap-3 transition-all">Start session →</div>
-        </button>
+        <div className="flex flex-col gap-3">
+          <button onClick={() => onRecord()} className="flex-1 text-left rounded-[18px] p-6 border border-fall/50 hover:border-fall transition group relative overflow-hidden" style={{ background: 'radial-gradient(90% 120% at 0% 0%, rgba(255,72,72,0.28), rgba(255,72,72,0.03) 70%)' }}>
+            <div className="flex items-center gap-4">
+              <span className="w-16 h-16 rounded-full bg-fall text-white flex flex-col items-center justify-center shadow-[0_0_0_6px_rgba(255,72,72,0.2)] group-hover:scale-105 transition"><span className="text-[20px] leading-none">●</span><span className="text-[10px] font-bold mt-0.5">REC</span></span>
+              <div>
+                <div className="text-[22px] font-bold text-ink">Record a song</div>
+                <div className="text-[13px] text-ink2 mt-0.5 max-w-md">Pick a beat, put your headphones on and rap into your mic. Keep your best take — that's the song. No writing needed.</div>
+              </div>
+            </div>
+          </button>
+          <button onClick={() => go('single')} className="text-left rounded-[14px] px-5 py-3 border border-line bg-card hover:bg-cardhover transition flex items-center gap-3">
+            <span className="text-[20px]">✍️</span>
+            <span className="flex-1"><span className="block text-[14px] font-semibold text-ink">Write it & book a session</span><span className="block text-[11px] text-ink3">Write bars or hire a pen, set the performance, see the score before you pay.</span></span>
+            <span className="text-[12px] text-amber font-semibold">Open →</span>
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           {[
             { k: 'vault' as Go, emoji: '🎚️', label: 'Masters', value: unmixed + unreleased, sub: unmixed ? `${unmixed} to mix` : unreleased ? `${unreleased} ready to drop` : 'All caught up' },
@@ -94,7 +104,7 @@ export function StudioHome({ go, onUseBeat }: { go: (to: Go) => void; onUseBeat:
             No beats waiting. {team.some((c) => c.role === 'producer' || c.role === 'engineer') ? 'Your team will send some soon.' : 'Hire a producer or engineer and they\'ll send beats every week — or check the beat store.'}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">{fresh.map((b) => <BeatTile key={b.id} beat={b} onUse={() => onUseBeat(b)} />)}</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">{fresh.map((b) => <BeatTile key={b.id} beat={b} onUse={() => onRecord(b.id)} />)}</div>
         )}
       </section>
 

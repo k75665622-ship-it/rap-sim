@@ -499,6 +499,7 @@ function RoomPanel({
 
 export function StudioScreen() {
   const [booth, setBooth] = useState(false);
+  const [mic, setMic] = useState<{ beatId?: string } | null>(null);
   const player = useGameStore(s => s.player);
   const songs = useGameStore(s => s.songs);
   const npcs = useGameStore(s => s.npcs);
@@ -948,7 +949,7 @@ export function StudioScreen() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Button variant="secondary" onClick={() => setScreen('create_video')}>📹 Shoot a video</Button>
-          <Button onClick={() => setMode('single')}>🎙️ New song</Button>
+          <Button onClick={() => setMic({})}>● Record a song</Button>
         </div>
       </div>
 
@@ -958,7 +959,7 @@ export function StudioScreen() {
           onChange={(m) => setMode(m)}
           options={[
             { id: 'home', label: 'Home' },
-            { id: 'single', label: 'Record' },
+            { id: 'single', label: 'Write' },
             { id: 'beats', label: 'Beats', badge: readyCount ? String(readyCount) : undefined },
             { id: 'vault', label: 'Masters', badge: unmixedCount ? String(unmixedCount) : undefined },
             { id: 'guest', label: 'Features', badge: featureDue ? String(featureDue) : undefined },
@@ -983,8 +984,22 @@ export function StudioScreen() {
         </div>
       )}
 
+      {mic && (
+        <RecordingBooth
+          fresh
+          beatId={mic.beatId}
+          onClose={() => setMic(null)}
+          onDone={(id) => { setMic(null); setVaultFocus(id); setMode('vault'); }}
+          onWrite={(id) => {
+            setMic(null);
+            const b = id ? useGameStore.getState().beats?.library.find((x) => x.id === id) : undefined;
+            if (b) pickLibraryBeat(b); else setMode('single');
+          }}
+        />
+      )}
       {mode === 'home' ? (
         <StudioHome
+          onRecord={(beatId) => setMic({ beatId })}
           go={(to) => {
             if (to === 'order') { setBeatsView('order'); setMode('beats'); return; }
             if (to === 'beats') setBeatsView('library');
@@ -993,7 +1008,7 @@ export function StudioScreen() {
           onUseBeat={pickLibraryBeat}
         />
       ) : mode === 'beats' ? (
-        <BeatsPanel key={beatsView} initialView={beatsView} onUseBeat={pickLibraryBeat} />
+        <BeatsPanel key={beatsView} initialView={beatsView} onUseBeat={(b) => setMic({ beatId: b.id })} />
       ) : mode === 'album' ? (
         <ProjectBuilder onEditSong={(id) => { setVaultFocus(id); setMode('vault'); }} />
       ) : mode === 'room' ? (
@@ -1015,10 +1030,16 @@ export function StudioScreen() {
         </div>
       ) : mode === 'vault' ? (
         <>
-        <button onClick={() => setBooth(true)} className="w-full mb-3 rounded-[14px] border border-fall/40 bg-fall/10 hover:bg-fall/15 px-4 py-3 text-left transition">
-          <div className="text-[14px] font-bold text-ink">🎙️ Recording booth</div>
-          <div className="text-[11px] text-ink3">Put your headphones on and rap over the beat for real. Your take goes on the record.</div>
-        </button>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <button onClick={() => setMic({})} className="rounded-[14px] border border-fall/50 bg-fall/15 hover:bg-fall/20 px-4 py-3 text-left transition">
+            <div className="text-[14px] font-bold text-ink">● Record a new song</div>
+            <div className="text-[11px] text-ink3">Pick a beat and rap — the take is the song.</div>
+          </button>
+          <button onClick={() => setBooth(true)} className="rounded-[14px] border border-line bg-card hover:bg-cardhover px-4 py-3 text-left transition">
+            <div className="text-[14px] font-bold text-ink">🎙️ Re-cut a vocal</div>
+            <div className="text-[11px] text-ink3">Record over a song already in your vault.</div>
+          </button>
+        </div>
         {booth && <RecordingBooth onClose={() => setBooth(false)} />}
         <StudioVault onRelease={setReleaseDialog} onMix={setMixDialog} focusSongId={vaultFocus ?? undefined} />
         </>

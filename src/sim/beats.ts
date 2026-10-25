@@ -18,6 +18,7 @@
 import type { Genre, NPC, SongMood } from '../types/game';
 import { hashString } from './rng';
 import { producerFee, producerSkillOf } from './studio';
+import { beatSpecFor } from '../audio/beat';
 
 export type BeatSource = 'team' | 'store' | 'custom';
 export type BeatLicense = 'lease' | 'exclusive' | 'inhouse';
@@ -205,4 +206,21 @@ export function beatGrade(q: number): string {
   if (q >= 52) return 'Decent';
   if (q >= 40) return 'Rough';
   return 'Weak';
+}
+
+/**
+ * Free beats made in your own room: rough, but yours, and never the same
+ * twice. Three new ones every week, so nobody is ever without something to
+ * rap on. How good they are grows with what you know about production.
+ */
+export function houseBeats(genre: Genre, week: number, productionKnowledge: number): OwnedBeat[] {
+  const alt: Genre[] = ['trap', 'afrobeats', 'drill', 'boom_bap', 'rnb', 'dancehall', 'amapiano'];
+  return [0, 1, 2].map((i) => {
+    const id = `house|${week}|${i}`;
+    const g = i === 2 ? alt[hashString(id + 'g') % alt.length] : genre;
+    const quality = Math.min(62, Math.round(34 + productionKnowledge * 0.2 + (hashString(id + 'q') % 9)));
+    const mood = MOODS[hashString(id + 'm') % MOODS.length];
+    const bpm = beatSpecFor(String(g), undefined, id, quality, 'House beat', mood).bpm;
+    return { id, name: beatName(id), quality, genre: g, bpm, mood, producerName: 'House beat', source: 'custom', license: 'inhouse', acquiredSerial: week * 7 };
+  });
 }

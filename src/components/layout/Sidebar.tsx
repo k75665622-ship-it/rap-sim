@@ -108,6 +108,7 @@ export function Sidebar() {
     // Albums / Artists / New Releases tabs.
     { id: 'streams', label: 'Streaming', icon: <IconMusic />, group: 'music' },
     { id: 'catalog', label: 'Catalog', icon: <IconMusic />, group: 'music' },
+    { id: 'create_npc', label: 'Create artist', icon: <IconMusic />, group: 'music' },
     { id: 'charts', label: 'Charts', icon: <IconTrend />, group: 'music' },
     { id: 'videos', label: 'Videos', icon: <IconPlay />, group: 'music' },
 

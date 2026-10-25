@@ -608,6 +608,10 @@ export interface NPC {
   memoryLog: string[]; // last ~10 meaningful interactions
   fame: number; // 0-100 (NPC's own fame)
   isAvailable: boolean;
+  /** Made by a player in "Create an artist". */
+  custom?: boolean;
+  /** The voice they speak and rap in (a Kokoro voice id). */
+  voice?: string;
   managerId?: string; // for national/international NPCs
   gender: Gender;
   age: number;
@@ -2279,6 +2283,7 @@ export type GameScreen =
   | 'streaming'
   | 'streams'
   | 'catalog'
+  | 'create_npc'
   | 'platform'
   | 'videos'
   | 'watch'
@@ -2611,6 +2616,8 @@ export interface GameState {
   managerPush?: { kind: 'shows' | 'features' | 'deals'; until: number };
   /** Projects you are still putting together: saved tracklists, not out yet. */
   albumDrafts?: AlbumDraft[];
+  /** Artists the player created. Saved whole (they're not in the generated roster). */
+  customNpcs?: NPC[];
   /** What songs are about — the theme, the hook, the verse (AI- or game-written). */
   songNotes?: Record<string, import('../sim/songNotes').SongNote>;
   /** "Make one like this": the song that inspired the next session. */

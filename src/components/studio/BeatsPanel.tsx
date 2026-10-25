@@ -12,6 +12,17 @@ import { GENRE_LIST, GENRE_BY_ID } from '../../data/genres';
 import { dateToSerial } from '../../sim/gameClock';
 import type { Genre, NPC, SongMood } from '../../types/game';
 import { isRealId } from '../../sim/realPeople';
+import { beatSpecFor, STYLE_LABEL } from '../../audio/beat';
+import { togglePreview, usePreviewing } from '../../audio/preview';
+
+/** ▶ Hear it: every beat sounds like the producer who made it. */
+export function BeatPlay({ id, genre, bpm, quality, producerId, mood }: { id: string; genre: string; bpm: number; quality: number; producerId?: string; mood?: string }) {
+  const playing = usePreviewing() === id;
+  const spec = beatSpecFor(genre, bpm, id, quality, producerId, mood);
+  return (
+    <button onClick={() => togglePreview(id, spec)} title={`${STYLE_LABEL[spec.style]} · ${spec.bpm} bpm`} className={cn('w-9 h-9 rounded-full border text-[13px] shrink-0 transition', playing ? 'border-amber bg-amber text-black' : 'border-line text-ink2 hover:text-ink hover:border-amber/60')} aria-label={playing ? 'Stop' : 'Play beat'}>{playing ? '■' : '▶'}</button>
+  );
+}
 
 const MOODS: { id: SongMood; label: string; emoji: string }[] = [
   { id: 'aggressive', label: 'Aggressive', emoji: '😤' },
@@ -41,6 +52,7 @@ export function BeatTile({ beat, onUse, onRedo, onDiscard, compact }: { beat: Ow
           <div className="text-[11px] text-ink3 truncate">prod. {beat.producerName}</div>
           <div className="text-[11px] text-ink3 mt-0.5">{g?.emoji} {g?.label ?? beat.genre} · {beat.bpm} BPM · {beat.mood}</div>
         </div>
+        <BeatPlay id={beat.id} genre={beat.genre} bpm={beat.bpm} quality={beat.quality} producerId={beat.producerId ?? beat.producerName} mood={beat.mood} />
       </div>
       {!compact && (
         <div className="flex flex-wrap gap-1">
@@ -157,6 +169,7 @@ export function BeatsPanel({ onUseBeat, initialView = 'library' }: { onUseBeat: 
           {(beats?.store ?? []).length === 0 && <div className="p-6 text-[13px] text-ink3 text-center">The store restocks with the next day.</div>}
           {(beats?.store ?? []).map((l) => (
             <div key={l.id} className={cn('flex items-center gap-3 px-4 py-3 border-b border-line last:border-0 flex-wrap sm:flex-nowrap', l.sold && 'opacity-50')}>
+              <BeatPlay id={l.id} genre={l.genre} bpm={l.bpm} quality={l.quality} producerId={l.producerId} mood={l.mood} />
               <div className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[11px] font-black text-black shrink-0" style={{ background: qColor(l.quality) }}>{l.quality}</div>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-semibold text-ink truncate">{l.name} <span className="text-ink3 font-normal">· {beatGrade(l.quality)}</span></div>

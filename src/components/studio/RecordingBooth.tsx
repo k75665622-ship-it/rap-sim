@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore, isSongReleased } from '../../store/gameStore';
 import { BeatPlayer, beatSpecFor, STYLE_LABEL, type BeatSpec } from '../../audio/beat';
 import { saveTake, loadTake, scoreTake } from '../../audio/take';
+import { stopPreview } from '../../audio/preview';
 import { cn } from '@/utils/cn';
 
 const MAX_SECONDS = 90;
@@ -25,7 +26,14 @@ export function RecordingBooth({ onClose, songId: initial }: { onClose: () => vo
   const vault = useMemo(() => songs.filter((x) => !isSongReleased(x) && !x.archivedAt), [songs]);
   const [songId, setSongId] = useState(initial ?? vault[0]?.id ?? '');
   const song = songs.find((x) => x.id === songId);
-  const spec: BeatSpec | null = useMemo(() => (song ? beatSpecFor(String(song.genre), song.bpm, song.beatId ?? song.id, song.beatQuality ?? song.productionQuality ?? 60) : null), [song]);
+  const library = useGameStore((s) => s.beats?.library);
+  const spec: BeatSpec | null = useMemo(() => {
+    if (!song) return null;
+    const owned = library?.find((b) => b.id === song.beatId || b.usedOnSongId === song.id);
+    return owned
+      ? beatSpecFor(String(owned.genre), owned.bpm, owned.id, owned.quality, owned.producerId ?? owned.producerName, owned.mood)
+      : beatSpecFor(String(song.genre), song.bpm, song.beatId ?? song.id, song.beatQuality ?? song.productionQuality ?? 60, song.producerId ?? song.producerName, song.mood);
+  }, [song, library]);
   const [mode, setMode] = useState<'idle' | 'preview' | 'count' | 'rec' | 'play'>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
@@ -62,6 +70,7 @@ export function RecordingBooth({ onClose, songId: initial }: { onClose: () => vo
     setLevel(0);
   }
   function startBeat(at: number) {
+    stopPreview();
     const c = ctx();
     const b = new BeatPlayer(c, spec!, c.destination, beatVol);
     b.start(at);

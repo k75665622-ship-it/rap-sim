@@ -218,7 +218,9 @@ export interface Song {
   /** What the current layout added (so changing it replaces, never stacks). */
   arrangementBonus?: { q: number; c: number };
   /** A take you recorded for real in the booth, and how it scored. */
-  boothTake?: { score: number; timing: number; at: number; seconds: number };
+  boothTake?: { score: number; timing: number; at: number; seconds: number; lead?: number };
+  /** How the recorded vocal is processed: levels, effects, timing. */
+  vocalFx?: VocalFx;
   /** The mixtape this record was filed under, if any. */
   mixtapeId?: string;
   /**
@@ -256,6 +258,12 @@ export interface VocalSettings {
 }
 
 /** Emotional register of a record. Affects critical vs commercial pull. */
+/** The sound of a recorded vocal. Levels are 0-1.5, effect amounts 0-100, tone -50 (dark) to +50 (bright). */
+export interface VocalFx {
+  preset: string; voice: number; beat: number; reverb: number; echo: number; echoTime: '1/8' | '3/16' | '1/4';
+  double: boolean; tone: number; punch: number; grit: number; lofi: boolean; nudgeMs: number;
+}
+
 export type SongMood =
   | 'aggressive'
   | 'melancholy'

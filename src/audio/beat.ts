@@ -96,7 +96,7 @@ export function beatSpecFor(genre: string, bpm: number | undefined, seed: string
 }
 
 export class BeatPlayer {
-  private ctx: AudioContext;
+  private ctx: BaseAudioContext;
   private out: GainNode;
   private noise: AudioBuffer;
   private timer: number | null = null;
@@ -106,7 +106,7 @@ export class BeatPlayer {
   private rand: () => number;
   private motif: number[];
   private counter: number[];
-  constructor(ctx: AudioContext, spec: BeatSpec, dest: AudioNode, volume = 0.8) {
+  constructor(ctx: BaseAudioContext, spec: BeatSpec, dest: AudioNode, volume = 0.8) {
     this.ctx = ctx;
     this.spec = spec;
     this.out = ctx.createGain();
@@ -139,6 +139,14 @@ export class BeatPlayer {
     this.timer = window.setInterval(tick, 25);
   }
   stop() { if (this.timer !== null) window.clearInterval(this.timer); this.timer = null; this.out.gain.setTargetAtTime(0, this.ctx.currentTime, 0.03); }
+  /** Lay the whole beat down at once, for rendering a song to a file. */
+  scheduleAll(when: number, seconds: number) {
+    this.next = when;
+    this.step = 0;
+    this.spec.sig.tag.forEach((n, i) => this.tone(when + i * 0.07, midi(n), 0.08, 'sine', 0.1));
+    while (this.next < when + seconds) { this.play(this.step, this.next); this.step++; this.next += this.stepDur; }
+    this.out.gain.setTargetAtTime(0, when + seconds, 0.4);
+  }
 
   private play(step: number, t0: number) {
     const sp = this.spec;

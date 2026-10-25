@@ -8,7 +8,7 @@ import type {
   ActiveContract, Show, Investment, Business,
   Certification, Interview, ChartEntry,
   WeeklyStatement, Background, Gender, Genre, ArtistStats, RelationshipStage,
-  InterviewTone, GameDate, SongMood, VocalSettings,
+  InterviewTone, GameDate, SongMood, VocalSettings, VocalFx,
   FeatureRequest, FeatureActionResult, JobListing,
   InboundRequest,
   Album, GlobalCertification, GameNotification, Subscription,
@@ -3327,9 +3327,11 @@ interface GameActions {
   /** Lay the song out: which sections, and who takes each one. */
   setArrangement: (songId: string, arr: import('../sim/arrangement').Section[]) => { ok: boolean; message: string; notes: string[] };
   /** A take you recorded for real goes on the record. */
-  applyBoothTake: (songId: string, take: { score: number; timing: number; presence: number; seconds: number }) => FeatureActionResult;
+  applyBoothTake: (songId: string, take: { score: number; timing: number; presence: number; seconds: number; lead?: number; fx?: VocalFx }) => FeatureActionResult;
+  /** Save how the recorded vocal is processed. */
+  setVocalFx: (songId: string, fx: VocalFx) => FeatureActionResult;
   /** A song made straight from the booth: pick a beat, rap, keep the take. No writing required. */
-  createRecordedSong: (o: { beat: { kind: 'owned' | 'house'; id: string }; title: string; mood?: SongMood; lyrics?: string; take: { score: number; timing: number; presence: number; seconds: number } }) => FeatureActionResult & { songId?: string };
+  createRecordedSong: (o: { beat: { kind: 'owned' | 'house'; id: string }; title: string; mood?: SongMood; lyrics?: string; fx?: VocalFx; take: { score: number; timing: number; presence: number; seconds: number; lead?: number } }) => FeatureActionResult & { songId?: string };
   /** Settle an argument in the team group. */
   settleTeamDispute: (optionId: 'a' | 'b' | 'calm') => FeatureActionResult;
   /** Don't go: text an excuse, or just don't show up. */
@@ -16569,7 +16571,8 @@ export const useGameStore = create<GameState & GameActions>()(
         song.vocalPerformance = Math.round(was * 0.4 + take.score * 0.6);
         const delta = Math.max(-6, Math.min(6, (song.vocalPerformance - was) * 0.15));
         song.quality = Math.max(1, Math.min(99, Math.round((song.quality + delta) * 10) / 10));
-        song.boothTake = { score: take.score, timing: take.timing, at: dateToSerial(state.gameDate), seconds: take.seconds };
+        song.boothTake = { score: take.score, timing: take.timing, at: dateToSerial(state.gameDate), seconds: take.seconds, lead: take.lead };
+        if (take.fx) song.vocalFx = { ...take.fx };
         // Doing it for real is how you get better at it.
         const grow = (k: keyof ArtistStats, v: number) => { p.stats[k] = Math.min(100, (p.stats[k] ?? 0) + v * Math.max(0.3, 1 - (p.stats[k] ?? 0) / 120)); };
         grow('delivery', 0.25 + take.score / 400);
@@ -16579,6 +16582,18 @@ export const useGameStore = create<GameState & GameActions>()(
         statUps(state, before, 'the booth');
         const read = take.score >= 80 ? 'a great take' : take.score >= 60 ? 'a solid take' : take.score >= 40 ? 'a rough take' : 'not really a take';
         result = { ok: true, message: `That's ${read} (${take.score}/100 — on-beat ${take.timing}, presence ${take.presence}). "${song.title}" ${delta >= 0.5 ? 'got better' : delta <= -0.5 ? 'lost a little' : 'held steady'}. ${describeScore(song.quality)}` };
+      });
+      return result;
+    },
+
+    setVocalFx: (songId, fx) => {
+      let result: FeatureActionResult = { ok: false, message: 'That record is not in your vault.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId && !x.ownerId);
+        if (!song) return;
+        if (isSongReleased(song)) { result.message = `"${song.title}" is already out — the mix is final.`; return; }
+        song.vocalFx = { ...fx };
+        result = { ok: true, message: `Sound saved on "${song.title}".` };
       });
       return result;
     },
@@ -16619,7 +16634,8 @@ export const useGameStore = create<GameState & GameActions>()(
           commercialPotential: Math.round(quality * 0.9 + (o.take.timing - 50) * 0.1),
           criticalPotential: Math.round(quality * 0.85 + (lq - 50) * 0.15),
           recordingCost: 0, masterStatus: 'recorded', recordingDate: date,
-          boothTake: { score: o.take.score, timing: o.take.timing, at: serial, seconds: o.take.seconds },
+          boothTake: { score: o.take.score, timing: o.take.timing, at: serial, seconds: o.take.seconds, lead: o.take.lead },
+          vocalFx: o.fx ? { ...o.fx } : undefined,
         };
         state.songs.push(song);
         if (o.beat.kind === 'owned') { beat.usedOnSongId = song.id; beat.usedOnTitle = title; }

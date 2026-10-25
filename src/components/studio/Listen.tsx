@@ -61,7 +61,7 @@ export function ListenButton({ song, only, label }: { song: Song; only?: string;
   const instrumental = song.ownerId ? isRealId(song.ownerId) : false;
   const go = () => {
     const lines = instrumental ? [] : songLines(song, npcs as NPC[], player?.id ?? 'player', player?.city ?? 'the city', only, note);
-    playSong(key, spec, { take: take && !only ? take : null, lines, seconds: only ? Math.ceil((lines.length + 2) * (240 / spec.bpm)) : 90 });
+    playSong(key, spec, { take: take && !only ? take : null, lines, seconds: only ? Math.ceil((lines.length + 2) * (240 / spec.bpm)) : 100, fx: song.vocalFx, lead: song.boothTake?.lead });
   };
   return (
     <span className="inline-flex flex-col items-start gap-1 max-w-full">

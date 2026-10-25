@@ -213,6 +213,8 @@ export interface Song {
   readyToRelease?: boolean;
   /** Free-text note the player left on a vault master. */
   vaultNote?: string;
+  /** A take you recorded for real in the booth, and how it scored. */
+  boothTake?: { score: number; timing: number; at: number; seconds: number };
   /** The mixtape this record was filed under, if any. */
   mixtapeId?: string;
   /**

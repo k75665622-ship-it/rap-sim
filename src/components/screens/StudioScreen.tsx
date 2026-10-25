@@ -63,6 +63,7 @@ import {
 import { StudioVault } from './StudioVault';
 import { dateToSerial } from '../../sim/gameClock';
 import { termsWarnings } from '../../store/gameStore';
+import { RecordingBooth } from '../studio/RecordingBooth';
 import { FeaturesPanel } from '../studio/FeaturesPanel';
 import { GENRE_LIST, GENRE_BY_ID, FAMILY_LABEL, type GenreFamily } from '../../data/genres';
 import { RemixDialog } from './RemixDialog';
@@ -497,6 +498,7 @@ function RoomPanel({
 }
 
 export function StudioScreen() {
+  const [booth, setBooth] = useState(false);
   const player = useGameStore(s => s.player);
   const songs = useGameStore(s => s.songs);
   const npcs = useGameStore(s => s.npcs);
@@ -1011,7 +1013,14 @@ export function StudioScreen() {
         />
         </div>
       ) : mode === 'vault' ? (
+        <>
+        <button onClick={() => setBooth(true)} className="w-full mb-3 rounded-[14px] border border-fall/40 bg-fall/10 hover:bg-fall/15 px-4 py-3 text-left transition">
+          <div className="text-[14px] font-bold text-ink">🎙️ Recording booth</div>
+          <div className="text-[11px] text-ink3">Put your headphones on and rap over the beat for real. Your take goes on the record.</div>
+        </button>
+        {booth && <RecordingBooth onClose={() => setBooth(false)} />}
         <StudioVault onRelease={setReleaseDialog} onMix={setMixDialog} focusSongId={vaultFocus ?? undefined} />
+        </>
       ) : mode === 'remix' ? (
         <RemixPanel />
       ) : mode === 'guest' ? (

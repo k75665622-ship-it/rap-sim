@@ -68,6 +68,53 @@ function windowsTexture(bin: Bin): THREE.CanvasTexture {
   return tex(c, bin, true);
 }
 
+/** Same grid as `windowsTexture`, black except the windows lit at night. */
+function windowsNightTexture(bin: Bin): THREE.CanvasTexture {
+  const [c, g] = canvas(256, 256);
+  g.fillStyle = '#000000';
+  g.fillRect(0, 0, 256, 256);
+  let seed = 23;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const warm = ['#ffd38a', '#ffe7b8', '#ffc56e', '#fff3d6'];
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      const r = rnd();
+      if (r > 0.42) continue; // most flats have the lights off
+      const x = i * 64, y = j * 64;
+      // A few blue TV glows among the lamps.
+      g.fillStyle = r < 0.06 ? '#8fc4ff' : warm[Math.floor(rnd() * warm.length)];
+      g.fillRect(x + 10, y + 10, 44, 40);
+      // Curtains half drawn on some.
+      if (rnd() < 0.35) { g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(x + 10, y + 10, 18, 40); }
+    }
+  }
+  return tex(c, bin, true);
+}
+
+/** Warm pool of light thrown on the pavement by a street lamp. */
+function lightPoolTexture(bin: Bin): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const grd = g.createRadialGradient(64, 64, 2, 64, 64, 63);
+  grd.addColorStop(0, 'rgba(255,214,150,1)');
+  grd.addColorStop(0.45, 'rgba(255,190,110,0.45)');
+  grd.addColorStop(1, 'rgba(255,170,90,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  return tex(c, bin);
+}
+
+function glowTexture(bin: Bin, inner: string, outer: string, core: number): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, inner);
+  grd.addColorStop(core, inner);
+  grd.addColorStop(Math.min(1, core + 0.08), outer);
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  return tex(c, bin);
+}
+
 function pavementTexture(bin: Bin): THREE.CanvasTexture {
   const [c, g] = canvas(128, 128);
   g.fillStyle = '#a3a3a6';
@@ -125,7 +172,7 @@ export function blobTexture(bin: Bin): THREE.CanvasTexture {
 }
 
 /** BoxGeometry UVs stretched so a texture tiles every `unit` metres. */
-function tiledBox(w: number, h: number, d: number, unit: number): THREE.BoxGeometry {
+function tiledBox(w: number, h: number, d: number, unit: number, offU = 0, offV = 0): THREE.BoxGeometry {
   const geo = new THREE.BoxGeometry(w, h, d);
   const uv = geo.attributes.uv as THREE.BufferAttribute;
   // Face order: +x, -x, +y, -y, +z, -z; four vertices each.
@@ -133,7 +180,7 @@ function tiledBox(w: number, h: number, d: number, unit: number): THREE.BoxGeome
   for (let f = 0; f < 6; f++) {
     for (let v = 0; v < 4; v++) {
       const i = f * 4 + v;
-      uv.setXY(i, uv.getX(i) * scale[f][0] / unit, uv.getY(i) * scale[f][1] / unit);
+      uv.setXY(i, uv.getX(i) * scale[f][0] / unit + offU, uv.getY(i) * scale[f][1] / unit + offV);
     }
   }
   uv.needsUpdate = true;
@@ -148,6 +195,10 @@ export interface CityObjects {
   occluders: THREE.Object3D[];
   /** Door markers that pulse and spin. */
   markers: Array<{ ring: THREE.Mesh; gem: THREE.Mesh; baseY: number }>;
+  /** Things that glow more after dark: emissive strength = day + night × k. */
+  glow: Array<{ mat: THREE.MeshLambertMaterial; day: number; night: number }>;
+  /** The lamp light on the pavement, faded in at dusk. */
+  pools: THREE.MeshBasicMaterial;
 }
 
 export function buildCity(bin: Bin): CityObjects {
@@ -155,6 +206,7 @@ export function buildCity(bin: Bin): CityObjects {
   const root = new THREE.Group();
   const occluders: THREE.Object3D[] = [];
   const markers: CityObjects['markers'] = [];
+  const glow: CityObjects['glow'] = [];
 
   const lambert = (p: THREE.MeshLambertMaterialParameters) => bin.add(new THREE.MeshLambertMaterial(p));
   const geo = <G extends THREE.BufferGeometry>(g: G) => bin.add(g);
@@ -228,18 +280,26 @@ export function buildCity(bin: Bin): CityObjects {
 
   // Buildings.
   const windows = windowsTexture(bin);
+  const windowsNight = windowsNightTexture(bin);
   const roof = lambert({ color: '#4a4d55' });
-  const wallMats = new Map<string, THREE.Material>();
+  const wallMats = new Map<string, THREE.MeshLambertMaterial>();
   const wallFor = (color: string) => {
     let mat = wallMats.get(color);
-    if (!mat) { mat = lambert({ map: windows, color }); wallMats.set(color, mat); }
+    if (!mat) {
+      mat = lambert({ map: windows, color, emissiveMap: windowsNight, emissive: '#ffffff', emissiveIntensity: 0 });
+      wallMats.set(color, mat);
+      glow.push({ mat, day: 0, night: 0.8 });
+    }
     return mat;
   };
+  let bi = 0;
   const roofBits: THREE.BufferGeometry[] = [];
   for (const b of L.buildings) {
     const w = b.maxX - b.minX, d = b.maxZ - b.minZ;
     const wall = wallFor(b.color);
-    const mesh = new THREE.Mesh(geo(tiledBox(w, b.height, d, 16)), [wall, wall, roof, roof, wall, wall]);
+    // Shift each building's window grid so lit windows don't line up across town.
+    bi++;
+    const mesh = new THREE.Mesh(geo(tiledBox(w, b.height, d, 16, ((bi * 7) % 4) * 0.25, ((bi * 3) % 4) * 0.25)), [wall, wall, roof, roof, wall, wall]);
     mesh.position.set((b.minX + b.maxX) / 2, KERB_H + b.height / 2, (b.minZ + b.maxZ) / 2);
     root.add(mesh);
     occluders.push(mesh);
@@ -252,7 +312,7 @@ export function buildCity(bin: Bin): CityObjects {
       g.translate((t.minX + t.maxX) / 2, KERB_H + b.height + t.h / 2, (t.minZ + t.maxZ) / 2);
       roofBits.push(g);
     }
-    if (b.place && b.door) addShopfront(b, root, bin, markers);
+    if (b.place && b.door) addShopfront(b, root, bin, markers, glow);
   }
   root.add(new THREE.Mesh(geo(mergeGeometries(roofBits)), lambert({ color: '#5b5f68' })));
   roofBits.forEach((g) => g.dispose());
@@ -278,7 +338,24 @@ export function buildCity(bin: Bin): CityObjects {
   root.add(instanced(geo(new THREE.CylinderGeometry(0.16, 0.22, 2.2, 6)), lambert({ color: '#6b4a32' }), trunks));
   root.add(instanced(geo(new THREE.IcosahedronGeometry(1.6, 0)), lambert({ color: '#4f8a3c', flatShading: true }), crowns));
   root.add(instanced(geo(new THREE.CylinderGeometry(0.09, 0.12, 5.2, 6)), lambert({ color: '#2c2f36' }), poles));
-  root.add(instanced(geo(new THREE.BoxGeometry(0.45, 0.18, 2.4)), lambert({ color: '#2c2f36', emissive: '#fff3c4', emissiveIntensity: 0.15 }), heads));
+  const lampMat = lambert({ color: '#2c2f36', emissive: '#fff3c4', emissiveIntensity: 0.15 });
+  glow.push({ mat: lampMat, day: 0.15, night: 2.6 });
+  root.add(instanced(geo(new THREE.BoxGeometry(0.45, 0.18, 2.4)), lampMat, heads));
+  // Pools of lamp light on the ground, under the end of each arm.
+  const poolMats: THREE.Matrix4[] = [];
+  const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+  for (const h of heads) {
+    const pos = new THREE.Vector3().setFromMatrixPosition(h);
+    const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(h));
+    pos.addScaledVector(dir, 0.9);
+    poolMats.push(m.clone().compose(new THREE.Vector3(pos.x, KERB_H + 0.03, pos.z), flat, new THREE.Vector3(1, 1, 1)));
+  }
+  const pools = bin.add(new THREE.MeshBasicMaterial({
+    map: lightPoolTexture(bin), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+  }));
+  const poolMesh = instanced(geo(new THREE.PlaneGeometry(10, 10)), pools, poolMats);
+  poolMesh.renderOrder = 1;
+  root.add(poolMesh);
 
   // Parked cars.
   for (const pc of L.parked) {
@@ -288,7 +365,7 @@ export function buildCity(bin: Bin): CityObjects {
     root.add(car.group);
   }
 
-  return { root, occluders, markers };
+  return { root, occluders, markers, glow, pools };
 }
 
 function instanced(g: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Matrix4[]): THREE.InstancedMesh {
@@ -301,7 +378,7 @@ function instanced(g: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Mat
 }
 
 /** Door, awning, lit sign and the glowing marker on the pavement. */
-function addShopfront(b: Building, root: THREE.Group, bin: Bin, markers: CityObjects['markers']) {
+function addShopfront(b: Building, root: THREE.Group, bin: Bin, markers: CityObjects['markers'], glow: CityObjects['glow']) {
   const place = b.place!;
   const door = b.door!;
   const face = new THREE.Group();
@@ -314,14 +391,18 @@ function addShopfront(b: Building, root: THREE.Group, bin: Bin, markers: CityObj
   const box = (w: number, h: number, d: number) => bin.add(new THREE.BoxGeometry(w, h, d));
 
   // Shop window band along the ground floor.
-  const band = new THREE.Mesh(box(9, 3.2, 0.12), mat({ color: '#1a2230', emissive: '#2a3a55', emissiveIntensity: 0.35 }));
+  const bandMat = mat({ color: '#1a2230', emissive: '#c08a52', emissiveIntensity: 0.1 });
+  glow.push({ mat: bandMat, day: 0.1, night: 0.32 });
+  const band = new THREE.Mesh(box(9, 3.2, 0.12), bandMat);
   band.position.set(0, 1.9, 0.06);
   face.add(band);
   // Doorway.
   const frame = new THREE.Mesh(box(2.4, 3.1, 0.2), mat({ color: accent }));
   frame.position.set(0, 1.55, 0.1);
   face.add(frame);
-  const opening = new THREE.Mesh(box(1.8, 2.7, 0.22), mat({ color: '#0c0d11', emissive: '#ffcf70', emissiveIntensity: 0.18 }));
+  const openingMat = mat({ color: '#0c0d11', emissive: '#ffcf70', emissiveIntensity: 0.18 });
+  glow.push({ mat: openingMat, day: 0.18, night: 0.6 });
+  const opening = new THREE.Mesh(box(1.8, 2.7, 0.22), openingMat);
   opening.position.set(0, 1.35, 0.12);
   face.add(opening);
   // Awning.
@@ -361,6 +442,7 @@ export interface PlayerModel {
   body: THREE.Group;
   legL: THREE.Group; legR: THREE.Group;
   armL: THREE.Group; armR: THREE.Group;
+  handset: THREE.Mesh;
 }
 
 export function buildPlayer(look: Look | undefined, bin: Bin): PlayerModel {
@@ -408,6 +490,13 @@ export function buildPlayer(look: Look | undefined, bin: Bin): PlayerModel {
     return g;
   };
   const armL = arm(1), armR = arm(-1);
+  // A phone in the right hand, shown when you take it out.
+  const handset = part(0.09, 0.17, 0.02, '#0d0e12', 0, -0.66, 0.1);
+  const screenGlow = new THREE.Mesh(box(0.075, 0.145, 0.005), bin.add(new THREE.MeshBasicMaterial({ color: '#7fb4ff', toneMapped: false })));
+  screenGlow.position.set(0, 0, 0.013);
+  handset.add(screenGlow);
+  handset.visible = false;
+  armR.add(handset);
 
   // Head.
   body.add(part(0.36, 0.4, 0.36, skin, 0, 1.9, 0));
@@ -423,7 +512,7 @@ export function buildPlayer(look: Look | undefined, bin: Bin): PlayerModel {
   body.add(part(0.06, 0.05, 0.02, '#111111', -0.08, 1.93, 0.18));
 
   body.scale.setScalar(0.92);
-  return { group, body, legL, legR, armL, armR };
+  return { group, body, legL, legR, armL, armR, handset };
 }
 
 // ─── cars ──────────────────────────────────────────────────────────────────
@@ -482,4 +571,42 @@ export function buildCar(color: string, bin: Bin): CarModel {
     if (z > 0) steer.push(pivot);
   }
   return { group, steer, wheels, body };
+}
+
+// ─── the sky ───────────────────────────────────────────────────────────────
+
+export interface SkyObjects {
+  group: THREE.Group;
+  stars: THREE.PointsMaterial;
+  sun: THREE.Sprite;
+  moon: THREE.Sprite;
+}
+
+/** Stars, sun and moon. Kept centred on the camera so they sit at infinity. */
+export function buildSky(bin: Bin): SkyObjects {
+  const group = new THREE.Group();
+  const n = 700;
+  const pos = new Float32Array(n * 3);
+  let seed = 99;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < n; i++) {
+    const u = rnd() * Math.PI * 2;
+    const y = 0.08 + rnd() * 0.92;
+    const r = Math.sqrt(1 - y * y);
+    pos.set([Math.cos(u) * r * 300, y * 300, Math.sin(u) * r * 300], i * 3);
+  }
+  const g = bin.add(new THREE.BufferGeometry());
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const stars = bin.add(new THREE.PointsMaterial({ color: '#ffffff', size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  group.add(new THREE.Points(g, stars));
+
+  const sprite = (t: THREE.Texture, size: number) => {
+    const sp = new THREE.Sprite(bin.add(new THREE.SpriteMaterial({ map: t, fog: false, depthWrite: false, transparent: true, toneMapped: false })));
+    sp.scale.setScalar(size);
+    group.add(sp);
+    return sp;
+  };
+  const sun = sprite(glowTexture(bin, 'rgba(255,250,235,1)', 'rgba(255,214,140,0.35)', 0.16), 70);
+  const moon = sprite(glowTexture(bin, 'rgba(235,240,255,1)', 'rgba(170,190,255,0.18)', 0.2), 34);
+  return { group, stars, sun, moon };
 }

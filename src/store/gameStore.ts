@@ -849,6 +849,8 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         managerDesk: (state.managerDesk ?? []).slice(0, 30),
         teamChat: (state.teamChat ?? []).slice(-80),
         teamChatUnread: state.teamChatUnread,
+        cityMet: state.cityMet,
+        lastMealAt: state.lastMealAt,
         teamPolicy: state.teamPolicy,
         lifeFlags: state.lifeFlags,
         managerPush: state.managerPush,
@@ -3188,6 +3190,16 @@ interface GameActions {
    * wait — a disabled control with no reason is the same as a broken one.
    */
   reachOutToNpc: (npcId: string) => FeatureActionResult;
+  /**
+   * You stopped someone in the street (the city). A small, real gesture: once
+   * a game day per person, a little warmer, and they remember where.
+   */
+  meetInCity: (npcId: string, where: string) => FeatureActionResult;
+  /**
+   * A meal at Mama's Kitchen: costs money and time, gives some energy back.
+   * You can only eat so much — a second plate within a few hours does little.
+   */
+  eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   markDMRead: (npcId: string) => void;
 
   // Social
@@ -13825,6 +13837,57 @@ export const useGameStore = create<GameState & GameActions>()(
           npc.memoryLog = [...npc.memoryLog.slice(-9), memEntry];
         }
       }),
+
+    meetInCity: (npcId, where) => {
+      let result: FeatureActionResult = { ok: false, message: 'They kept walking.' };
+      set((state) => {
+        if (!state.player) { result = { ok: false, message: 'There is no career open.' }; return; }
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (!npc || isRealId(npc.id)) { result = { ok: false, message: 'They kept walking.' }; return; }
+        const first = npc.name.split(' ')[0];
+        const today = dateToSerial(state.gameDate);
+        if (!state.cityMet) state.cityMet = {};
+        if (state.cityMet[npcId] === today) {
+          result = { ok: false, message: `You already caught up with ${first} today.` };
+          return;
+        }
+        // Keep the map small: only today's and yesterday's meetings matter.
+        for (const [id, d] of Object.entries(state.cityMet)) if (d < today - 1) delete state.cityMet[id];
+        state.cityMet[npcId] = today;
+        // Warmer with people you barely know; a nod among old friends.
+        const delta = npc.relationshipScore < 15 ? 3 : npc.relationshipScore < 50 ? 2 : 1;
+        npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + delta));
+        npc.memoryLog = [...npc.memoryLog.slice(-9), `[City] Ran into ${state.player.artistName} ${where}.`];
+        result = { ok: true, message: `${first} +${delta}` };
+      });
+      return result;
+    },
+
+    eatMeal: (price, energy, minutes, name) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      if (p.career.money < price) return { ok: false, message: `You're $${Math.ceil(price - p.career.money)} short.` };
+      const now = dateToSerial(before.gameDate) * MINUTES_PER_DAY + (before.clockMinute ?? 0);
+      // Full: the second plate inside four hours only does a third as much.
+      const full = before.lastMealAt !== undefined && now - before.lastMealAt < 240;
+      const gain = Math.round(full ? energy / 3 : energy);
+      const room = Math.max(0, p.maxEnergy - p.energy);
+      set((state) => {
+        if (!state.player) return;
+        state.player.career.money -= price;
+        state.player.energy = Math.min(state.player.maxEnergy, state.player.energy + gain);
+        state.lastMealAt = now;
+      });
+      get().advanceClock(minutes);
+      const got = Math.min(gain, Math.round(room));
+      return {
+        ok: true,
+        message: full
+          ? `${name}. You were still full from last time — only +${got} energy.`
+          : `${name}. +${got} energy${got < gain ? ' (you were nearly full)' : ''}.`,
+      };
+    },
 
     reachOutToNpc: (npcId) => {
       let result: FeatureActionResult = { ok: false, message: 'That went nowhere.' };

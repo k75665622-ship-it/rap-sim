@@ -15,6 +15,7 @@ import { cn } from '@/utils/cn';
 import type { NPC, Song } from '../../types/game';
 import type { SongNote } from '../../sim/songNotes';
 import { voiceFor } from '../../audio/voices';
+import { realTrackFor } from '../../audio/library';
 
 export function songLines(song: Song, npcs: NPC[], playerId: string, city: string, only?: string, note?: SongNote): SongLine[] {
   const owner = song.ownerId ?? 'player';
@@ -60,9 +61,12 @@ export function ListenButton({ song, only, label }: { song: Song; only?: string;
   }, [song, library]);
   const on = playing === key;
   const instrumental = song.ownerId ? isRealId(song.ownerId) : false;
-  const go = () => {
+  const go = async () => {
     const lines = instrumental ? [] : songLines(song, npcs as NPC[], player?.id ?? 'player', player?.city ?? 'the city', only, note);
-    playSong(key, spec, { take: take && !only ? take : null, lines, seconds: only ? Math.ceil((lines.length + 2) * (240 / spec.bpm)) : 100, fx: soundOf(song), lead: song.boothTake?.lead, hookBars: song.hookBars });
+    // A real recording, if one has been added for this song (not for a
+    // single artist's part, which only the game's own sound can isolate).
+    const real = only || on ? null : await realTrackFor(song);
+    playSong(key, spec, { take: take && !only ? take : null, lines, seconds: only ? Math.ceil((lines.length + 2) * (240 / spec.bpm)) : 100, fx: soundOf(song), lead: song.boothTake?.lead, hookBars: song.hookBars, real });
   };
   return (
     <span className="inline-flex flex-col items-start gap-1 max-w-full">

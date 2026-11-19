@@ -14,9 +14,11 @@ import { hudStore, input } from './input';
 import { live } from './sim';
 import { phone, usePhoneOpen } from './phone';
 import { useUnread } from './Phone';
+import { TalkCard } from './TalkCard';
+import { radio, STATION, useRadio } from './radio';
 
 const coarse = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
-const HELP_KEY = 'rl_city_help_v2';
+const HELP_KEY = 'rl_city_help_v3';
 
 export function Hud({ onExit }: { onExit: () => void }) {
   const hud = useSyncExternalStore(hudStore.subscribe, hudStore.get);
@@ -74,7 +76,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {/* Interaction prompt */}
-      {hud.prompt && !phoneOut ? (
+      {hud.prompt && !phoneOut && !hud.talk ? (
         <div className={`absolute left-1/2 -translate-x-1/2 ${touch ? 'bottom-44' : 'bottom-10'} flex items-center gap-2 h-10 pl-1.5 pr-4 rounded-full bg-black/70 backdrop-blur border border-amber/40 text-[14px] font-semibold rl-fade`}>
           <span className="w-7 h-7 rounded-full bg-amber text-black font-black text-[13px] flex items-center justify-center">{touch ? '✋' : 'E'}</span>
           {hud.prompt}
@@ -91,7 +93,11 @@ export function Hud({ onExit }: { onExit: () => void }) {
         </div>
       ) : null}
 
-      {touch && !phoneOut ? <TouchButtons mode={hud.mode} /> : null}
+      {touch && !phoneOut && !hud.talk ? <TouchButtons mode={hud.mode} /> : null}
+
+      {hud.mode === 'car' && !phoneOut ? <RadioPill touch={touch} /> : null}
+
+      <TalkCard />
 
       {help ? (
         <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-auto bg-black/40" onClick={closeHelp}>
@@ -105,6 +111,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
                 <li><b className="text-ink">✋</b> — go into a building, get in or out of the car</li>
                 <li><b className="text-ink">Run / Jump</b> on foot, <b className="text-ink">Brake</b> in the car</li>
                 <li><b className="text-ink">Phone</b> (top) — chats, mail, socials, streams</li>
+                <li><b className="text-ink">✋</b> near someone — talk to them</li>
               </ul>
             ) : (
               <ul className="text-[13px] text-ink2 space-y-1.5 mb-4">
@@ -113,13 +120,36 @@ export function Hud({ onExit }: { onExit: () => void }) {
                 <li><b className="text-ink">E</b> — go into a building, get in or out of the car</li>
                 <li><b className="text-ink">Drag the mouse</b> — look around</li>
                 <li><b className="text-ink">P</b> — your phone: chats, mail, socials, streams</li>
+                <li><b className="text-ink">E</b> near someone — talk to them · <b className="text-ink">R</b> — next song on the car radio</li>
               </ul>
             )}
-            <p className="text-[12px] text-ink3 mb-4">Glowing rings mark doors. Studio 9 opens your studio, The Stage your shows, First Capital your money, and more.</p>
+            <p className="text-[12px] text-ink3 mb-4">Glowing rings mark doors. Studio 9 opens your studio, The Stage your shows, First Capital your money, Mama's Kitchen feeds you. The people on the street are the producers, DJs and artists of your world.</p>
             <button onClick={closeHelp} className="w-full h-10 rounded-[10px] bg-amber text-black font-bold text-[14px]">Let's go</button>
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ─── car radio ─────────────────────────────────────────────────────────────
+
+function RadioPill({ touch }: { touch: boolean }) {
+  const r = useRadio();
+  const b = 'pointer-events-auto w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 text-[14px]';
+  return (
+    <div className="absolute top-14 left-[122px] right-2.5 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:top-3 sm:max-w-[460px] h-10 pl-3 pr-1 rounded-full bg-black/60 backdrop-blur border border-white/10 flex items-center gap-2 text-[12px] rl-fade">
+      <span className="text-[15px]">📻</span>
+      <span className="font-black tracking-wide text-amber shrink-0">{STATION}</span>
+      {r.live ? (
+        <span className="min-w-0 truncate"><b className="font-semibold">{r.title}</b> <span className="text-ink2">· {r.artist}</span></span>
+      ) : (
+        <span className="text-ink3 truncate">{r.on ? 'Tuning…' : 'Off'}</span>
+      )}
+      {r.on ? (
+        <button className={b} onClick={() => radio.next()} aria-label="Next song" title={touch ? 'Next song' : 'Next song (R)'}>⏭</button>
+      ) : null}
+      <button className={`${b} ${r.on ? 'text-ink' : 'text-ink3'}`} onClick={() => radio.toggle()} aria-label={r.on ? 'Radio off' : 'Radio on'}>⏻</button>
     </div>
   );
 }

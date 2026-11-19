@@ -2295,6 +2295,7 @@ export type GameScreen =
   | 'create_artist'
   | 'dashboard'
   | 'city'
+  | 'kitchen'
   | 'studio'
   | 'social_chirp'
   | 'social_snapgram'
@@ -2640,6 +2641,10 @@ export interface GameState {
   /** The group chat with everyone on your payroll. */
   teamChat?: TeamChatMsg[];
   teamChatUnread?: number;
+  /** The city: who you've stopped to talk to today (npc id → day serial). */
+  cityMet?: Record<string, number>;
+  /** The city: when you last ate at Mama's Kitchen (absolute game minute). */
+  lastMealAt?: number;
   /** A message in the group is waiting on the AI (or the built-in fallback). */
   teamChatPending?: { since: number; text: string };
   /** The rules the player set for the team (see `sim/teamRules.ts`). */

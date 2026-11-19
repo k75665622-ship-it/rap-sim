@@ -213,8 +213,8 @@ export function buildCity(bin: Bin): CityObjects {
 
   // Ground: one big sheet of asphalt; pavements sit on top of it.
   const asphalt = asphaltTexture(bin);
-  asphalt.repeat.set(120, 120);
-  const ground = new THREE.Mesh(geo(new THREE.PlaneGeometry(480, 480)), lambert({ map: asphalt }));
+  asphalt.repeat.set(170, 170);
+  const ground = new THREE.Mesh(geo(new THREE.PlaneGeometry(700, 700)), lambert({ map: asphalt }));
   ground.rotation.x = -Math.PI / 2;
   root.add(ground);
 
@@ -294,27 +294,39 @@ export function buildCity(bin: Bin): CityObjects {
   };
   let bi = 0;
   const roofBits: THREE.BufferGeometry[] = [];
+  // Walls are merged per colour, so the whole skyline is a dozen draw calls.
+  const wallGeos = new Map<string, THREE.BufferGeometry[]>();
+  const flatten = (g: THREE.BufferGeometry) => { const n = g.toNonIndexed(); g.dispose(); return n; };
   for (const b of L.buildings) {
     const w = b.maxX - b.minX, d = b.maxZ - b.minZ;
-    const wall = wallFor(b.color);
     // Shift each building's window grid so lit windows don't line up across town.
     bi++;
-    const mesh = new THREE.Mesh(geo(tiledBox(w, b.height, d, 16, ((bi * 7) % 4) * 0.25, ((bi * 3) % 4) * 0.25)), [wall, wall, roof, roof, wall, wall]);
-    mesh.position.set((b.minX + b.maxX) / 2, KERB_H + b.height / 2, (b.minZ + b.maxZ) / 2);
-    root.add(mesh);
-    occluders.push(mesh);
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const box = tiledBox(w, b.height, d, 16, ((bi * 7) % 4) * 0.25, ((bi * 3) % 4) * 0.25);
+    box.translate(cx, KERB_H + b.height / 2, cz);
+    const [walls, top] = splitBox(box);
+    box.dispose();
+    if (!wallGeos.has(b.color)) wallGeos.set(b.color, []);
+    wallGeos.get(b.color)!.push(walls);
+    roofBits.push(top);
     // Parapet round the roof edge.
     const lip = new THREE.BoxGeometry(w + 0.3, 0.6, d + 0.3);
-    lip.translate(mesh.position.x, KERB_H + b.height + 0.3, mesh.position.z);
-    roofBits.push(lip);
+    lip.translate(cx, KERB_H + b.height + 0.3, cz);
+    roofBits.push(flatten(lip));
     for (const t of b.rooftop) {
       const g = new THREE.BoxGeometry(t.maxX - t.minX, t.h, t.maxZ - t.minZ);
       g.translate((t.minX + t.maxX) / 2, KERB_H + b.height + t.h / 2, (t.minZ + t.maxZ) / 2);
-      roofBits.push(g);
+      roofBits.push(flatten(g));
     }
     if (b.place && b.door) addShopfront(b, root, bin, markers, glow);
   }
-  root.add(new THREE.Mesh(geo(mergeGeometries(roofBits)), lambert({ color: '#5b5f68' })));
+  for (const [color, list] of wallGeos) {
+    const mesh = new THREE.Mesh(geo(mergeGeometries(list)), wallFor(color));
+    root.add(mesh);
+    occluders.push(mesh);
+    list.forEach((g) => g.dispose());
+  }
+  root.add(new THREE.Mesh(geo(mergeGeometries(roofBits)), roof));
   roofBits.forEach((g) => g.dispose());
 
   // Trees and street lamps.
@@ -366,6 +378,28 @@ export function buildCity(bin: Bin): CityObjects {
   }
 
   return { root, occluders, markers, glow, pools };
+}
+
+/** A box's four walls and its roof as separate non-indexed pieces (no floor). */
+function splitBox(g: THREE.BufferGeometry): [THREE.BufferGeometry, THREE.BufferGeometry] {
+  const ng = g.toNonIndexed();
+  const take = (groups: number[]) => {
+    const out = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'uv']) {
+      const a = ng.getAttribute(name) as THREE.BufferAttribute;
+      const size = a.itemSize;
+      const vals: number[] = [];
+      for (const gi of groups) {
+        const gr = ng.groups[gi];
+        for (let i = gr.start; i < gr.start + gr.count; i++) for (let k = 0; k < size; k++) vals.push(a.array[i * size + k] as number);
+      }
+      out.setAttribute(name, new THREE.Float32BufferAttribute(vals, size));
+    }
+    return out;
+  };
+  const parts: [THREE.BufferGeometry, THREE.BufferGeometry] = [take([0, 1, 4, 5]), take([2])];
+  ng.dispose();
+  return parts;
 }
 
 function instanced(g: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Matrix4[]): THREE.InstancedMesh {

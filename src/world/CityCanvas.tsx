@@ -24,12 +24,16 @@ const CAR_REACH = 3.4;
 /** Above this speed you have to slow down before getting out. */
 const EXIT_SPEED = 7;
 
-export function CityCanvas({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) {
+const COARSE = typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
+
+export function CityCanvas({ look, onEnter, paused }: { look?: Look; onEnter: (p: Place) => void; paused?: boolean }) {
   return (
     <Canvas
-      dpr={[1, 1.75]}
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
-      camera={{ fov: 62, near: 0.1, far: 420 }}
+      // Phones: fewer pixels and no antialiasing — the biggest single saving.
+      dpr={COARSE ? [1, 1.3] : [1, 1.75]}
+      frameloop={paused ? 'never' : 'always'}
+      gl={{ antialias: !COARSE, powerPreference: 'high-performance' }}
+      camera={{ fov: 62, near: 0.1, far: 300 }}
       onCreated={({ scene }) => {
         scene.background = new THREE.Color(SKY);
         scene.fog = new THREE.Fog(SKY, 70, 240);
@@ -137,9 +141,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     // With the phone out, or while talking to someone, you stand still (and
     // the car rolls to a stop).
     const phoneOut = phone.isOpen();
-    const talkId = hudStore.get().talk;
+    const hs = hudStore.get();
+    const talkId = hs.talk;
     if (!talkId && tmp.talking) { tmp.talking.hold = 0.6; tmp.talking = null; }
-    const busy = phoneOut || !!talkId;
+    const busy = phoneOut || !!talkId || hs.gig || hs.shooting;
     const action = takeAction() && !busy;
     const jump = takeJump() && !busy;
     const move = busy ? { x: 0, y: 0 } : moveAxis();
@@ -164,6 +169,9 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       }
       // Standing by your car with someone walking past: the car wins.
       if (person && nearCar && distToCar() - 1.3 < pd) person = null;
+      // The Stage's open mic runs in the evening.
+      const hr = (useGameStore.getState().clockMinute ?? 0) / 60;
+      hudStore.set({ nearStage: door?.place.id === 'stage' && (hr >= 19 || hr < 3) });
       if (door) prompt = door.place.screen ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
       else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
@@ -211,6 +219,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
         }
       }
     } else {
+      if (hs.nearStage) hudStore.set({ nearStage: false });
       // Asking to get out at speed brakes to a stop first, then steps out.
       if (action) live.exitQueued = !live.exitQueued || Math.abs(live.car.v) < EXIT_SPEED;
       if (live.exitQueued && Math.abs(live.car.v) < 1.2) exitCar();
@@ -266,6 +275,16 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       player.legR.rotation.x = 0.25;
       player.armL.rotation.x = -1.6;
       player.armR.rotation.x = -1.4;
+    }
+    // Dancing for the camera.
+    if (live.shoot.on) {
+      const b = Math.sin(t * 8);
+      player.armL.rotation.x = -2.3 + b * 0.6;
+      player.armR.rotation.x = -2.3 - b * 0.6;
+      player.legL.rotation.x = b * 0.25;
+      player.legR.rotation.x = -b * 0.25;
+      player.body.position.y = Math.abs(b) * 0.09;
+      player.group.rotation.y = p.rot + Math.sin(t * 2) * 0.5;
     }
     // Phone up to your face.
     player.handset.visible = phoneOut;
@@ -349,6 +368,17 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const fov = portrait ? 72 : 62;
     if (cam.fov !== fov) { cam.fov = fov; cam.updateProjectionMatrix(); }
     let dist = (driving ? 8.2 + Math.min(4, Math.abs(c.v) * 0.09) : 5.2) * (portrait ? 1.3 : 1);
+    if (live.shoot.on) {
+      // Director's camera: a slow swing round you, drifting in and up.
+      live.shoot.t += frameDt;
+      const st = live.shoot.t;
+      const ang = p.rot + 0.6 + st * 0.38;
+      const r = (portrait ? 5.2 : 4.4) - st * 0.18;
+      camera.position.set(p.x + Math.sin(ang) * r, p.y + 1.1 + Math.sin(st * 0.7) * 0.7, p.z + Math.cos(ang) * r);
+      camera.lookAt(p.x, p.y + 1.35, p.z);
+      dist = -1;
+    }
+    if (dist > 0) {
     const cp = Math.cos(live.cam.pitch);
     tmp.dir.set(Math.sin(live.cam.yaw) * cp, Math.sin(live.cam.pitch), Math.cos(live.cam.yaw) * cp).normalize();
     ray.set(tmp.target, tmp.dir);
@@ -364,6 +394,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       camera.position.lerp(tmp.want, k);
     }
     camera.lookAt(tmp.target);
+    }
     // Fill light between the camera and you, a little above.
     built.fill.position.lerpVectors(tmp.target, camera.position, 0.35).y += 2.2;
     built.fill.intensity = day.night * (driving ? 2 : 4.5);

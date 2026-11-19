@@ -51,6 +51,7 @@ import { CeremonyModal } from './components/moments/CeremonyModal';
 import { AwardsScreen } from './components/screens/AwardsScreen';
 import { CourtScreen } from './components/screens/CourtScreen';
 import { CityScreen } from './components/screens/CityScreen';
+import { usePhoneOpen } from './world/phone';
 import type { Platform } from './types/game';
 
 function GameLayout({ children }: { children: React.ReactNode }) {
@@ -97,6 +98,7 @@ startNav();
 export default function App() {
   const screen = useGameStore((s) => s.screen);
   const player = useGameStore((s) => s.player);
+  const phoneOut = usePhoneOpen();
 
   // One interval for the whole app: the world moves whichever page is open.
   useGameClock();
@@ -120,20 +122,6 @@ export default function App() {
 
   // Should never reach here without a player
   if (!player) return <SplashScreen />;
-
-  // The city is full-screen: no sidebar, its own HUD. The game's pop-ups still
-  // show over it, so a report raised by the clock is not missed while driving.
-  if (screen === 'city') {
-    return (
-      <>
-        <CityScreen />
-        <TurnReportModal />
-        <AppointmentModal />
-        <CourtModal />
-        <CeremonyModal />
-      </>
-    );
-  }
 
   function renderScreen() {
     switch (screen) {
@@ -194,6 +182,22 @@ export default function App() {
 
       default: return <Dashboard />;
     }
+  }
+
+  // The city is full-screen: no sidebar, its own HUD. With the phone out, the
+  // page the store points at opens inside the phone and the city stays put
+  // behind it. The game's pop-ups still show over it, so a report raised by
+  // the clock is not missed while driving.
+  if (screen === 'city' || phoneOut) {
+    return (
+      <>
+        <CityScreen key="city" app={screen === 'city' ? null : renderScreen()} />
+        <TurnReportModal />
+        <AppointmentModal />
+        <CourtModal />
+        <CeremonyModal />
+      </>
+    );
   }
 
   return <GameLayout>{renderScreen()}</GameLayout>;

@@ -6,7 +6,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Bin, blobTexture, buildCar, buildCity, buildPlayer } from './build';
+import { Bin, blobTexture, buildCar, buildCity, buildPlayer, buildSky } from './build';
+import { daylightAt, minuteDelta } from './daylight';
+import { phone } from './phone';
+import { useGameStore } from '../store/gameStore';
 import { cityLayout, type Place } from './layout';
 import { handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
@@ -30,8 +33,6 @@ export function CityCanvas({ look, onEnter }: { look?: Look; onEnter: (p: Place)
         scene.fog = new THREE.Fog(SKY, 70, 240);
       }}
     >
-      <hemisphereLight args={['#e4f0ff', '#6b6050', 1.25]} />
-      <directionalLight position={[60, 100, 40]} intensity={1.9} color="#fff2dc" />
       <World look={look} onEnter={onEnter} />
     </Canvas>
   );
@@ -68,12 +69,25 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       s.position.set(pc.x, 0.02, pc.z);
       city.root.add(s);
     }
+    const sky = buildSky(bin);
+    // Lights. Made here rather than in JSX so the day/night loop can drive them.
+    const hemi = new THREE.HemisphereLight('#e4f0ff', '#6b6050', 1.25);
+    const sun = new THREE.DirectionalLight('#fff2dc', 1.9);
+    // Headlights on your car, faded in after dark. Always present, so turning
+    // them on doesn't make every material recompile mid-drive.
+    const beam = new THREE.SpotLight('#fff1d0', 0, 55, 0.55, 0.55, 1);
+    beam.position.set(0, 0.9, 2.1);
+    beam.target.position.set(0, -0.6, 16);
+    car.group.add(beam, beam.target);
+    // A soft light that follows you after dark, so your artist is a person
+    // under the street lamps rather than a silhouette.
+    const fill = new THREE.PointLight('#ffe6c8', 0, 16, 1);
     const scene = new THREE.Group();
-    scene.add(city.root, player.group, car.group, pShadow, cShadow);
+    scene.add(city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { bin, city, player, car, pShadow, cShadow, scene, doors, ray: new THREE.Raycaster() };
+    return { bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => built.bin.dispose(), [built]);
@@ -83,7 +97,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     hudStore.set({ mode: live.mode, prompt: null, speedKmh: 0 });
   }, []);
 
-  const tmp = useMemo(() => ({ target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true }), []);
+  const tmp = useMemo(() => ({
+    target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true,
+    /** The minute of the day being shown; eases after the game clock. */
+    minute: useGameStore.getState().clockMinute ?? 720,
+  }), []);
 
   useFrame((state, rawDt) => {
     // On a slow phone, take a couple of small steps rather than going into
@@ -102,9 +120,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       live.cam.manualAt = t;
     }
 
-    const action = takeAction();
-    const jump = takeJump();
-    const move = moveAxis();
+    // With the phone out you stand still (and the car rolls to a stop).
+    const phoneOut = phone.isOpen();
+    const action = takeAction() && !phoneOut;
+    const jump = takeJump() && !phoneOut;
+    const move = phoneOut ? { x: 0, y: 0 } : moveAxis();
     let prompt: string | null = null;
 
     if (live.mode === 'foot') {
@@ -150,7 +170,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       if (live.exitQueued && Math.abs(live.car.v) < 1.2) exitCar();
       else {
         prompt = live.exitQueued ? 'Stopping…' : Math.abs(live.car.v) < EXIT_SPEED ? 'Get out' : null;
-        for (let i = 0; i < steps; i++) stepCar(dt, live.exitQueued ? null : move, live.exitQueued || handbrake());
+        const stop = live.exitQueued || phoneOut;
+        for (let i = 0; i < steps; i++) stepCar(dt, stop ? null : move, stop || handbrake());
       }
     }
 
@@ -174,6 +195,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       player.armL.rotation.x = -1.6;
       player.armR.rotation.x = -1.4;
     }
+    // Phone up to your face.
+    player.handset.visible = phoneOut;
+    if (phoneOut) { player.armR.rotation.x = -1.25; player.armR.rotation.z = 0.35; }
+    else player.armR.rotation.z = 0;
     // Idle breathing.
     if (p.speed < 0.2 && p.grounded) player.body.scale.y = 0.92 * (1 + Math.sin(t * 2.2) * 0.008);
     else player.body.scale.y = 0.92;
@@ -202,6 +227,36 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       mk.gem.position.y = mk.baseY + Math.sin(t * 2.4) * 0.15;
       (mk.ring.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(t * 3.2) * 0.3;
     }
+
+    // ── day and night ───────────────────────────────────────────────────
+    // Ease after the game clock (it moves in 10-minute ticks, and sleeping
+    // jumps hours) so the light glides instead of stepping.
+    const clock = useGameStore.getState().clockMinute ?? 720;
+    tmp.minute = (tmp.minute + minuteDelta(tmp.minute, clock) * Math.min(1, frameDt * 2.5) + 1440) % 1440;
+    const day = daylightAt(tmp.minute);
+    const { sky, hemi, sun, beam } = built;
+    const scene = state.scene;
+    if (scene.background instanceof THREE.Color) scene.background.copy(day.sky);
+    if (scene.fog instanceof THREE.Fog) { scene.fog.color.copy(day.sky); scene.fog.near = day.fogNear; scene.fog.far = day.fogFar; }
+    hemi.color.copy(day.hemiSky);
+    hemi.groundColor.copy(day.hemiGround);
+    hemi.intensity = day.hemiIntensity;
+    sun.color.copy(day.sunColor);
+    sun.intensity = day.sunIntensity;
+    sun.position.copy(day.lightDir).multiplyScalar(100);
+    for (const g of city.glow) g.mat.emissiveIntensity = g.day + (g.night - g.day) * day.night;
+    city.pools.opacity = day.night * 0.8;
+    // Headlights come on when you're behind the wheel after dark.
+    beam.intensity = live.mode === 'car' ? day.night * 45 : 0;
+    sky.stars.opacity = Math.max(0, day.night - 0.35) * 1.4;
+    sky.group.position.copy(camera.position);
+    // Sun and moon sit on the light's side of the sky.
+    sky.sun.visible = day.sunUp;
+    sky.moon.visible = !day.sunUp || day.night > 0.6;
+    const ang = ((tmp.minute / 60 - 6) / 12) * Math.PI;
+    sky.sun.position.set(Math.cos(ang), Math.sin(ang), 0.35).normalize().multiplyScalar(280);
+    sky.moon.position.set(-Math.cos(ang), Math.max(0.12, -Math.sin(ang)), -0.35).normalize().multiplyScalar(280);
+    (sky.sun.material as THREE.SpriteMaterial).opacity = Math.min(1, Math.max(0, Math.sin(ang) + 0.15) * 3);
 
     // ── camera ──────────────────────────────────────────────────────────
     const driving = live.mode === 'car';
@@ -237,6 +292,9 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       camera.position.lerp(tmp.want, k);
     }
     camera.lookAt(tmp.target);
+    // Fill light between the camera and you, a little above.
+    built.fill.position.lerpVectors(tmp.target, camera.position, 0.35).y += 2.2;
+    built.fill.intensity = day.night * (driving ? 2 : 4.5);
 
     // ── HUD ─────────────────────────────────────────────────────────────
     const speedKmh = driving ? Math.round(Math.abs(c.v) * 3.6) : 0;

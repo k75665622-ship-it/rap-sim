@@ -342,6 +342,30 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - The built-in writing (used when the AI is off or fails) has far more to say: more lines for every kind of message, a follow-up question instead of a dead "Mhm", light Ghanaian and Nigerian flavour for people from home, and each person's texting style (some never use capitals, business people skip the emojis).
 - One-word answers ("Ok", "ok", "Thanks") after you decide something in a chat are replaced with real replies.
 
+## 2026-11-19 — The city, stage 2: your phone, and day and night
+
+### Your phone, out in the street
+- **Phone** button at the top of the city (or **P** on a computer). A home screen with 16 apps — PingChat, Mail, Updates, Streams, Chirp, Snapgram, Clip, Circle, Charts, Videos, Bank, Career, Team, Jobs, Artists, Notes — each one the screen the game already has, opened inside the phone while the city carries on behind it.
+- Apps lay out exactly as they do on a real phone, even on a computer: they are drawn inside a phone-width frame, so the screens' own phone layouts kick in. Everything inside works as normal — open a mail, reply, scroll, search.
+- Top bar: **back** (goes back inside the app, then to the home screen), **home**, and **×** to put the phone away. The phone's own back gesture does the same. **Escape** also puts it away.
+- Badges for unread chats, mail and updates on the home screen and on the Phone button.
+- **Texts and emails buzz you**: "📱 New message from Williams Gang — press P" pops up while you're walking or driving.
+- With the phone out your artist stands still with it up to their face; in the car you roll to a stop.
+- On a phone the phone fills the screen; on a computer it sits bottom-right like a handset, city still moving round it.
+
+### Day and night from the game clock
+- The sky follows the game clock: dawn, blue midday, orange sunset, dusk, and a dark-blue night with stars and a moon. The sun crosses from east to west. At 1× a whole day takes about two and a half minutes.
+- After dark: windows light up across town (warm lamps, the odd blue TV), street lamps glow and throw pools of light on the pavement, shop doors and fronts glow, and your car's **headlights** come on when you're driving.
+- The light glides between the clock's 10-minute ticks, and sleeping or skipping days sweeps through the hours instead of jumping.
+- A soft light follows you at night so your artist doesn't turn into a silhouette.
+
+### How it is built
+- `src/world/phone.ts` – phone open/closed. The app in the phone is still the store's `screen`, so every link inside the game's screens works unchanged; `App.tsx` keeps the city mounted and passes the page into the phone.
+- `src/world/Phone.tsx` – the handset, home screen and the app frame (an iframe the page is portalled into, with the game's styles copied in).
+- `src/world/daylight.ts` – sky, sun, moon and light colours by minute of the day. Night glow lives in `build.ts` (`glow`, `pools`, `buildSky`).
+- `nav.ts` gains `backTo(screen)`: straight back to a page you came through.
+- The controls card shows once more so players learn about the phone.
+
 ## 2026-11-19 — Go outside: the city (open world, stage 1)
 
 A 3D town you walk and drive round, built on top of the game you already have. **Go Outside** in the sidebar (or the **Go outside →** button on the Dashboard) opens it full screen.

@@ -58,6 +58,23 @@ export function goBack(): void {
   popTo();
 }
 
+/**
+ * Straight back to a page you came through (the city, from deep inside its
+ * phone), dropping everything opened since. Opens it normally if it isn't
+ * in the trail.
+ */
+export function backTo(target: GameScreen): void {
+  const st = useGameStore.getState();
+  if (st.screen === target) return;
+  const i = stack.lastIndexOf(target);
+  if (i < 0) { st.setScreen(target); return; }
+  stack.length = i;
+  goingBack = true;
+  st.setScreen(target);
+  goingBack = false;
+  notify();
+}
+
 export function useCanGoBack(): boolean {
   useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l); }, () => version);
   const screen = useGameStore((s) => s.screen);

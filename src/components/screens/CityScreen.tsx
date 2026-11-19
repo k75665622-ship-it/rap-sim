@@ -3,24 +3,45 @@
 // Walk and drive round town. Doors open the game's existing screens — the
 // studio door opens the Studio, The Stage opens Shows, and so on — and the
 // back button brings you out on the pavement where you went in.
+//
+// Your phone comes out with P (or the phone button): chats, mail, socials and
+// the rest open inside it while the city carries on behind.
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, type ReactNode } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { CityCanvas } from '../../world/CityCanvas';
 import { Hud } from '../../world/Hud';
+import { Phone } from '../../world/Phone';
+import { phone } from '../../world/phone';
 import { attachInput, hudStore } from '../../world/input';
 import type { Place } from '../../world/layout';
 import { live } from '../../world/sim';
 
 // Dev hook, like the store's: lets the console or a test script see where the
 // player and the car are.
-(window as unknown as { __rapCity?: unknown }).__rapCity = { live, hud: hudStore.get };
+(window as unknown as { __rapCity?: unknown }).__rapCity = { live, hud: hudStore.get, phone };
 
-export function CityScreen() {
+export function CityScreen({ app }: { app: ReactNode | null }) {
   const setScreen = useGameStore((s) => s.setScreen);
   const look = useGameStore((s) => s.player?.look);
 
   useEffect(() => attachInput(), []);
+  // Leaving the city puts the phone away.
+  useEffect(() => () => phone.reset(), []);
+
+  // P takes the phone out or puts it away; Escape puts it away.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.code === 'KeyP' && !e.repeat) { if (phone.isOpen()) phone.close(); else phone.open(); }
+      if (e.code === 'Escape' && phone.isOpen()) phone.close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useMessageAlerts();
 
   const onEnter = useCallback((place: Place) => {
     if (place.screen) setScreen(place.screen);
@@ -30,7 +51,37 @@ export function CityScreen() {
   return (
     <div className="fixed inset-0 bg-[#9cc3e6] overflow-hidden select-none" style={{ touchAction: 'none' }}>
       <CityCanvas look={look} onEnter={onEnter} />
-      <Hud onExit={() => setScreen('dashboard')} />
+      <Hud onExit={() => { phone.reset(); setScreen('dashboard'); }} />
+      <Phone app={app} />
     </div>
   );
+}
+
+/** A buzz when a text or an email lands while you're out. */
+function useMessageAlerts() {
+  useEffect(() => {
+    const touch = window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+    const hint = touch ? 'tap 📱' : 'press P';
+    const counts = () => {
+      const s = useGameStore.getState();
+      const threads: Record<string, number> = {};
+      for (const [id, t] of Object.entries(s.dmThreads)) threads[id] = t.unread;
+      return { threads, mail: s.mailbox.filter((m) => !m.read).length };
+    };
+    let prev = counts();
+    return useGameStore.subscribe((s) => {
+      const now = counts();
+      if (!phone.isOpen()) {
+        const fresh = Object.keys(now.threads).find((id) => now.threads[id] > (prev.threads[id] ?? 0));
+        if (fresh) {
+          const who = s.npcs.find((n) => n.id === fresh)?.name ?? 'Someone';
+          hudStore.toast(`📱 New message from ${who} — ${hint}`);
+        } else if (now.mail > prev.mail) {
+          const m = s.mailbox.find((x) => !x.read);
+          hudStore.toast(`📧 New email${m ? ` from ${m.fromName}: ${m.subject}` : ''} — ${hint}`);
+        }
+      }
+      prev = now;
+    });
+  }, []);
 }

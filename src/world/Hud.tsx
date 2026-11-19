@@ -12,14 +12,18 @@ import { money } from '@/utils/format';
 import { cityLayout, ROAD_CENTRES, ROAD_HALF, WORLD_HALF } from './layout';
 import { hudStore, input } from './input';
 import { live } from './sim';
+import { phone, usePhoneOpen } from './phone';
+import { useUnread } from './Phone';
 
 const coarse = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
-const HELP_KEY = 'rl_city_help_seen';
+const HELP_KEY = 'rl_city_help_v2';
 
 export function Hud({ onExit }: { onExit: () => void }) {
   const hud = useSyncExternalStore(hudStore.subscribe, hudStore.get);
   const cash = useGameStore((s) => s.player?.career.money ?? 0);
   const [touch] = useState(coarse);
+  const phoneOut = usePhoneOpen();
+  const unread = useUnread();
   const [help, setHelp] = useState(() => {
     try { return !localStorage.getItem(HELP_KEY); } catch { return true; }
   });
@@ -36,6 +40,19 @@ export function Hud({ onExit }: { onExit: () => void }) {
           className="pointer-events-auto h-9 px-3 rounded-full bg-black/55 backdrop-blur border border-white/10 text-[13px] font-semibold hover:bg-black/70"
         >
           ← Menu
+        </button>
+        <button
+          onClick={() => (phoneOut ? phone.close() : phone.open())}
+          aria-label="Phone"
+          className="pointer-events-auto relative h-9 pl-2.5 pr-3 rounded-full bg-black/55 backdrop-blur border border-white/10 text-[13px] font-semibold hover:bg-black/70 flex items-center gap-1.5"
+        >
+          <svg width="14" height="18" viewBox="0 0 14 18" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="1" y="1" width="12" height="16" rx="2.5" /><path d="M5.5 14h3" strokeLinecap="round" /></svg>
+          Phone{touch ? '' : <span className="text-ink3 font-normal"> · P</span>}
+          {unread.total > 0 ? (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-fall text-white text-[10px] font-bold flex items-center justify-center num">
+              {unread.total > 9 ? '9+' : unread.total}
+            </span>
+          ) : null}
         </button>
         <div className="ml-auto flex items-center gap-2 pointer-events-auto">
           <div className="h-9 px-3 rounded-full bg-black/55 backdrop-blur border border-white/10 flex items-center text-[13px] font-semibold text-rise num">
@@ -57,7 +74,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {/* Interaction prompt */}
-      {hud.prompt ? (
+      {hud.prompt && !phoneOut ? (
         <div className={`absolute left-1/2 -translate-x-1/2 ${touch ? 'bottom-44' : 'bottom-10'} flex items-center gap-2 h-10 pl-1.5 pr-4 rounded-full bg-black/70 backdrop-blur border border-amber/40 text-[14px] font-semibold rl-fade`}>
           <span className="w-7 h-7 rounded-full bg-amber text-black font-black text-[13px] flex items-center justify-center">{touch ? '✋' : 'E'}</span>
           {hud.prompt}
@@ -65,7 +82,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {/* Speedometer */}
-      {hud.mode === 'car' ? (
+      {hud.mode === 'car' && !phoneOut ? (
         <div className={`absolute ${touch ? 'right-4 bottom-48' : 'right-5 bottom-6'} text-right`}>
           <div className="rounded-[14px] bg-black/55 backdrop-blur border border-white/10 px-3 py-1.5">
             <div className="text-[40px] leading-none font-black num">{hud.speedKmh}</div>
@@ -74,7 +91,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
         </div>
       ) : null}
 
-      {touch ? <TouchButtons mode={hud.mode} /> : null}
+      {touch && !phoneOut ? <TouchButtons mode={hud.mode} /> : null}
 
       {help ? (
         <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-auto bg-black/40" onClick={closeHelp}>
@@ -87,6 +104,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
                 <li><b className="text-ink">Drag on the right</b> — look around</li>
                 <li><b className="text-ink">✋</b> — go into a building, get in or out of the car</li>
                 <li><b className="text-ink">Run / Jump</b> on foot, <b className="text-ink">Brake</b> in the car</li>
+                <li><b className="text-ink">Phone</b> (top) — chats, mail, socials, streams</li>
               </ul>
             ) : (
               <ul className="text-[13px] text-ink2 space-y-1.5 mb-4">
@@ -94,6 +112,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
                 <li><b className="text-ink">Shift</b> — run · <b className="text-ink">Space</b> — jump / handbrake</li>
                 <li><b className="text-ink">E</b> — go into a building, get in or out of the car</li>
                 <li><b className="text-ink">Drag the mouse</b> — look around</li>
+                <li><b className="text-ink">P</b> — your phone: chats, mail, socials, streams</li>
               </ul>
             )}
             <p className="text-[12px] text-ink3 mb-4">Glowing rings mark doors. Studio 9 opens your studio, The Stage your shows, First Capital your money, and more.</p>

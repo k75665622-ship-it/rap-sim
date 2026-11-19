@@ -129,6 +129,16 @@ Producers and engineers are played by **expert AI characters** until real player
   - **selling verses and features** to other artists, and **custom songs and shout-outs** for fans (birthday songs)
   - **merch:** in-game outfits made with designers, with the sales split
   - **real-world bridge:** sending songs to real streaming platforms, real gigs booked through partner promoters
+- **How the money moves (the safe design):**
+  - **The game never holds players' money.** No real-money wallets or balances, because holding other people's funds needs a Bank of Ghana payment licence (Act 987).
+  - **Payment goes through a licensed provider's split payments** (e.g. Paystack subaccounts). The buyer pays, the seller's share goes straight to their MoMo or bank account, and the game keeps its fee.
+  - **Sellers onboard once:** 18+, ID, and a MoMo or bank account.
+  - **Preview before you pay** for services: the engineer delivers a tagged/watermarked mix, and the buyer pays to unlock the clean files. That protects both sides without the game holding money in escrow.
+  - **Beats and other ready-made items:** pay, then download instantly.
+  - **Licence types:** lease vs exclusive, written into every sale.
+  - Refunds and disputes go through support and the provider. In-game courts are for coin disputes only.
+  - **Start with coins first** (AI and players trading services for in-game coins) to prove people want it, then switch on real money for verified sellers.
+  - **Web first.** App store versions may have to follow store billing rules for digital items; check these before launching in the apps.
 - **Before any cash payout goes live:**
   - a payment provider that handles payouts and identity checks
   - age verification

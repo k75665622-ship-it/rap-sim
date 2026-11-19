@@ -32,6 +32,7 @@ import {
   IconFilm,
   IconHome,
   IconKey,
+  IconMap,
   IconInterview,
   IconMail,
   IconMenu,
@@ -89,6 +90,8 @@ export function Sidebar() {
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <IconHome />, group: 'main' },
+    // Free roam: walk and drive round town; doors open the screens below.
+    { id: 'city', label: 'Go Outside', icon: <IconMap />, group: 'main' },
     { id: 'studio', label: 'Studio', icon: <IconMic />, group: 'main' },
     { id: 'stats', label: 'Stats', icon: <IconStats />, group: 'main' },
     { id: 'training', label: 'Training', icon: <IconDumbbell />, group: 'main' },

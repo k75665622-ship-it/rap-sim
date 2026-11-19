@@ -65,6 +65,10 @@ export function Dashboard() {
               <button onClick={() => setScreen('style')} className="mt-2.5 inline-flex items-center gap-2 h-8 pl-2.5 pr-3 rounded-full border border-line bg-black/30 hover:border-amber/60 text-[12px]">
                 <span className="text-ink3">Drip</span><b className="text-amber num">{drip.score}</b><span className="text-ink2">{drip.label}</span>
               </button>
+              {/* Free roam: walk and drive round town. */}
+              <button onClick={() => setScreen('city')} className="mt-2.5 ml-2 inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-amber text-black font-bold text-[12px] hover:brightness-110">
+                Go outside →
+              </button>
             </div>
             <button onClick={() => setScreen('style')} aria-label="Your look" className="shrink-0 -my-3 w-[96px] h-[168px] sm:w-[128px] sm:h-[220px] rounded-[16px] hover:bg-white/[0.03] transition">
               {player.look ? <Character look={player.look} className="w-full h-full" /> : <Avatar name={player.artistName} seed={player.id} size={68} ring="#ffb800" />}

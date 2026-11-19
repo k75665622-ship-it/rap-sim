@@ -342,6 +342,33 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - The built-in writing (used when the AI is off or fails) has far more to say: more lines for every kind of message, a follow-up question instead of a dead "Mhm", light Ghanaian and Nigerian flavour for people from home, and each person's texting style (some never use capitals, business people skip the emojis).
 - One-word answers ("Ok", "ok", "Thanks") after you decide something in a chat are replaced with real replies.
 
+## 2026-11-19 — Go outside: the city (open world, stage 1)
+
+A 3D town you walk and drive round, built on top of the game you already have. **Go Outside** in the sidebar (or the **Go outside →** button on the Dashboard) opens it full screen.
+
+### The city
+- Three-by-three street grid with pavements, zebra crossings, street lamps, trees, a park, parked cars and a skyline round the edge. Same layout every visit, so you learn your way about.
+- Your artist walks the streets in their own skin tone, hair and outfit colours (from Drip & Ink).
+- **Your car** waits at the kerb outside Studio 9. Get in, drive (arcade handling, handbrake slides, crashes bounce you off walls), get out anywhere. Ask to get out at speed and it brakes to a stop first.
+- **Doors open the screens you already have.** Glowing rings mark them:
+  Studio 9 → Studio · The Stage → Shows · First Capital → Money · Drip & Ink → Style · Iron House → Training · HOT 101.9 → Interviews · Label HQ → My Label · The Crib → Home & Life. Mama's Kitchen is built but closed until the city's people move in (stage 3).
+- Press back in any of those screens and you walk out of the same door, with your car where you parked it.
+- HUD: minimap with every named place, cash, the game clock (it keeps running), speedometer, "press E" prompts, and a one-time controls card. The game's own pop-ups (turn reports, appointments, court, ceremonies) still show over the city.
+
+### Controls
+- Computer: **WASD/arrows** walk or drive · **Shift** run · **Space** jump / handbrake · **E** enter a door, get in or out of the car · **drag the mouse** to look.
+- Phone: left thumb stick, drag on the right half to look, **✋** to interact, **RUN/JUMP** on foot, **BRAKE** in the car. Upright phones get a wider camera.
+
+### How it is built
+- `react-three-fiber` + `three`. No downloaded models or textures: every shape is built from boxes and every texture (windows, signs, pavement) is drawn on a canvas at load time, so the city works offline and the build stays one file.
+- `src/world/layout.ts` – the town as plain data (roads, lots, doors, props, colliders). Add a place by adding to `PLACES`.
+- `src/world/sim.ts` – walking, jumping, driving and collision, no three.js. `live` keeps your position between visits.
+- `src/world/build.ts` – the 3D models. `src/world/CityCanvas.tsx` – the frame loop and camera. `src/world/Hud.tsx` – overlay, touch controls, minimap. `src/components/screens/CityScreen.tsx` – the screen.
+- The build grows by about 0.9 MB (0.26 MB gzipped), mostly three.js.
+
+### Next stages
+2. Phone overlay in the city, day and night from the game clock. 3. People with daily routines and real songs on the streaming app. 4. Stage shows and video shoots in the world. 5. A bigger map, speed tuning and polish for phones.
+
 ## How to run
 
 ```

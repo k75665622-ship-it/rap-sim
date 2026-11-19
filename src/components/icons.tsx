@@ -404,3 +404,11 @@ export const IconAlert = svg(
   </>,
   'IconAlert',
 );
+
+export const IconMap = svg(
+  <>
+    <path d="M9 4.5 3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2-6-2Z" />
+    <path d="M9 4.5v13M15 6.5v13" />
+  </>,
+  'IconMap',
+);

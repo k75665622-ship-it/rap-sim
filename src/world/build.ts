@@ -610,3 +610,105 @@ export function buildSky(bin: Bin): SkyObjects {
   const moon = sprite(glowTexture(bin, 'rgba(235,240,255,1)', 'rgba(170,190,255,0.18)', 0.2), 34);
   return { group, stars, sun, moon };
 }
+
+// ─── the people ────────────────────────────────────────────────────────────
+//
+// Everybody in town drawn with one instanced mesh per body part — legs, shoes,
+// torso, sleeves, forearms, head, hair, eyes and a shadow — so fifty people
+// cost nine draw calls rather than seven hundred.
+
+export interface CrowdPerson {
+  colors: { skin: string; top: string; bottom: string; shoes: string; hair: string; bald: boolean };
+  scale: number;
+}
+
+export interface CrowdPose { visible: boolean; x: number; y: number; z: number; rot: number; phase: number; moving: boolean; arms?: number }
+
+export interface Crowd {
+  group: THREE.Group;
+  update(poses: CrowdPose[]): void;
+}
+
+export function buildCrowd(people: CrowdPerson[], bin: Bin): Crowd {
+  const group = new THREE.Group();
+  const n = Math.max(1, people.length);
+  const geo = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+    const g = bin.add(new THREE.BoxGeometry(w, h, d));
+    g.translate(x, y, z);
+    return g;
+  };
+  const merged = (gs: THREE.BufferGeometry[]) => bin.add(mergeGeometries(gs));
+  const mat = bin.add(new THREE.MeshLambertMaterial({ color: '#ffffff' }));
+  const part = (g: THREE.BufferGeometry, count: number, material: THREE.Material = mat) => {
+    const im = new THREE.InstancedMesh(g, material, count);
+    im.frustumCulled = false; // instances move about; the bounds would be stale
+    group.add(im);
+    return im;
+  };
+
+  const legs = part(geo(0.22, 0.82, 0.24, 0, -0.41, 0), n * 2);
+  const shoes = part(geo(0.25, 0.14, 0.38, 0, -0.86, 0.06), n * 2);
+  const torso = part(merged([geo(0.56, 0.68, 0.3, 0, 1.27, 0), geo(0.58, 0.08, 0.32, 0, 0.96, 0)]), n);
+  const sleeves = part(geo(0.17, 0.3, 0.19, 0, -0.14, 0), n * 2);
+  const forearms = part(geo(0.15, 0.38, 0.16, 0, -0.46, 0), n * 2);
+  const heads = part(merged([geo(0.36, 0.4, 0.36, 0, 1.9, 0), geo(0.14, 0.1, 0.14, 0, 1.65, 0)]), n);
+  const hair = part(merged([geo(0.4, 0.1, 0.4, 0, 2.12, -0.01), geo(0.4, 0.28, 0.08, 0, 1.98, -0.17)]), n);
+  const eyes = part(merged([geo(0.06, 0.05, 0.02, 0.08, 1.93, 0.18), geo(0.06, 0.05, 0.02, -0.08, 1.93, 0.18)]), n, bin.add(new THREE.MeshBasicMaterial({ color: '#111111' })));
+  const shadowGeo = bin.add(new THREE.PlaneGeometry(1.1, 1.1));
+  shadowGeo.rotateX(-Math.PI / 2);
+  const shadows = part(shadowGeo, n, bin.add(new THREE.MeshBasicMaterial({ map: blobTexture(bin), transparent: true, depthWrite: false })));
+
+  const c = new THREE.Color();
+  people.forEach((p, i) => {
+    const set = (im: THREE.InstancedMesh, idx: number, col: string) => im.setColorAt(idx, c.set(col));
+    set(legs, i * 2, p.colors.bottom); set(legs, i * 2 + 1, p.colors.bottom);
+    set(shoes, i * 2, p.colors.shoes); set(shoes, i * 2 + 1, p.colors.shoes);
+    set(torso, i, p.colors.top);
+    set(sleeves, i * 2, p.colors.top); set(sleeves, i * 2 + 1, p.colors.top);
+    set(forearms, i * 2, p.colors.skin); set(forearms, i * 2 + 1, p.colors.skin);
+    set(heads, i, p.colors.skin);
+    set(hair, i, p.colors.hair);
+  });
+  for (const im of [legs, shoes, torso, sleeves, forearms, heads, hair]) if (im.instanceColor) im.instanceColor.needsUpdate = true;
+
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  const base = new THREE.Matrix4();
+  const m = new THREE.Matrix4();
+  const tmp = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const pos = new THREE.Vector3();
+  const scl = new THREE.Vector3();
+  const limbM = new THREE.Matrix4();
+  const limb = (side: number, y: number, swing: number, out: THREE.Matrix4) =>
+    out.copy(base).multiply(tmp.makeTranslation(side, y, 0)).multiply(m.makeRotationX(swing));
+
+  const update = (poses: CrowdPose[]) => {
+    for (let i = 0; i < people.length; i++) {
+      const p = poses[i];
+      if (!p || !p.visible) {
+        for (const im of [torso, heads, hair, eyes, shadows]) im.setMatrixAt(i, zero);
+        for (const im of [legs, shoes, sleeves, forearms]) { im.setMatrixAt(i * 2, zero); im.setMatrixAt(i * 2 + 1, zero); }
+        continue;
+      }
+      const s = people[i].scale;
+      const bob = p.moving ? Math.abs(Math.sin(p.phase)) * 0.05 : 0;
+      base.compose(pos.set(p.x, p.y + bob, p.z), q.setFromAxisAngle(up, p.rot), scl.set(s, s, s));
+      torso.setMatrixAt(i, base);
+      heads.setMatrixAt(i, base);
+      eyes.setMatrixAt(i, base);
+      hair.setMatrixAt(i, people[i].colors.bald ? zero : base);
+      const swing = p.moving ? Math.sin(p.phase) * 0.6 : 0;
+      const l = limbM;
+      limb(0.13, 0.92, swing, l); legs.setMatrixAt(i * 2, l); shoes.setMatrixAt(i * 2, l);
+      limb(-0.13, 0.92, -swing, l); legs.setMatrixAt(i * 2 + 1, l); shoes.setMatrixAt(i * 2 + 1, l);
+      const arm = p.arms ?? 0;
+      limb(0.38, 1.56, arm ? -arm : -swing * 0.9, l); sleeves.setMatrixAt(i * 2, l); forearms.setMatrixAt(i * 2, l);
+      limb(-0.38, 1.56, arm ? -arm : swing * 0.9, l); sleeves.setMatrixAt(i * 2 + 1, l); forearms.setMatrixAt(i * 2 + 1, l);
+      shadows.setMatrixAt(i, m.makeTranslation(p.x, p.y + 0.02, p.z));
+    }
+    for (const im of [legs, shoes, torso, sleeves, forearms, heads, hair, eyes, shadows]) im.instanceMatrix.needsUpdate = true;
+  };
+
+  return { group, update };
+}

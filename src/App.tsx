@@ -51,6 +51,7 @@ import { CeremonyModal } from './components/moments/CeremonyModal';
 import { AwardsScreen } from './components/screens/AwardsScreen';
 import { CourtScreen } from './components/screens/CourtScreen';
 import { CityScreen } from './components/screens/CityScreen';
+import { KitchenScreen } from './components/screens/KitchenScreen';
 import { usePhoneOpen } from './world/phone';
 import type { Platform } from './types/game';
 
@@ -127,6 +128,7 @@ export default function App() {
     switch (screen) {
       case 'dashboard': return <Dashboard />;
       case 'studio': return <StudioScreen />;
+      case 'kitchen': return <KitchenScreen />;
       case 'pingchat': return <PingChatScreen />;
       case 'mailbox': return <MailboxScreen />;
       case 'stats': return <StatsScreen />;

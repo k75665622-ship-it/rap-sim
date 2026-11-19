@@ -13,13 +13,15 @@ import { CityCanvas } from '../../world/CityCanvas';
 import { Hud } from '../../world/Hud';
 import { Phone } from '../../world/Phone';
 import { phone } from '../../world/phone';
-import { attachInput, hudStore } from '../../world/input';
+import { attachInput, hudStore, input } from '../../world/input';
 import type { Place } from '../../world/layout';
 import { live } from '../../world/sim';
+import { radio } from '../../world/radio';
+import { cast } from '../../world/people';
 
 // Dev hook, like the store's: lets the console or a test script see where the
 // player and the car are.
-(window as unknown as { __rapCity?: unknown }).__rapCity = { live, hud: hudStore.get, phone };
+(window as unknown as { __rapCity?: unknown }).__rapCity = { live, hud: hudStore.get, phone, people: cast, radio, input };
 
 export function CityScreen({ app }: { app: ReactNode | null }) {
   const setScreen = useGameStore((s) => s.setScreen);
@@ -36,6 +38,8 @@ export function CityScreen({ app }: { app: ReactNode | null }) {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.code === 'KeyP' && !e.repeat) { if (phone.isOpen()) phone.close(); else phone.open(); }
       if (e.code === 'Escape' && phone.isOpen()) phone.close();
+      else if (e.code === 'Escape' && hudStore.get().talk) hudStore.set({ talk: null });
+      if (e.code === 'KeyR' && !e.repeat && live.mode === 'car') radio.next();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

@@ -85,9 +85,11 @@ export interface HudState {
   prompt: string | null;
   speedKmh: number;
   toast: string | null;
+  /** The resident you're talking to (their id), while the card is open. */
+  talk: string | null;
 }
 
-let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null };
+let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null, talk: null };
 const hudListeners = new Set<() => void>();
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 

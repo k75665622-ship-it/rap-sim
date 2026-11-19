@@ -6,13 +6,15 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Bin, blobTexture, buildCar, buildCity, buildPlayer, buildSky } from './build';
+import { Bin, blobTexture, buildCar, buildCity, buildCrowd, buildPlayer, buildSky, type CrowdPose } from './build';
+import { cast, isOut, stepPeople, type Resident } from './people';
+import { radio } from './radio';
 import { daylightAt, minuteDelta } from './daylight';
 import { phone } from './phone';
 import { useGameStore } from '../store/gameStore';
 import { cityLayout, type Place } from './layout';
 import { handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
-import { distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
+import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
 
 const SKY = '#9cc3e6';
@@ -82,15 +84,24 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     // A soft light that follows you after dark, so your artist is a person
     // under the street lamps rather than a silhouette.
     const fill = new THREE.PointLight('#ffe6c8', 0, 16, 1);
+    // The people of the city, all drawn by one set of instanced meshes.
+    const residents = cast();
+    const crowd = buildCrowd(residents, bin);
+    const poses: CrowdPose[] = residents.map(() => ({ visible: false, x: 0, y: 0, z: 0, rot: 0, phase: 0, moving: false }));
     const scene = new THREE.Group();
-    scene.add(city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill);
+    scene.add(city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, ray: new THREE.Raycaster() };
+    return { bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
   }, []);
 
-  useEffect(() => () => built.bin.dispose(), [built]);
+  useEffect(() => () => {
+    built.bin.dispose();
+    // Leaving the city: the radio goes quiet, and nobody is mid-conversation.
+    radio.pause();
+    hudStore.set({ talk: null });
+  }, [built]);
 
   // Put the camera in place before the first frame so it doesn't swoop in.
   useEffect(() => {
@@ -101,6 +112,9 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true,
     /** The minute of the day being shown; eases after the game clock. */
     minute: useGameStore.getState().clockMinute ?? 720,
+    mode: live.mode as typeof live.mode,
+    talking: null as Resident | null,
+    lastScare: -10,
   }), []);
 
   useFrame((state, rawDt) => {
@@ -120,12 +134,17 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       live.cam.manualAt = t;
     }
 
-    // With the phone out you stand still (and the car rolls to a stop).
+    // With the phone out, or while talking to someone, you stand still (and
+    // the car rolls to a stop).
     const phoneOut = phone.isOpen();
-    const action = takeAction() && !phoneOut;
-    const jump = takeJump() && !phoneOut;
-    const move = phoneOut ? { x: 0, y: 0 } : moveAxis();
+    const talkId = hudStore.get().talk;
+    if (!talkId && tmp.talking) { tmp.talking.hold = 0.6; tmp.talking = null; }
+    const busy = phoneOut || !!talkId;
+    const action = takeAction() && !busy;
+    const jump = takeJump() && !busy;
+    const move = busy ? { x: 0, y: 0 } : moveAxis();
     let prompt: string | null = null;
+    const { residents } = built;
 
     if (live.mode === 'foot') {
       let door: (typeof doors)[number] | null = null;
@@ -135,7 +154,18 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
         if (dist < best) { best = dist; door = d; }
       }
       const nearCar = distToCar() < CAR_REACH;
+      // Somebody close enough to talk to (and facing-ish doesn't matter).
+      let person: Resident | null = null;
+      let pd = 2.1;
+      for (const r of residents) {
+        if (!isOut(r)) continue;
+        const d = Math.hypot(r.x - live.p.x, r.z - live.p.z);
+        if (d < pd) { pd = d; person = r; }
+      }
+      // Standing by your car with someone walking past: the car wins.
+      if (person && nearCar && distToCar() - 1.3 < pd) person = null;
       if (door) prompt = door.place.screen ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
+      else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
 
       if (action) {
@@ -152,6 +182,14 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
             live.cam.pitch = 0.3;
           }
           enterRef.current(door.place);
+        } else if (person) {
+          // They stop and turn to you; you turn to them.
+          person.hold = 1e6;
+          person.rot = Math.atan2(live.p.x - person.x, live.p.z - person.z);
+          live.p.rot = Math.atan2(person.x - live.p.x, person.z - live.p.z);
+          live.p.speed = 0;
+          tmp.talking = person;
+          hudStore.set({ talk: person.id });
         } else if (nearCar) {
           live.mode = 'car';
           live.exitQueued = false;
@@ -162,6 +200,14 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
         for (let i = 0; i < steps; i++) {
           stepPlayer(dt, move, sprinting(), jump && i === 0);
           idleCar(dt);
+        }
+        // Brush past people rather than walking through them.
+        for (const r of residents) {
+          if (!isOut(r)) continue;
+          const dx = live.p.x - r.x, dz = live.p.z - r.z;
+          const d = Math.hypot(dx, dz);
+          const min = PLAYER_R + 0.34;
+          if (d < min && d > 1e-4) { live.p.x = r.x + (dx / d) * min; live.p.z = r.z + (dz / d) * min; }
         }
       }
     } else {
@@ -174,6 +220,32 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
         for (let i = 0; i < steps; i++) stepCar(dt, stop ? null : move, stop || handbrake());
       }
     }
+
+    // ── the radio follows you in and out of the car ─────────────────────
+    if (tmp.mode !== live.mode) {
+      if (live.mode === 'car') radio.start(); else radio.pause();
+      tmp.mode = live.mode;
+    }
+
+    // ── everybody else ──────────────────────────────────────────────────
+    const c0 = live.car;
+    const scared = stepPeople(frameDt, useGameStore.getState().clockMinute ?? 720, { x: c0.x, z: c0.z, heading: c0.heading, v: c0.v, halfW: CAR.halfW, halfL: CAR.halfL });
+    if (scared && t - tmp.lastScare > 6 && live.mode === 'car') {
+      tmp.lastScare = t;
+      hudStore.toast(['"Hey! Watch where you\'re driving!"', '"Ei! You want to kill me?!"', '"Slow down, superstar!"', '"This is a pavement, not a road!"'][Math.floor(Math.random() * 4)], 2200);
+    }
+    const camX = camera.position.x, camZ = camera.position.z;
+    built.residents.forEach((r, i) => {
+      const pose = built.poses[i];
+      const out = isOut(r) && Math.abs(r.x - camX) < 130 && Math.abs(r.z - camZ) < 130;
+      pose.visible = out;
+      if (!out) return;
+      pose.x = r.x; pose.z = r.z; pose.y = groundAt(r.x, r.z);
+      pose.rot = r.rot; pose.phase = r.phase;
+      pose.moving = r.hold <= 0 && r.path.length > 0;
+      pose.arms = r.startle > 0 ? 2.7 : 0;
+    });
+    built.crowd.update(built.poses);
 
     // ── pose the player ─────────────────────────────────────────────────
     const p = live.p;

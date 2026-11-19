@@ -12,6 +12,8 @@ let line: string | null = null;
 let timers: number[] = [];
 let voice: AudioBufferSourceNode | null = null;
 let mix: Mix | null = null;
+/** A real audio file playing (see audio/library.ts). */
+let track: HTMLAudioElement | null = null;
 export interface SongLine { bar: number; text: string; pitch: number; voice?: string }
 let timer: number | null = null;
 const subs = new Set<() => void>();
@@ -22,6 +24,7 @@ export function stopPreview(): void {
   timers.forEach((t) => window.clearTimeout(t)); timers = [];
   try { voice?.stop(); } catch { /* done */ } voice = null;
   mix?.stop(); mix = null;
+  if (track) { try { track.pause(); track.src = ''; } catch { /* gone */ } track = null; }
   try { window.speechSynthesis?.cancel(); } catch { /* none */ }
   line = null;
   if (timer !== null) window.clearTimeout(timer); timer = null;
@@ -49,9 +52,27 @@ export function usePreviewing(): string | null {
  * Play a whole song: the beat, plus your recorded take or the written bars
  * performed by the device's voice (fictional people only).
  */
-export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | null; lines?: SongLine[]; seconds?: number; fx?: VocalFx; lead?: number; hookBars?: number[] }): Promise<void> {
+export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | null; lines?: SongLine[]; seconds?: number; fx?: VocalFx; lead?: number; hookBars?: number[]; real?: string | null; onEnd?: () => void }): Promise<void> {
   if (current === key) { stopPreview(); return; }
   stopPreview();
+  if (o.real && !o.take) {
+    // A real recording has been added for this song: play that instead.
+    const a = new Audio(o.real);
+    track = a;
+    current = key;
+    emit();
+    const done = () => { if (current === key) { stopPreview(); o.onEnd?.(); } };
+    a.addEventListener('ended', done);
+    a.addEventListener('error', () => {
+      // The file is missing or won't play: fall back to the game's own sound.
+      if (current !== key) return;
+      current = null;
+      void playSong(key, spec, { ...o, real: null });
+    });
+    a.play().catch(() => { /* blocked until the player taps something */ });
+    timer = window.setTimeout(done, (o.seconds ?? 90) * 1000);
+    return;
+  }
   if (!ctx) ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
   const c = ctx;
@@ -116,10 +137,13 @@ export async function playSong(key: string, spec: BeatSpec, o: { take?: Blob | n
       }, (0.1 + l.bar * bar) * 1000));
     }
   }
-  timer = window.setTimeout(stopPreview, (o.seconds ?? 90) * 1000);
+  timer = window.setTimeout(() => { if (current === key) { stopPreview(); o.onEnd?.(); } }, (o.seconds ?? 90) * 1000);
   emit();
 }
 
 export function useNowLine(): string | null {
   return useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => line, () => null);
 }
+
+/** The key of whatever is playing right now, outside React. */
+export function nowPlaying(): string | null { return current; }

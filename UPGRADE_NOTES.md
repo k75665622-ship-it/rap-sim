@@ -342,6 +342,37 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - The built-in writing (used when the AI is off or fails) has far more to say: more lines for every kind of message, a follow-up question instead of a dead "Mhm", light Ghanaian and Nigerian flavour for people from home, and each person's texting style (some never use capitals, business people skip the emojis).
 - One-word answers ("Ok", "ok", "Thanks") after you decide something in a chat are replaced with real replies.
 
+## 2026-11-19 — The city, stage 3: people, Mama's Kitchen, and the music
+
+### People with lives
+- **Fifty people walk the city.** 34 are people from your world's roster — artists, producers, DJs, managers, publicists, from your own city first — drawn in their own portrait's skin, hair and clothes. 16 are locals.
+- **Everyone keeps a day on the game clock.** Home at night; work by their job in the day (producers and artists at Studio 9, A&Rs and managers at Label HQ, DJs and journalists at HOT 101.9, stylists at Drip & Ink, promoters at The Stage, lawyers at the bank); lunch and dinner at Mama's Kitchen; the gym or the shops some afternoons; and the night owls end up at The Stage until 2 a.m. Each person's day runs a little early or late and changes from day to day.
+- They walk the pavements and cross at the zebra crossings, go in through the door when they arrive, and come back out when it's time for the next thing.
+- **Talk to anyone**: walk up and press **E** (or ✋). They stop, turn to you, and say something that fits their job and how well you know each other — old friends are happy to see you, people you've fallen out with tell you to keep walking, locals recognise you once you're famous.
+  - **Catch up** — a small, real relationship boost (+3 for people you barely know, less for close friends), once per person per game day, and they remember where you met.
+  - **Message** and **Profile** open their chat or profile in your phone.
+  - **▶ their song** plays their biggest record for 90 seconds.
+  - Locals ask for a **selfie** once you're known.
+- Drive onto the pavement and people jump out of the way (and tell you about it). Walking, you brush past people instead of through them.
+- All fifty are drawn with nine instanced meshes, so the crowd costs about the same as one building.
+
+### Mama's Kitchen is open
+- Walk in for the menu: kelewele, sobolo & meat pie, waakye, jollof & grilled chicken, banku & tilapia. Each gives energy back and costs money and game time. A second plate within four hours only does a third as much — you're full.
+- **At the tables**: everyone eating there right now, from the city's actual routines. Busy 12:00–13:30 and 18:00–19:30. Say hi or open their profile.
+
+### Music
+- **Car radio — HOT 101.9.** Get in your car and it plays the charts where you live, 90 seconds a song, like a station's rotation. ⏭ (or **R**) for the next song, ⏻ to switch it off (it stays off until you switch it on). Goes quiet when you get out.
+- **Streams: tap a song's cover to hear 90 seconds** without leaving the chart (the bar under the cover shows the time).
+- With AI voices on (AI Brain), radio and chart previews have the artist's own voice on their own beat. With them off, they play as instrumentals rather than the robot voice.
+- **Real songs plug in later, no code needed.** Drop audio files in `public/music/` and list them in `public/music/manifest.json` by artist id or song id; every play button and the radio will use them, and fall back to the game's own sound if a file is missing. The roster and its songs come from a fixed seed, so one set of files serves every player. Run `__rapMusicPrompts()` in the browser console for each artist's id and a ready-made description of their sound to give a music generator. Full steps in `public/music/README.md`.
+- The server now serves `.mp3`, `.m4a`, `.ogg` and `.wav`.
+
+### How it is built
+- `src/world/people.ts` – the cast, the footpath network (lanes 7.5 m from each road, zebra crossings, a door node for every named place and ~50 homes, all shortest routes worked out once), daily plans, walking, getting out of the car's way.
+- `src/world/build.ts` `buildCrowd` – instanced bodies. `src/world/TalkCard.tsx` – the conversation card. `src/world/radio.ts` – the station.
+- `src/components/screens/KitchenScreen.tsx`; store actions `meetInCity` and `eatMeal`; saved fields `cityMet`, `lastMealAt`.
+- `src/audio/library.ts` (real-track slot + sound prompts), `src/audio/quickPlay.ts` (play any song by id), `playSong` accepts a real file and an `onEnd`.
+
 ## 2026-11-19 — The city, stage 2: your phone, and day and night
 
 ### Your phone, out in the street

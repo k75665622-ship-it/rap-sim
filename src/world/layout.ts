@@ -56,10 +56,7 @@ export const PLACES: Place[] = [
   { id: 'radio', name: 'HOT 101.9', tagline: 'Radio · Interviews', screen: 'interviews', accent: '#4da3ff', glyph: 'R' },
   { id: 'label', name: 'LABEL HQ', tagline: 'Your record label', screen: 'label', accent: '#ffd666', glyph: 'L' },
   { id: 'crib', name: 'THE CRIB', tagline: 'Home & life', screen: 'lifestyle', accent: '#9aa0b4', glyph: 'H' },
-  {
-    id: 'food', name: "MAMA'S KITCHEN", tagline: 'Jollof · Grill · Drinks', accent: '#ff4757', glyph: 'F',
-    soon: "Mama's Kitchen opens when the city's people move in — they'll eat, hang out and talk here.",
-  },
+  { id: 'food', name: "MAMA'S KITCHEN", tagline: 'Jollof · Grill · Drinks', screen: 'kitchen', accent: '#ff4757', glyph: 'F' },
 ];
 
 // ─── tiny seeded random ────────────────────────────────────────────────────

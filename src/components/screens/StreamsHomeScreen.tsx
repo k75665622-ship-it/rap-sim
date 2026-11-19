@@ -21,7 +21,9 @@ import { allVideos } from '../../store/videoSelectors';
 import { useScreenCountry } from '../../hooks/useScreenCountry';
 import { chartWeekEnding, formatWeekEnding, weekIndexOf } from '../../sim/gameClock';
 import type { ChartRow } from '../../types/game';
-import { IconArrowDown, IconArrowUp, IconMinus, IconChevronRight, IconDisc, IconPlay } from '../icons';
+import { IconArrowDown, IconArrowUp, IconMinus, IconChevronRight, IconDisc, IconPlay, IconPause } from '../icons';
+import { playSongById, songKey, stopPreview } from '../../audio/quickPlay';
+import { usePreviewing } from '../../audio/preview';
 
 type Tab = 'songs' | 'albums' | 'artists' | 'new';
 
@@ -267,10 +269,7 @@ export function StreamsHomeScreen() {
                     <span className="w-4 shrink-0 flex justify-center">
                       <PositionMove position={position} lastPosition={row.lastPosition} />
                     </span>
-                    <span
-                      className="w-9 h-9 rounded-[6px] shrink-0"
-                      style={{ background: `linear-gradient(140deg, ${cfg.accent}66, #232632)` }}
-                    />
+                    <PlayArt songId={row.songId} accent={cfg.accent} />
                     <span className="min-w-0">
                       <span className="flex items-center gap-1.5">
                         <span className="text-[13px] font-semibold text-ink truncate">{row.title}</span>
@@ -327,6 +326,30 @@ export function StreamsHomeScreen() {
 }
 
 // ─── TABLE PIECES ──────────────────────────────────────────────────────────
+
+/**
+ * The cover square doubles as a play button: 90 seconds of the song, the way
+ * a streaming app lets you preview a track without opening it.
+ */
+function PlayArt({ songId, accent }: { songId: string; accent: string }) {
+  const playing = usePreviewing() === songKey(songId);
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={playing ? 'Stop' : 'Play 90 seconds'}
+      onClick={(e) => { e.stopPropagation(); if (playing) stopPreview(); else void playSongById(songId, { seconds: 90 }); }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (playing) stopPreview(); else void playSongById(songId, { seconds: 90 }); } }}
+      className="relative w-9 h-9 rounded-[6px] shrink-0 flex items-center justify-center text-white group/play"
+      style={{ background: `linear-gradient(140deg, ${accent}66, #232632)` }}
+    >
+      <span className={`absolute inset-0 rounded-[6px] flex items-center justify-center transition ${playing ? 'bg-black/45' : 'bg-black/0 group-hover/play:bg-black/45'}`}>
+        {playing ? <IconPause size={16} /> : <IconPlay size={16} />}
+      </span>
+      {playing ? <span className="absolute -bottom-1 left-1 right-1 h-[3px] rounded-full bg-white/30 overflow-hidden"><span className="block h-full bg-white rl-progress-90" /></span> : null}
+    </span>
+  );
+}
 
 function TableHead({ columns }: { columns: string[] }) {
   return (

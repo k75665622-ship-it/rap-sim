@@ -240,3 +240,7 @@ input[type='date'] {
 /* Horizontal chip rows scroll without a visible bar on touch screens. */
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* A 90-second track preview's progress bar. */
+@keyframes rl-progress { from { width: 0; } to { width: 100%; } }
+.rl-progress-90 { width: 0; animation: rl-progress 90s linear forwards; }

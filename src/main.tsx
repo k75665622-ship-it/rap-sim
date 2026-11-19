@@ -4,6 +4,8 @@ import "./index.css";
 import { flushAutosave, flushSideTicks, useGameStore, awardWorld } from "./store/gameStore";
 import * as awardSeasons from "./sim/awardSeasons";
 import * as saves from "./store/saves";
+import { soundPrompt } from "./audio/library";
+import { isRealId } from "./sim/realPeople";
 import { initKV } from "./store/kv";
 import { restoreSession, currentAccount, onAccountChange } from "./store/accounts";
 import { setAIAccount } from "./sim/ai";
@@ -30,6 +32,13 @@ import * as release from "./sim/release";
 (window as unknown as { __rapFlushSave?: () => void }).__rapFlushSave = flushAutosave;
 (window as unknown as { __rapFlushSide?: () => void }).__rapFlushSide = flushSideTicks;
 (window as unknown as { __rapAwards?: unknown }).__rapAwards = { ...awardSeasons, awardWorld };
+
+// For adding real songs later (see public/music/README.md): every fictional
+// artist's id and a description of their sound to give a music generator.
+(window as unknown as { __rapMusicPrompts?: () => unknown }).__rapMusicPrompts = () =>
+  useGameStore.getState().npcs
+    .filter((n) => n.role === 'artist' && !isRealId(n.id))
+    .map((n) => ({ id: n.id, name: n.name, genre: n.genre, prompt: soundPrompt(n) }));
 
 // The save layer, for the same reason — and because the legacy-save migration
 // runs at import time, before any test script can put a `rap_game_save_v1` in

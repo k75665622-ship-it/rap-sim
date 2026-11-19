@@ -1,7 +1,7 @@
 # RAP LIFE — The Roadmap
 
 The plan for turning RAP LIFE into a music-world game people play every day for months, not a game that spikes for a week and fades.
-Stages 1–5 (the city) are done. This file lists every stage after that in build order. To continue, say **"continue with stage N"**.
+Stages 1–5 (the city) are done. This file lists everything after that. To continue, say **"continue with M1"** (or any stage).
 
 ---
 
@@ -35,6 +35,107 @@ Not everyone becomes a superstar, and that's on purpose. Every career path has i
 - **Weekly:** chart day (Saturday), court sessions, exams, paydays, magazine covers.
 - **Seasonal:** award nights, Union elections, the season pass, a new district or city.
 - **Lifetime:** degrees, career ladder, marriage and kids, retirement, Hall of Fame, your child takes over.
+
+---
+
+## Build order
+
+**Next up: M1, then M2, then Stage 6 onward.** The music tools (track M, below) are the heart of the game, so they go first. M3–M6 slot in alongside Stages 6–9, and M7 comes after the online stages (14–17).
+
+---
+
+# TRACK M — The music tools (real apps inside the game)
+
+Two separate apps, like real life:
+- **VOX** — the vocal booth, for artists. Easy and fun, in the style of Voloco.
+- **STUDIO PRO** — the professional workstation, for producers and engineers. Deep and hard, in the style of FL Studio, Ableton or Adobe Audition.
+
+The better you are at the hard tool, the better the music sounds. That gives every role a real skill to master.
+
+**How a song gets made (like real life):**
+1. The artist records in VOX.
+2. If you're multi-talented, you mix it yourself. If not, you **send it to a producer or engineer**.
+3. They work on it in STUDIO PRO and send it back with notes: "tightened your timing, slap delay on the hook, a little more air on the vocal".
+4. You ask for revisions or approve it, then release.
+
+Producers and engineers are played by **expert AI characters** until real players take those jobs. AI experts range from cheap beginners to legends; the better they are, the more they cost and the longer they're booked up.
+
+## M1 — VOX: the booth app
+- **Real instrument sounds:** royalty-free drum kits, 808s, keys, guitars and pads replace the beeps the game makes now. This is the single biggest sound upgrade.
+- **Before recording:** a headphones check (no headphones means the beat bleeds into the vocal) and latency calibration so the vocal lands on the beat.
+- **Vocal presets with live effects:**
+  - Clean
+  - Afrobeats
+  - Drill
+  - Trap
+  - R&B
+  - Hard autotune
+  - Harmonies
+  - Telephone
+  - Stadium
+  - Lo-fi
+- **Pitch correction** locked to the beat's key.
+- **The vocal chain:** noise removal, EQ, compression, de-esser, reverb, delay, doubles.
+- **Recording tools:** multiple takes (pick the best), re-record one line (punch-in), separate ad-lib and harmony tracks, a lyrics prompter that scrolls with the beat.
+- **Two modes:**
+  - **Quick:** one tap, auto-mix, sounds decent.
+  - **Engineer:** manual knobs, sounds better if you know what you're doing.
+- **A quality score** from the actual recording (timing against the beat, pitch, loudness, noise) blended with your character's skill.
+- Export or share the song (feeds Stage 13 clips).
+
+## M2 — Expert AI engineers and producers, and the "send it to a pro" workflow
+- Hire an AI engineer or producer by tier: Student → Local → Pro → Legend. Each has a price, waiting time, a style, and a revision limit.
+- **They really process your audio:** a mixing chain that runs on the device, tuned by their skill. Better engineers use more precise pitch correction, de-essing, automation, wider stereo and louder masters.
+- The mix comes back with written notes and a before/after comparison. You can request revisions.
+- Relationships, rates, deadlines and drama: late delivery, "this needs a better take", disputes.
+- Built so a **real player** can later take the same job and use the same tools (M3).
+
+## M3 — STUDIO PRO: the mixing desk
+- A multitrack session: beat stems, lead vocal, doubles, ad-libs, harmonies.
+- **Each track** has volume, pan, EQ, compressor, de-esser, saturation and send effects (reverb, delay).
+- Automation basics (volume rides, a delay throw on the last word), a loudness meter, a mastering chain, A/B comparison.
+- **Project files** you can send to someone else and get back.
+- Hard by design: a bad mix sounds bad, and a great mix charts better.
+
+## M4 — STUDIO PRO: making beats
+- **Tools:** step sequencer, piano roll, sampler with real drum kits, 808 slides, chord helper, arrangement timeline (intro, hook, verse, bridge, outro).
+- **Export** stems for artists.
+- **Sell beats:** lease or exclusive, with in-game coins now and real money later (M7).
+
+## M5 — The Academy teaches the tools
+- Interactive lessons inside VOX and STUDIO PRO, for example "Lesson 3: what a compressor does", taught by an AI tutor.
+- Exams; certificates unlock advanced modules and higher rates; your reputation grows with your grades.
+- Players genuinely learn real mixing and production.
+
+## M6 — DIRECTOR'S CUT: the video editor
+- Edit clips shot in the game: camera angles, cuts on the beat, filters, text, transitions. The game renders the finished video.
+- **Two levels:**
+  - **Auto-edit:** one tap, decent result.
+  - **Timeline:** manual editing, better results if you're good at it.
+- Later: editing real phone footage (heavier, and needs moderation).
+
+## M7 — The creator economy (real money, after the online stages)
+- **Two kinds of money:**
+  - **Coins:** the in-game currency, earned by everyone, never cashed out.
+  - **A real-money Creator Market**, for **verified adults only**.
+- **Earning money:**
+  - **Selling services:** beats, mixing, mastering, verses and hooks, video edits, clothing designs, legal work.
+  - **Basic tools are free;** experts set their own prices; the game takes a small fee per sale.
+- **How artists earn real money:**
+  - a **creator pool**: a share of game revenue (ads and subscriptions) paid out by real listens of published songs, with protection against fake streams
+  - **tips and gifts** during live in-game concerts, and **paid tickets** for headline shows
+  - **fan club subscriptions** (monthly support, exclusive songs and behind-the-scenes content)
+  - **brand deals:** a real chop bar or phone brand pays an artist to promote them in the game (billboards, a mention in a song, a sponsored show), always labelled as an ad
+  - **selling verses and features** to other artists, and **custom songs and shout-outs** for fans (birthday songs)
+  - **merch:** in-game outfits made with designers, with the sales split
+  - **real-world bridge:** sending songs to real streaming platforms, real gigs booked through partner promoters
+- **Before any cash payout goes live:**
+  - a payment provider that handles payouts and identity checks
+  - age verification
+  - tax and anti-fraud rules
+  - clear rules on who owns each song or beat (the creator does; the game gets a licence to play it)
+  - **advice from a lawyer in Ghana** on payout and marketplace rules
+- **What the game must avoid:** a tradeable token or crypto-style coin, and cash prizes with entry fees (those can count as gambling).
 
 ---
 

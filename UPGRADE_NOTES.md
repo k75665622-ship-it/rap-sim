@@ -342,6 +342,28 @@ Also fixed in this pass: the Industry & Life actions (sample clearance, payola, 
 - The built-in writing (used when the AI is off or fails) has far more to say: more lines for every kind of message, a follow-up question instead of a dead "Mhm", light Ghanaian and Nigerian flavour for people from home, and each person's texting style (some never use capitals, business people skip the emojis).
 - One-word answers ("Ok", "ok", "Thanks") after you decide something in a chat are replaced with real replies.
 
+## 2026-11-19 — The city, stages 4 and 5: open mic, video shoots, a bigger town
+
+### Open mic at The Stage (evenings, 19:00–03:00)
+- Stand at The Stage's door in the evening and a **🎤 Open mic** button appears (or press **G**). Your beat plays; hit each beat as it crosses the line with **Space** / **tap**. PERFECT / GOOD / MISS, and a hype bar that follows the crowd.
+- The 28-second set is scored 0–100 and pays **fans and tips** (scaled by the score, your fanbase and fame). Once per game day, costs 15 energy. Store action `performStreetGig`, saved field `cityGigDay`.
+
+### Shoot a clip anywhere
+- **🎬 Shoot a clip** (or **V**) on foot: letterbox bars, REC, your beat, and the camera swings slowly round you while you dance, for eight seconds.
+- The clip is recorded straight from the game (WebM, or MP4 where that's what the browser records). Watch it back, **Save clip** to your device, or **Release a music video**, which opens the game's video screen.
+
+### A bigger town
+- The map is now **300 × 300 m**: five roads each way instead of three (25 junctions), so there are many more streets and buildings, and three parks. The named places stay in the middle.
+- Footpaths, crossings, people's routes and the minimap all grow with it; people's homes are capped at 80 front doors to keep route planning quick.
+
+### Faster on phones
+- Building walls are merged by colour: the whole skyline is about a dozen draw calls instead of one per building.
+- Phones draw at a lower pixel ratio (up to 1.3×) with no antialiasing; the camera's far distance is shorter.
+- When your phone is open on a phone screen, the city behind it stops drawing (it's hidden anyway), which saves battery.
+
+### Known
+- Tested in a headless browser at phone and computer sizes. The beat engine logged a few "non-finite AudioParam" errors during the open mic and the shoot; both still play and finish. Worth checking on a real device.
+
 ## 2026-11-19 — The city, stage 3: people, Mama's Kitchen, and the music
 
 ### People with lives

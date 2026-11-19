@@ -30,6 +30,8 @@ export interface Live {
   mode: Mode;
   /** Asked to get out while moving: brake, then step out. */
   exitQueued: boolean;
+  /** A video shoot: the camera circles you while you dance. */
+  shoot: { on: boolean; t: number };
   p: { x: number; y: number; z: number; rot: number; vy: number; grounded: boolean; speed: number; phase: number };
   car: { x: number; y: number; z: number; heading: number; v: number; vx: number; vz: number; steer: number; spin: number; bump: number };
   cam: { yaw: number; pitch: number; manualAt: number };
@@ -39,6 +41,7 @@ export const live: Live = {
   ready: false,
   mode: 'foot',
   exitQueued: false,
+  shoot: { on: false, t: 0 },
   p: { x: 0, y: KERB_H, z: 0, rot: 0, vy: 0, grounded: true, speed: 0, phase: 0 },
   car: { x: 0, y: 0, z: 0, heading: 0, v: 0, vx: 0, vz: 0, steer: 0, spin: 0, bump: 0 },
   cam: { yaw: 0, pitch: 0.32, manualAt: -10 },

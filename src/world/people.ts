@@ -106,6 +106,18 @@ function network(): Net {
     }
   });
 
+  // Keep the route table small on a big map: a spread of front doors is plenty.
+  if (homes.length > 80) {
+    const step = Math.ceil(homes.length / 80);
+    const keep = new Set(homes.filter((_, i) => i % step === 0));
+    for (const id of homes) if (!keep.has(id)) {
+      // Off its footpath line; the node stays in the list but is never used.
+      vLines.forEach((ids) => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); });
+      hLines.forEach((ids) => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); });
+    }
+    homes.splice(0, homes.length, ...keep);
+  }
+
   // Join each line's nodes in order.
   const n = nodes.length;
   const adj: Array<Array<[number, number]>> = nodes.map(() => []);

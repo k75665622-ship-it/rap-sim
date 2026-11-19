@@ -8,8 +8,8 @@
 
 import type { GameScreen } from '../types/game';
 
-export const WORLD_HALF = 90;          // playable area is -90..90 on x and z
-export const ROAD_CENTRES = [-60, 0, 60];
+export const WORLD_HALF = 150;         // playable area is -150..150 on x and z
+export const ROAD_CENTRES = [-120, -60, 0, 60, 120];
 export const ROAD_HALF = 6;            // a road is 12 m wide
 export const SIDEWALK = 3;             // then 3 m of pavement
 export const KERB_H = 0.15;            // pavement height
@@ -113,8 +113,8 @@ export function cityLayout(): CityLayout {
   const blocks: Block[] = [];
   const buildings: Building[] = [];
 
-  // One park, in the north-east corner, so the skyline has a gap.
-  const isPark = (ix: number, iz: number) => ix === 3 && iz === 0;
+  // Three parks, so the skyline has gaps.
+  const isPark = (ix: number, iz: number) => (ix === B.length - 1 && iz === 0) || (ix === 0 && iz === B.length - 1) || (ix === 4 && iz === 3);
 
   type Lot = Box & { inner: boolean; roads: Side[]; centreDist: number };
   const lots: Lot[] = [];
@@ -124,7 +124,7 @@ export function cityLayout(): CityLayout {
       const park = isPark(ix, iz);
       blocks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, park });
       if (park) return;
-      const inner = ix > 0 && ix < 3 && iz > 0 && iz < 3;
+      const inner = ix > 0 && ix < B.length - 1 && iz > 0 && iz < B.length - 1;
       const nx = x1 - x0 > 30 ? 2 : 1;
       const nz = z1 - z0 > 30 ? 2 : 1;
       const gap = 4; // alleys between lots
@@ -211,9 +211,11 @@ export function cityLayout(): CityLayout {
   }
 
   // The park: trees on grass.
-  const park = blocks.find((b) => b.park)!;
-  for (let i = 0; i < 14; i++) {
-    props.push({ kind: 'tree', x: park.minX + 3 + r() * (park.maxX - park.minX - 6), z: park.minZ + 3 + r() * (park.maxZ - park.minZ - 6), rot: 0 });
+  for (const park of blocks.filter((b) => b.park)) {
+    const n = Math.round(((park.maxX - park.minX) * (park.maxZ - park.minZ)) / 120);
+    for (let i = 0; i < n; i++) {
+      props.push({ kind: 'tree', x: park.minX + 3 + r() * (park.maxX - park.minX - 6), z: park.minZ + 3 + r() * (park.maxZ - park.minZ - 6), rot: 0 });
+    }
   }
 
   // ─── parked cars along kerbs ───────────────────────────────────────────

@@ -851,6 +851,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         teamChatUnread: state.teamChatUnread,
         cityMet: state.cityMet,
         lastMealAt: state.lastMealAt,
+        cityGigDay: state.cityGigDay,
         teamPolicy: state.teamPolicy,
         lifeFlags: state.lifeFlags,
         managerPush: state.managerPush,
@@ -3200,6 +3201,8 @@ interface GameActions {
    * You can only eat so much — a second plate within a few hours does little.
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
+  /** Open mic at The Stage (the city): a 0–100 set pays fans and tips, once a day. */
+  performStreetGig: (score: number) => FeatureActionResult;
   markDMRead: (npcId: string) => void;
 
   // Social
@@ -13887,6 +13890,26 @@ export const useGameStore = create<GameState & GameActions>()(
           ? `${name}. You were still full from last time — only +${got} energy.`
           : `${name}. +${got} energy${got < gain ? ' (you were nearly full)' : ''}.`,
       };
+    },
+
+    performStreetGig: (score) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nobody was listening.' };
+      set((state) => {
+        const p = state.player;
+        if (!p) return;
+        const today = dateToSerial(state.gameDate);
+        if (state.cityGigDay === today) { result = { ok: false, message: "You've already played the open mic today." }; return; }
+        if (p.energy < 15) { result = { ok: false, message: 'Too tired to perform.' }; return; }
+        const s = Math.max(0, Math.min(100, score));
+        const fans = Math.round((s / 100) * (25 + p.career.fanbase * 0.01));
+        const tips = Math.round((s / 100) * (15 + blendedFame(p) * 3));
+        p.career.fanbase += fans;
+        p.career.money += tips;
+        p.energy = Math.max(0, p.energy - 15);
+        state.cityGigDay = today;
+        result = { ok: true, message: `${s >= 85 ? 'The room went crazy.' : s >= 60 ? 'Solid set.' : s >= 35 ? 'Some heads nodded.' : 'Tough crowd.'} +${fans} fans · +$${tips} in tips.` };
+      });
+      return result;
     },
 
     reachOutToNpc: (npcId) => {

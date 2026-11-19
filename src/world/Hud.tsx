@@ -15,10 +15,11 @@ import { live } from './sim';
 import { phone, usePhoneOpen } from './phone';
 import { useUnread } from './Phone';
 import { TalkCard } from './TalkCard';
+import { StageOverlays } from './Stage';
 import { radio, STATION, useRadio } from './radio';
 
 const coarse = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
-const HELP_KEY = 'rl_city_help_v3';
+const HELP_KEY = 'rl_city_help_v4';
 
 export function Hud({ onExit }: { onExit: () => void }) {
   const hud = useSyncExternalStore(hudStore.subscribe, hudStore.get);
@@ -97,7 +98,18 @@ export function Hud({ onExit }: { onExit: () => void }) {
 
       {hud.mode === 'car' && !phoneOut ? <RadioPill touch={touch} /> : null}
 
+      {/* Open mic and video shoot, on foot. */}
+      {hud.mode === 'foot' && !phoneOut && !hud.talk && !hud.gig && !hud.shooting ? (
+        <div className={`absolute ${touch ? 'left-3 bottom-48' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
+          {hud.nearStage ? (
+            <button onClick={() => hudStore.set({ gig: true })} className="pointer-events-auto h-10 px-4 rounded-full bg-re text-white text-[13px] font-bold shadow-lg">🎤 Open mic{touch ? '' : ' · G'}</button>
+          ) : null}
+          <button onClick={() => hudStore.set({ shooting: true })} className="pointer-events-auto h-9 px-3.5 rounded-full bg-black/55 backdrop-blur border border-white/10 text-[13px] font-semibold">🎬 Shoot a clip{touch ? '' : ' · V'}</button>
+        </div>
+      ) : null}
+
       <TalkCard />
+      <StageOverlays />
 
       {help ? (
         <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-auto bg-black/40" onClick={closeHelp}>
@@ -121,6 +133,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
                 <li><b className="text-ink">Drag the mouse</b> — look around</li>
                 <li><b className="text-ink">P</b> — your phone: chats, mail, socials, streams</li>
                 <li><b className="text-ink">E</b> near someone — talk to them · <b className="text-ink">R</b> — next song on the car radio</li>
+                <li><b className="text-ink">V</b> — shoot a clip · <b className="text-ink">G</b> — open mic at The Stage (evenings)</li>
               </ul>
             )}
             <p className="text-[12px] text-ink3 mb-4">Glowing rings mark doors. Studio 9 opens your studio, The Stage your shows, First Capital your money, Mama's Kitchen feeds you. The people on the street are the producers, DJs and artists of your world.</p>

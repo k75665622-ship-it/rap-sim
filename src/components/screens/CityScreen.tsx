@@ -12,7 +12,7 @@ import { useGameStore } from '../../store/gameStore';
 import { CityCanvas } from '../../world/CityCanvas';
 import { Hud } from '../../world/Hud';
 import { Phone } from '../../world/Phone';
-import { phone } from '../../world/phone';
+import { phone, usePhoneOpen } from '../../world/phone';
 import { attachInput, hudStore, input } from '../../world/input';
 import type { Place } from '../../world/layout';
 import { live } from '../../world/sim';
@@ -26,6 +26,10 @@ import { cast } from '../../world/people';
 export function CityScreen({ app }: { app: ReactNode | null }) {
   const setScreen = useGameStore((s) => s.setScreen);
   const look = useGameStore((s) => s.player?.look);
+  // On a phone the phone covers the whole screen: stop drawing the city
+  // behind it to save battery.
+  const phoneOut = usePhoneOpen();
+  const coarse = window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 
   useEffect(() => attachInput(), []);
   // Leaving the city puts the phone away.
@@ -40,6 +44,10 @@ export function CityScreen({ app }: { app: ReactNode | null }) {
       if (e.code === 'Escape' && phone.isOpen()) phone.close();
       else if (e.code === 'Escape' && hudStore.get().talk) hudStore.set({ talk: null });
       if (e.code === 'KeyR' && !e.repeat && live.mode === 'car') radio.next();
+      const h = hudStore.get();
+      const free = !phone.isOpen() && !h.talk && !h.gig && !h.shooting && live.mode === 'foot';
+      if (e.code === 'KeyG' && !e.repeat && free && h.nearStage) hudStore.set({ gig: true });
+      if (e.code === 'KeyV' && !e.repeat && free) hudStore.set({ shooting: true });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -54,7 +62,7 @@ export function CityScreen({ app }: { app: ReactNode | null }) {
 
   return (
     <div className="fixed inset-0 bg-[#9cc3e6] overflow-hidden select-none" style={{ touchAction: 'none' }}>
-      <CityCanvas look={look} onEnter={onEnter} />
+      <CityCanvas look={look} onEnter={onEnter} paused={phoneOut && coarse && window.innerWidth < 640} />
       <Hud onExit={() => { phone.reset(); setScreen('dashboard'); }} />
       <Phone app={app} />
     </div>

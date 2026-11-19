@@ -50,6 +50,7 @@ import { CourtModal } from './components/moments/CourtModal';
 import { CeremonyModal } from './components/moments/CeremonyModal';
 import { AwardsScreen } from './components/screens/AwardsScreen';
 import { CourtScreen } from './components/screens/CourtScreen';
+import { CityScreen } from './components/screens/CityScreen';
 import type { Platform } from './types/game';
 
 function GameLayout({ children }: { children: React.ReactNode }) {
@@ -119,6 +120,20 @@ export default function App() {
 
   // Should never reach here without a player
   if (!player) return <SplashScreen />;
+
+  // The city is full-screen: no sidebar, its own HUD. The game's pop-ups still
+  // show over it, so a report raised by the clock is not missed while driving.
+  if (screen === 'city') {
+    return (
+      <>
+        <CityScreen />
+        <TurnReportModal />
+        <AppointmentModal />
+        <CourtModal />
+        <CeremonyModal />
+      </>
+    );
+  }
 
   function renderScreen() {
     switch (screen) {

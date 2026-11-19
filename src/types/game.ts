@@ -2294,6 +2294,7 @@ export type GameScreen =
   | 'awards'
   | 'create_artist'
   | 'dashboard'
+  | 'city'
   | 'studio'
   | 'social_chirp'
   | 'social_snapgram'

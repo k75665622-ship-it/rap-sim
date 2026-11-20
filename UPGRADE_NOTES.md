@@ -454,3 +454,11 @@ npm run dev      # play at the address it prints (usually http://localhost:5173)
 npm run build    # single-file build in dist/index.html
 npm start        # optional: the game + online accounts at http://localhost:8080 (see SETUP.md)
 ```
+
+## M1a — VOX booth upgrade
+- New look from the studio design package (`src/studio-cinematic.css`); booth is wider, record button is the hero, live waveform while recording.
+- `src/audio/calibrate.ts` + `BoothSetup.tsx`: headphone check (plays a tone, listens on the mic) and tap-along latency test saved per device (`rl_vox_cal_v1`); lag over 60 ms pulls the vocal earlier automatically.
+- Presets renamed/added: Trap, R&B, Harmonies, Hard autotune, Drill, Afrobeats, Lo-fi, Telephone (plus Clean, Radio, Melodic, Stadium).
+- Quick mode (Auto-mix, presets, two levels) vs Engineer mode (every knob), remembered per device.
+- Lyrics prompter: notepad lines scroll two bars per line while recording.
+- Each take is scored on the spot: quality, timing, presence, energy, room noise.

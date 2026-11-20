@@ -11,7 +11,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore, isSongReleased } from '../../store/gameStore';
 import { BeatPlayer, beatSpecFor, STYLE_LABEL, LEAD_LABEL, type BeatSpec } from '../../audio/beat';
-import { saveTake, loadTake, scoreTake } from '../../audio/take';
+import { saveTake, loadTake, scoreTake, type TakeScore } from '../../audio/take';
+import { calibrationNudge, setupSeen, type Calibration } from '../../audio/calibrate';
+import { BoothSetup } from './BoothSetup';
 import { stopPreview } from '../../audio/preview';
 import { DEFAULT_FX, FX_PRESETS, withPreset, suggestedPreset, playMix, renderSong, downloadBlob, createBus, prepareVocal, type Mix, type Prepared } from '../../audio/vocalfx';
 import { BarStrip } from './BarStrip';
@@ -23,7 +25,9 @@ import { cn } from '@/utils/cn';
 
 const MAX_SECONDS = 90;
 const KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-type Take = { id: number; blob: Blob; url: string; seconds: number; lead: number };
+type Take = { id: number; blob: Blob; url: string; seconds: number; lead: number; sc?: TakeScore };
+const tier = (n: number) => (n >= 80 ? 'Studio ready' : n >= 60 ? 'Solid' : n >= 40 ? 'Rough' : 'Redo');
+const MODE_KEY = 'rl_vox_mode';
 
 function pickMime(): string {
   const opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
@@ -82,13 +86,17 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const [fx, setFx] = useState<VocalFx>(() => {
     if (!fresh) return songs.find((x) => x.id === (initial ?? vault[0]?.id))?.vocalFx ?? DEFAULT_FX;
     const b = [...mine, ...house].find((x) => x.id === (initialBeat ?? mine[0]?.id ?? house[0]?.id));
-    return b ? withPreset(DEFAULT_FX, suggestedPreset(specOf(b).style)) : DEFAULT_FX;
+    const base = { ...DEFAULT_FX, nudgeMs: calibrationNudge() };
+    return b ? withPreset(base, suggestedPreset(specOf(b).style)) : base;
   });
   const [fxTouched, setFxTouched] = useState(false);
   const [hookBars, setHookBars] = useState<number[]>(() => (fresh ? [] : songs.find((x) => x.id === (initial ?? vault[0]?.id))?.hookBars ?? []));
   const [tuning, setTuning] = useState<number | null>(null);
   const [playBar, setPlayBar] = useState<number | null>(null);
   const [more, setMore] = useState(false);
+  const [engineer, setEngineer] = useState(() => { try { return localStorage.getItem(MODE_KEY) === 'engineer'; } catch { return false; } });
+  const [setup, setSetup] = useState(() => fresh && !setupSeen());
+  const pickMode = (e: boolean) => { setEngineer(e); try { localStorage.setItem(MODE_KEY, e ? 'engineer' : 'quick'); } catch { /* ignore */ } };
   const suggested = spec ? suggestedPreset(spec.style) : 'clean';
 
   const [mode, setMode] = useState<'idle' | 'preview' | 'count' | 'rec' | 'play'>('idle');
@@ -160,6 +168,17 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     mixRef.current?.setFx(next);
     beatRef.current?.setVolume(next.beat);
   }
+  /** One tap: the preset that suits the beat, then levels set from how this take actually sounds. */
+  function autoMix() {
+    const sc = takes[takes.length - 1]?.sc;
+    let next = withPreset(fx, suggested);
+    if (sc) {
+      next = { ...next, voice: sc.presence < 45 ? 1.25 : sc.presence > 90 ? 0.95 : 1.1, punch: Math.min(100, next.punch + (sc.energy < 55 ? 15 : 0)) };
+      if ((sc.clean ?? 100) < 45) next = { ...next, reverb: Math.max(0, next.reverb - 12), echo: Math.max(0, next.echo - 8), grit: Math.max(0, next.grit - 10) };
+    }
+    change(next);
+    setMsg(sc ? `✨ Auto-mixed for your take — ${FX_PRESETS.find((p) => p.id === next.preset)?.label} sound, levels set from the recording.` : '✨ Auto-mixed — picked the sound that suits this beat.');
+  }
   function startBeat(at: number, sp: BeatSpec = spec!) {
     stopPreview();
     const b = new BeatPlayer(ctx(), sp, bus(), fx.beat);
@@ -227,7 +246,12 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     rec.onstop = () => {
       const blob = new Blob(chunks, { type: rec.mimeType || mime || 'audio/webm' });
       const seconds = Math.min(MAX_SECONDS, Math.round((performance.now() - startRef.current) / 1000));
-      if (seconds >= 3) setTakes((t) => [...t, { id: Date.now(), blob, url: URL.createObjectURL(blob), seconds, lead }]);
+      if (seconds >= 3) {
+        const id = Date.now();
+        setTakes((t) => [...t, { id, blob, url: URL.createObjectURL(blob), seconds, lead }]);
+        // Listen back in the background so every take shows its score before you pick one.
+        decode(blob).then((b) => scoreTake(ctx(), b, spec.bpm)).then((sc) => setTakes((t) => t.map((x) => (x.id === id ? { ...x, sc } : x)))).catch(() => {});
+      }
       else setMsg('Too short — rap for at least a few seconds.');
     };
     recRef.current = rec;
@@ -316,6 +340,16 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const stripBars = Math.min(60, Math.ceil(Math.max(song?.boothTake?.seconds ?? 0, ...takes.map((t) => t.seconds), 8) / barOf(spec)));
   const songName = (fresh ? title.trim() || picked?.name : song?.title) || 'My song';
 
+  // Lyrics prompter: two bars to a line, scrolling with the beat.
+  const pLines = lyrics.split('\n').map((l) => l.trim()).filter(Boolean);
+  const pIdx = spec ? Math.max(0, Math.floor(elapsed / (barOf(spec) * 2))) : 0;
+  const prompter = pLines.length > 0 ? (
+    <div className="rounded-[14px] bg-black/50 border border-white/10 px-4 py-3 text-left space-y-1 overflow-hidden" aria-live="off">
+      {[-1, 0, 1, 2].map((d) => { const l = pLines[pIdx + d]; return l ? <div key={pIdx + d} className={cn('transition-all duration-300 leading-snug', d === 0 ? 'text-[20px] font-bold text-ink' : d < 0 ? 'text-[12px] text-ink3/60' : 'text-[14px] text-ink2')}>{l}</div> : null; })}
+      {pIdx >= pLines.length && <div className="text-[12px] text-ink3">— out of lines, freestyle it —</div>}
+    </div>
+  ) : null;
+
   const beatCard = (b: OwnedBeat, free: boolean) => {
     const sp = specOf(b);
     const on = b.id === beatKey;
@@ -334,7 +368,14 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
 
   const soundPanel = (
     <div className="rounded-[14px] border border-line bg-black/30 p-3 space-y-3">
-      <div className="flex items-center justify-between"><div className="text-[12px] font-semibold text-ink">🎛️ Sound</div><span className="text-[10px] text-ink3">changes live while it plays</span></div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[12px] font-semibold text-ink">🎛️ Sound</div>
+        <div className="flex rounded-full border border-line p-0.5 text-[11px]" role="group" aria-label="Mix mode">
+          <button onClick={() => pickMode(false)} aria-pressed={!engineer} className={cn('px-3 h-6 rounded-full', !engineer ? 'bg-amber text-black font-semibold' : 'text-ink2')}>Quick</button>
+          <button onClick={() => pickMode(true)} aria-pressed={engineer} className={cn('px-3 h-6 rounded-full', engineer ? 'bg-amber text-black font-semibold' : 'text-ink2')}>Engineer</button>
+        </div>
+      </div>
+      {!engineer && <button onClick={autoMix} className="w-full h-10 rounded-[12px] bg-amber text-black font-bold text-[13px]">✨ Auto-mix — one tap, sounds decent</button>}
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
         {FX_PRESETS.map((p) => (
           <button key={p.id} onClick={() => change(withPreset(fx, p.id))} title={p.blurb} className={cn('shrink-0 h-8 px-2.5 rounded-full border text-[11px] whitespace-nowrap', fx.preset === p.id ? 'border-amber bg-amber text-black font-semibold' : 'border-line text-ink2 hover:text-ink')}>
@@ -347,24 +388,24 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
         <Knob label="🎤 Voice" value={fx.voice} min={0} max={1.5} step={0.05} show={`${Math.round(fx.voice * 100)}%`} onChange={(v) => change({ ...fx, voice: v })} />
         <Knob label="🥁 Beat" value={fx.beat} min={0} max={1.3} step={0.05} show={`${Math.round(fx.beat * 100)}%`} onChange={(v) => change({ ...fx, beat: v })} />
       </div>
-      <div className="rounded-[12px] border border-line/70 p-2.5 space-y-2">
+      {engineer && <div className="rounded-[12px] border border-line/70 p-2.5 space-y-2">
         <div className="flex items-center justify-between text-[11px]"><span className="font-semibold text-ink">🎶 Auto-tune</span><span className="text-ink3">{spec ? `in ${keyOf(spec)} — the beat's key` : ''}</span></div>
         <div className="grid grid-cols-2 gap-x-4">
           <Knob label="Amount" value={fx.tune ?? 0} min={0} max={100} show={(fx.tune ?? 0) === 0 ? 'off' : `${Math.round(fx.tune ?? 0)}`} onChange={(v) => change({ ...fx, tune: v, preset: 'custom' })} />
           <Knob label="Snap" value={fx.tuneSpeed ?? 50} min={0} max={100} show={(fx.tuneSpeed ?? 50) >= 85 ? 'robotic' : (fx.tuneSpeed ?? 50) >= 45 ? 'quick' : 'natural'} onChange={(v) => change({ ...fx, tuneSpeed: v, preset: 'custom' })} />
         </div>
-      </div>
-      <div className="rounded-[12px] border border-line/70 p-2.5 space-y-2">
+      </div>}
+      {engineer && <div className="rounded-[12px] border border-line/70 p-2.5 space-y-2">
         <div className="flex items-center justify-between text-[11px]"><span className="font-semibold text-ink">📣 Hook</span><span className="text-ink3">{hookBars.length ? `${hookBars.length} bar${hookBars.length > 1 ? 's' : ''} marked` : 'tap the bars where your hook is'}</span></div>
         <BarStrip bars={stripBars} hook={hookBars} now={playBar} onToggle={(b) => setHookBars((h) => (h.includes(b) ? h.filter((x) => x !== b) : [...h, b].sort((x, y) => x - y)))} />
         <div className="grid grid-cols-2 gap-x-4">
           <Knob label="Hook lift" value={fx.hook ?? 0} min={0} max={100} show={(fx.hook ?? 0) === 0 ? 'off' : `${Math.round(fx.hook ?? 0)}`} onChange={(v) => change({ ...fx, hook: v, preset: 'custom' })} />
           <Knob label="Harmony" value={fx.harmony ?? 0} min={0} max={100} show={(fx.harmony ?? 0) === 0 ? 'off' : `${Math.round(fx.harmony ?? 0)}`} onChange={(v) => change({ ...fx, harmony: v, preset: 'custom' })} />
         </div>
-      </div>
+      </div>}
       {tuning !== null && <div className="text-[11px] text-amber">🎶 Tuning the vocal… {Math.round(tuning * 100)}%</div>}
       <div className="text-[10px] text-ink3 -mt-1">Auto-tune, hook bars and timing apply the next time you press play.</div>
-      {more && (
+      {engineer && more && (
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <Knob label="Reverb (room)" value={fx.reverb} min={0} max={100} onChange={(v) => change({ ...fx, reverb: v, preset: 'custom' })} />
@@ -384,20 +425,24 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
         </div>
       )}
       <div className="flex items-center justify-between">
-        <button onClick={() => setMore((v) => !v)} className="text-[11px] text-ink3 hover:text-ink2">{more ? '▴ Fewer controls' : '▾ Reverb, echo, tone, punch, grit, double, timing'}</button>
+        {engineer ? <button onClick={() => setMore((v) => !v)} className="text-[11px] text-ink3 hover:text-ink2">{more ? '▴ Fewer controls' : '▾ Reverb, echo, tone, punch, grit, double, timing'}</button> : <span className="text-[10px] text-ink3">Switch to Engineer for every knob</span>}
         {!fresh && song && <button onClick={() => { saveHook(song.id, hookBars); setMsg(saveFx(song.id, fx).message); }} className="h-7 px-3 rounded-full border border-line text-[11px] text-ink2 hover:text-ink">💾 Save sound</button>}
       </div>
     </div>
   );
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center" role="dialog" aria-modal="true">
+    <div className="studio-cinematic fixed inset-0 z-[80] flex items-end sm:items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/80" onClick={close} />
-      <div className={cn('relative w-full max-h-[94vh] overflow-y-auto rounded-t-[24px] sm:rounded-[24px] border border-line p-5 space-y-4', fresh ? 'sm:max-w-[580px]' : 'sm:max-w-[500px]')} style={{ background: 'radial-gradient(120% 80% at 50% 0%, rgba(255,72,72,0.22), rgba(10,11,16,0) 60%), #0c0d12' }}>
+      <div className={cn('studio-booth-panel relative w-full max-h-[94vh] overflow-y-auto rounded-t-[24px] sm:rounded-[24px] border border-line p-5 space-y-4', fresh ? 'sm:max-w-[920px]' : 'sm:max-w-[860px]')} style={{ background: 'radial-gradient(120% 80% at 50% 0%, rgba(255,72,72,0.22), rgba(10,11,16,0) 60%), #0c0d12' }}>
         <div className="flex items-center justify-between">
           <div><div className="text-[18px] font-bold text-ink">🎙️ {fresh ? 'New song' : 'Recording booth'}</div><div className="text-[11px] text-ink3">{fresh ? 'Pick a beat, hit record, keep your best take. Writing is optional.' : 'Rap over the beat for real — up to 1:30.'}</div></div>
-          <button onClick={close} className="w-9 h-9 rounded-full border border-line text-ink2" aria-label="Close">✕</button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSetup((v) => !v)} className="h-9 px-3 rounded-full border border-line text-ink2 text-[11px]" aria-label="Headphones and timing setup">🎧 Setup</button>
+            <button onClick={close} className="w-9 h-9 rounded-full border border-line text-ink2" aria-label="Close">✕</button>
+          </div>
         </div>
+        {setup && <BoothSetup getCtx={ctx} onChange={(c: Calibration | null) => { const n = c && c.ms >= 60 ? -Math.min(300, Math.round(c.ms / 10) * 10) : 0; change({ ...fx, nudgeMs: n }, false); }} onClose={() => setSetup(false)} />}
 
         {fresh ? (
           made ? (
@@ -446,25 +491,38 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
                 <button onClick={() => preview()} disabled={live} className="h-9 px-3 rounded-full border border-amber/60 text-amber text-[12px] font-semibold disabled:opacity-40">{previewing === 'current' ? '■ Stop' : '▶ Beat'}</button>
               </div>
             )}
-            <div className="rounded-[18px] border border-line bg-black/40 p-4 text-center space-y-3">
+            <div className="studio-window rounded-[18px] border border-line bg-black/40 p-4 text-center space-y-3">
               {fresh && <div className="text-[11px] font-semibold text-ink3 uppercase tracking-wider text-left">2 · Record {picked ? <span className="normal-case font-normal">— on <span className="text-amber">{picked.name}</span> · {STYLE_LABEL[spec.style]} · {spec.bpm} bpm · 🎧 headphones</span> : null}</div>}
               <div className="text-[38px] font-black text-ink num">{mode === 'rec' ? `${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, '0')}` : mode === 'count' ? '…' : '0:00'}<span className="text-[13px] text-ink3 font-normal"> / 1:30</span></div>
-              <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className={cn('h-full rounded-full transition-[width] duration-75', level > 0.85 ? 'bg-fall' : 'bg-rise')} style={{ width: `${Math.round(level * 100)}%` }} /></div>
+              <div className="studio-level"><span style={{ width: `${Math.round(level * 100)}%`, transition: 'width 75ms' }} /></div>
+              {live && <div className="studio-wave text-fall" aria-hidden>{Array.from({ length: 28 }, (_, i) => <i key={i} style={{ height: `${10 + Math.round(level * 44 * (0.35 + 0.65 * Math.abs(Math.sin(i * 1.7))))}px`, animationDuration: `${700 + (i % 5) * 90}ms` }} />)}</div>}
+              {mode === 'rec' && prompter}
               {mode === 'count' && <div className="text-[13px] text-amber font-semibold">Find the pocket… you're on after this bar</div>}
               {live
-                ? <button onClick={stop} className="mx-auto flex items-center justify-center w-20 h-20 rounded-full bg-fall text-white font-bold text-[13px] shadow-[0_0_0_6px_rgba(255,72,72,0.25)] animate-pulse">■ Stop</button>
-                : <button onClick={record} aria-label="Record a take" className="mx-auto flex flex-col items-center justify-center w-20 h-20 rounded-full bg-fall text-white font-bold disabled:opacity-40 shadow-[0_0_0_6px_rgba(255,72,72,0.18)] hover:scale-105 transition"><span className="text-[22px] leading-none">●</span><span className="text-[11px] mt-1">REC</span></button>}
+                ? <button onClick={stop} className="studio-record-button mx-auto text-white font-bold text-[13px]">■ Stop</button>
+                : <button onClick={record} aria-label="Record a take" className="studio-record-button mx-auto flex-col text-white font-bold disabled:opacity-40"><span className="text-[22px] leading-none">●</span><span className="text-[11px] mt-1">REC</span></button>}
               <div className="text-[11px] text-ink3">{live ? 'Recording…' : `Take ${Math.min(3, takes.length + 1)} of 3`}</div>
             </div>
             {takes.length > 0 && (
               <div className="space-y-2">
                 {takes.map((t, i) => (
-                  <div key={t.id} className="flex items-center gap-1.5 rounded-[12px] border border-line px-3 py-2">
+                  <div key={t.id} className="rounded-[12px] border border-line px-3 py-2 space-y-1.5">
+                   <div className="flex items-center gap-1.5">
                     <span className="text-[12px] text-ink font-semibold">Take {i + 1}</span><span className="text-[11px] text-ink3">{t.seconds}s</span>
                     <button onClick={() => play(String(t.id), t.blob, t.lead)} disabled={live} className={cn('ml-auto h-8 px-3 rounded-full border text-[12px] disabled:opacity-40', playingId === String(t.id) ? 'border-amber bg-amber text-black' : 'border-line text-ink2')}>{playingId === String(t.id) ? '■ Stop' : '▶ Play'}</button>
                     <button onClick={() => download(String(t.id), t.blob, t.lead, `${songName} (take ${i + 1})`)} disabled={live || !!rendering} title="Download this take with the beat" aria-label="Download take" className="h-8 w-8 rounded-full border border-line text-ink2 text-[12px] disabled:opacity-40">{rendering === String(t.id) ? '…' : '⬇'}</button>
                     <button onClick={() => useTake(t)} disabled={live} className="h-8 px-3 rounded-full bg-amber text-black text-[12px] font-bold disabled:opacity-40">{fresh ? '✓ Make it a song' : 'Use it'}</button>
                     <button onClick={() => { if (playingId === String(t.id)) stop(); URL.revokeObjectURL(t.url); setTakes((x) => x.filter((y) => y.id !== t.id)); }} disabled={live} className="h-8 w-8 rounded-full border border-line text-ink3 text-[12px]" aria-label="Delete take">✕</button>
+                   </div>
+                   <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-ink3">
+                    {t.sc ? (<>
+                      <span className={cn('studio-chip rounded-full px-2 py-0.5 font-bold', t.sc.score >= 60 ? 'text-rise' : t.sc.score >= 40 ? 'text-amber' : 'text-fall')}>Quality {t.sc.score} · {tier(t.sc.score)}</span>
+                      <span className="studio-chip rounded-full px-2 py-0.5">Timing {t.sc.timing}</span>
+                      <span className="studio-chip rounded-full px-2 py-0.5">Presence {t.sc.presence}</span>
+                      <span className="studio-chip rounded-full px-2 py-0.5">Energy {t.sc.energy}</span>
+                      {t.sc.clean !== undefined && <span className="studio-chip rounded-full px-2 py-0.5">Room {t.sc.clean >= 60 ? 'quiet' : t.sc.clean >= 35 ? 'some noise' : 'noisy'}</span>}
+                    </>) : <span>Listening back…</span>}
+                   </div>
                   </div>
                 ))}
               </div>

@@ -218,6 +218,8 @@ export interface Song {
   /** What the current layout added (so changing it replaces, never stacks). */
   arrangementBonus?: { q: number; c: number };
   /** A take you recorded for real in the booth, and how it scored. */
+  /** Finished by hand on the STUDIO PRO desk: how good the mix measured, and what it did to the record's quality. */
+  proMix?: { grade: number; delta: number; loudness: number; peak: number };
   boothTake?: { score: number; timing: number; at: number; seconds: number; lead?: number; align?: number };
   /** How the recorded vocal is processed: levels, effects, timing. */
   vocalFx?: VocalFx;
@@ -276,6 +278,8 @@ export interface VocalFx {
   deess?: number;
   /** Noise cleanup: cuts rumble and hiss around the voice (0 = off). */
   denoise?: number;
+  /** STUDIO PRO channel strip: three-band EQ in dB (-12..12) and pan (-1..1). */
+  eqLow?: number; eqMid?: number; eqHigh?: number; pan?: number;
 }
 
 /** What you can ask the person mixing your record to change. */

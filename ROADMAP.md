@@ -93,6 +93,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - Built so a **real player** can later take the same job and use the same tools (M3).
 
 ## M3 — STUDIO PRO: the mixing desk
+**Status: M3a done** — vocal and beat strips (level, pan, 3-band EQ, compressor, saturation, de-esser, noise cleanup, pitch correction), reverb/delay sends, mastering, A/B compare, a real loudness/peak measurement and a mix grade; printing sets the record's sound and lifts or hurts its quality. **Still to do (M3b):** true multitrack (separate ad-lib/harmony/double tracks, instead of folded into one vocal), automation (volume rides, delay throws), project files you can send to another player, per-track beat stems.
 - A multitrack session: beat stems, lead vocal, doubles, ad-libs, harmonies.
 - **Each track** has volume, pan, EQ, compressor, de-esser, saturation and send effects (reverb, delay).
 - Automation basics (volume rides, a delay throw on the last word), a loudness meter, a mastering chain, A/B comparison.

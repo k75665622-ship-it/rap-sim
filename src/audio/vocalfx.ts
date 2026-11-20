@@ -110,7 +110,7 @@ export class VocalChain {
   private fx: VocalFx;
   private plan: { at: number; bar: number; ranges: Ranges } | null = null;
   private lofiDry: GainNode; private lofiWet: GainNode;
-  private rumble: BiquadFilterNode; private ess: BiquadFilterNode; private hiss: BiquadFilterNode;
+  private pan: StereoPannerNode; private rumble: BiquadFilterNode; private ess: BiquadFilterNode; private hiss: BiquadFilterNode;
   private low: BiquadFilterNode; private high: BiquadFilterNode; private pres: BiquadFilterNode;
   private shaper: WaveShaperNode; private comp: DynamicsCompressorNode; private makeup: GainNode;
   private level: GainNode; private verb: GainNode; private echo: GainNode; private delay: DelayNode; private fb: GainNode; private dbl: GainNode;
@@ -137,7 +137,8 @@ export class VocalChain {
     this.comp = ctx.createDynamicsCompressor(); this.comp.attack.value = 0.004; this.comp.release.value = 0.12; this.comp.knee.value = 6;
     this.makeup = g();
     this.level = g();
-    sum.connect(rumble).connect(this.ess).connect(this.hiss).connect(this.low).connect(this.high).connect(this.pres).connect(this.shaper).connect(this.comp).connect(this.makeup).connect(this.level).connect(dest);
+    this.pan = ctx.createStereoPanner();
+    sum.connect(rumble).connect(this.ess).connect(this.hiss).connect(this.low).connect(this.high).connect(this.pres).connect(this.shaper).connect(this.comp).connect(this.makeup).connect(this.level).connect(this.pan).connect(dest);
     // The room.
     const conv = ctx.createConvolver(); conv.buffer = impulse(ctx, 2.6, 2.4);
     this.verb = g(0);
@@ -195,7 +196,7 @@ export class VocalChain {
     const ds = (fx.deess ?? 0) / 100, dn = (fx.denoise ?? 0) / 100;
     set(this.ess.gain, -ds * 11); set(this.hiss.gain, -dn * 9); set(this.rumble.frequency, 90 + dn * 70);
     set(this.lofiWet.gain, fx.lofi ? 1 : 0); set(this.lofiDry.gain, fx.lofi ? 0 : 1);
-    set(this.low.gain, -fx.tone * 0.16); set(this.high.gain, fx.tone * 0.2); set(this.pres.gain, Math.max(0, fx.tone) * 0.06);
+    set(this.low.gain, -fx.tone * 0.16 + (fx.eqLow ?? 0)); set(this.high.gain, fx.tone * 0.2 + (fx.eqHigh ?? 0)); set(this.pres.gain, Math.max(0, fx.tone) * 0.06 + (fx.eqMid ?? 0)); set(this.pan.pan, fx.pan ?? 0);
     if (fx.grit !== this.grit) { this.shaper.curve = gritCurve(fx.grit); this.grit = fx.grit; }
     set(this.comp.threshold, -8 - fx.punch * 0.26); set(this.comp.ratio, 1.5 + fx.punch * 0.065); set(this.makeup.gain, 1 + fx.punch * 0.012);
     const verb = (fx.reverb / 100) * 0.55;
@@ -258,6 +259,11 @@ export function playMix(ctx: AudioContext, spec: BeatSpec, v: Prepared, fx: Voca
 
 /** Render the finished song — beat, vocal, every effect and the master — to a WAV file. */
 export async function renderSong(spec: BeatSpec, v: Prepared, fx: VocalFx, lead: number, hookBars: number[] | undefined): Promise<Blob> {
+  return wav(await renderSongBuffer(spec, v, fx, lead, hookBars));
+}
+
+/** The finished mix as audio, for metering and for the WAV. */
+export async function renderSongBuffer(spec: BeatSpec, v: Prepared, fx: VocalFx, lead: number, hookBars: number[] | undefined): Promise<AudioBuffer> {
   const sr = 44100;
   const vs = Math.max(0, lead + fx.nudgeMs / 1000);
   const bar = (60 / spec.bpm) * 4;
@@ -271,8 +277,7 @@ export async function renderSong(spec: BeatSpec, v: Prepared, fx: VocalFx, lead:
   startVoice(src, 0.05, lead, fx, v.main);
   for (const l of v.layers ?? []) { const s = oc.createBufferSource(); s.buffer = l.buf; const g = oc.createGain(); g.gain.value = l.gain; s.connect(g).connect(chain.input); startVoice(s, 0.05, lead, fx, l.buf); }
   if (v.harmony) { const hs = oc.createBufferSource(); hs.buffer = v.harmony; hs.connect(chain.harmonyIn); startVoice(hs, 0.05, lead, fx, v.harmony); }
-  const out = await oc.startRendering();
-  return wav(out);
+  return oc.startRendering();
 }
 
 export function wav(b: AudioBuffer): Blob {

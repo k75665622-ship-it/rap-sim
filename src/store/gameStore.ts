@@ -3403,6 +3403,8 @@ interface GameActions {
   setHookBars: (songId: string, bars: number[]) => FeatureActionResult;
   /** Sign off on the mix that came back. */
   approveMix: (songId: string) => FeatureActionResult;
+  /** Print a mix you made yourself on the STUDIO PRO desk. How well it measured decides what it does for the record. */
+  finishProMix: (songId: string, fx: VocalFx, report: { grade: number; loudness: number; peak: number }) => FeatureActionResult;
   /** Keep your own rough mix instead. */
   keepRoughMix: (songId: string) => FeatureActionResult;
   /** Send notes on the mix. */
@@ -16780,6 +16782,26 @@ export const useGameStore = create<GameState & GameActions>()(
           pushDM(state, m.npcId, { fromPlayer: false, content: pick3(['Let\'s gooo 🔥 Glad you love it.', 'Appreciate you. That one\'s going to knock 🙏🏾', 'Love to hear it. Send the next one 🎚️'], song.id) });
         }
         result = { ok: true, message: `Mix approved. ${fit >= 75 ? 'It sits exactly right for the record.' : fit >= 55 ? 'It works for the record.' : 'Some of it fights the record — people may hear that.'}` };
+      });
+      return result;
+    },
+
+    finishProMix: (songId, fx, report) => {
+      let result: FeatureActionResult = { ok: false, message: 'That record is not on your desk.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId);
+        if (!song || !state.player || song.archivedAt) return;
+        if (song.masterStatus !== 'recorded' && !song.proMix) { result = { ok: false, message: 'Only a rough record can be mixed here.' }; return; }
+        if (!song.proMix && !spendEnergy(state, ENERGY_COSTS.mixMaster)) { result = { ok: false, message: 'Too tired to sit at the desk — rest first.' }; return; }
+        // A great hand-made mix lifts the record; a sloppy one hurts it. Re-printing swaps the old effect for the new one.
+        const delta = Math.max(-3, Math.min(3.5, Math.round((report.grade - 55) * 7) / 100));
+        const before = song.proMix?.delta ?? 0;
+        song.quality = Math.max(1, Math.min(99, Math.round((song.quality - before + delta) * 10) / 10));
+        song.proMix = { grade: report.grade, delta, loudness: report.loudness, peak: report.peak };
+        song.vocalFx = { ...fx, preset: 'custom' };
+        song.masterStatus = 'mastered';
+        state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (report.grade >= 70 ? 0.6 : 0.2));
+        result = { ok: true, message: report.grade >= 80 ? `Printed. That mix is radio-ready — "${song.title}" got a real lift.` : report.grade >= 60 ? `Printed. A solid mix — "${song.title}" is ready to release.` : `Printed — but the mix is rough, and it shows. A pro engineer would do better.` };
       });
       return result;
     },

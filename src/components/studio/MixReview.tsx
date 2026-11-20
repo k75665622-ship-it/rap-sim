@@ -10,7 +10,7 @@ import { beatSpecFor } from '../../audio/beat';
 import { loadTake } from '../../audio/take';
 import { stopPreview } from '../../audio/preview';
 import { DEFAULT_FX, playMix, prepareVocal, renderSong, downloadBlob, type Mix } from '../../audio/vocalfx';
-import { ASK_LABEL, revisionFee } from '../../sim/engineerMix';
+import { ASK_LABEL, revisionFee, engineerTier, specialtyOf, STYLE_NAME } from '../../sim/engineerMix';
 import { producerFee } from '../../sim/studio';
 import type { MixAsk, VocalFx } from '../../types/game';
 import { BarStrip } from './BarStrip';
@@ -105,7 +105,7 @@ export function MixReview({ songId, onClose }: { songId: string; onClose: () => 
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-[18px] font-bold text-ink">🎚️ {first}'s mix of “{song.title}”</div>
-            <div className="text-[11px] text-ink3">{m.role === 'engineer' ? 'Engineer' : 'Producer'} · skill {m.skill} — {skillWord(m.skill)} · version {m.round}</div>
+            <div className="text-[11px] text-ink3">{m.role === 'engineer' ? 'Engineer' : 'Producer'} · {engineerTier(m.skill).emoji} {engineerTier(m.skill).name} · skill {m.skill} — {skillWord(m.skill)} · knows {STYLE_NAME[specialtyOf(m.npcId)]} · version {m.round}</div>
           </div>
           <button onClick={close} className="w-9 h-9 rounded-full border border-line text-ink2 shrink-0" aria-label="Close">✕</button>
         </div>

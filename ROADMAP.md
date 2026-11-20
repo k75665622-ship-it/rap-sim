@@ -85,6 +85,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - Export or share the song (feeds Stage 13 clips).
 
 ## M2 — Expert AI engineers and producers, and the "send it to a pro" workflow
+**Status: M2 done** — the send-to-mix flow already existed; M2 added named tiers (Student/Local/Pro/Legend) with price, days and rounds included shown up front, a specialty style per engineer, late deliveries for cheaper ones, honest feedback when your take is the problem, and de-esser/noise cleanup in their mixes. Still open for later: disputes/refunds, booked-up waiting lists for Legends, and the beat-making side for producers (M4).
 - Hire an AI engineer or producer by tier: Student → Local → Pro → Legend. Each has a price, waiting time, a style, and a revision limit.
 - **They really process your audio:** a mixing chain that runs on the device, tuned by their skill. Better engineers use more precise pitch correction, de-essing, automation, wider stereo and louder masters.
 - The mix comes back with written notes and a before/after comparison. You can request revisions.

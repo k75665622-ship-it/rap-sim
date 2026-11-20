@@ -38,6 +38,21 @@ const clamp = (k: Num, v: number) => Math.max(LIMIT[k][0], Math.min(LIMIT[k][1],
 const round = (k: Num, v: number) => (k === 'voice' || k === 'beat' ? Math.round(v * 100) / 100 : Math.round(v));
 function rng(seed: string) { let a = hashString(seed) || 1; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
+/** Who they are in the business: Student → Local → Pro → Legend. Better means pricier, booked longer, and more rounds of notes included. */
+export function engineerTier(skill: number): { name: 'Student' | 'Local' | 'Pro' | 'Legend'; emoji: string; freeRounds: number } {
+  return skill >= 82 ? { name: 'Legend', emoji: '👑', freeRounds: 4 } : skill >= 60 ? { name: 'Pro', emoji: '🏆', freeRounds: 3 } : skill >= 35 ? { name: 'Local', emoji: '🎧', freeRounds: 2 } : { name: 'Student', emoji: '🎓', freeRounds: 1 };
+}
+const SPECIALTIES = ['trap', 'drill', 'boom', 'afro', 'amapiano', 'dembow', 'rnb'] as const;
+export const STYLE_NAME: Record<string, string> = { trap: 'Trap', drill: 'Drill', boom: 'Boom bap', afro: 'Afrobeats', amapiano: 'Amapiano', dembow: 'Dembow', rnb: 'R&B' };
+/** The sound each engineer is known for — the same one every time you meet them. */
+export function specialtyOf(id: string): string { return SPECIALTIES[hashString(`${id}|specialty`) % SPECIALTIES.length]; }
+/** Cheaper, newer engineers sometimes run late. Legends are booked up, not late. */
+export function lateDays(skill: number, seed: string): number {
+  const r = rng(`${seed}|late`)();
+  const p = skill < 35 ? 0.3 : skill < 60 ? 0.15 : skill < 82 ? 0.05 : 0;
+  return r < p ? 1 + Math.floor(rng(`${seed}|late2`)() * 2) : 0;
+}
+
 export function idealFor(style: string): Ideal { return { ...BASE, ...(IDEAL[style] ?? {}) }; }
 
 /** How well a mix fits what the song needs, 0-100. */
@@ -52,12 +67,16 @@ export function mixFit(fx: VocalFx, style: string): number {
 
 export interface MixIn {
   style: string; skill: number; rough: VocalFx; align?: number; hookBars?: number[]; keyName: string; seed: string;
+  /** The style they're known for, and how the take they were handed actually scored. */
+  specialty?: string; takeScore?: number;
 }
 
 /** The first mix: what they hand back, and what they say about it. */
 export function engineerMix(i: MixIn): { fx: VocalFx; notes: string[] } {
   const r = rng(i.seed);
-  const a = Math.max(0, Math.min(1, i.skill / 100));
+  // Working in their own style, they hear it faster.
+  const home = !!i.specialty && i.specialty === i.style;
+  const a = Math.max(0, Math.min(1, (i.skill + (home ? 8 : 0)) / 100));
   const id = idealFor(i.style);
   const art = i.rough.lofi || ['phone', 'lofi'].includes(i.rough.preset);
   // A good engineer moves it toward what works without erasing who you are.
@@ -76,12 +95,18 @@ export function engineerMix(i: MixIn): { fx: VocalFx; notes: string[] } {
     harmony: hooked && i.skill >= 50 && id.harmony > 0 ? round('harmony', clamp('harmony', id.harmony * (0.5 + a * 0.5))) : 0,
     polish: Math.round(Math.max(5, Math.min(100, i.skill * 0.95 + (r() - 0.5) * 10))),
     nudgeMs: i.rough.nudgeMs,
+    // The new cleanup tools: a beginner forgets the de-esser; a pro always reaches for both.
+    deess: a < 0.25 && r() < 0.4 ? 0 : Math.round(20 + a * 45),
+    denoise: Math.round(15 + a * 55),
   };
   // A beginner sometimes cranks the tune because it's the sound.
   if (a < 0.5 && r() < (1 - a) * 0.3) fx.tune = Math.min(100, (fx.tune ?? 0) + 30);
   // Lining the vocal up is the first thing a pro does; a beginner may not.
   if (i.align !== undefined && a >= 0.3) fx.nudgeMs = Math.round(i.rough.nudgeMs + i.align * (0.6 + a * 0.4) + (r() - 0.5) * (1 - a) * 50);
-  return { fx, notes: describe(i.rough, fx, i, a) };
+  const notes = describe(i.rough, fx, i, a);
+  if (home) notes.unshift('This is my kind of record — I know exactly where it wants to sit.');
+  if (i.takeScore !== undefined && i.takeScore < 40) notes.unshift(a >= 0.45 ? 'Straight with you: the take is the weak link. No mix fixes timing this loose — re-record it and send it again.' : 'The take sounded a bit rough, did what I could.');
+  return { fx, notes: notes.slice(0, 7) };
 }
 
 function describe(rough: VocalFx, fx: VocalFx, i: MixIn, a: number): string[] {
@@ -99,6 +124,7 @@ function describe(rough: VocalFx, fx: VocalFx, i: MixIn, a: number): string[] {
   if (fx.echo - rough.echo >= 12) n.push(`Put a ${fx.echoTime} echo on it that bounces with the beat.`);
   if (fx.reverb - rough.reverb >= 12) n.push('Gave it a bigger room.');
   else if (rough.reverb - fx.reverb >= 12) n.push('Dried it up — it was swimming.');
+  if (a >= 0.5) n.push('De-essed the sharp S sounds and cleaned the noise floor.');
   n.push(a >= 0.7 ? 'Mastered it loud and clean. It\'ll hold up next to anything on the radio.' : a >= 0.45 ? 'Mastered it — louder and clearer now.' : 'Gave it a quick master.');
   return n.slice(0, 6);
 }

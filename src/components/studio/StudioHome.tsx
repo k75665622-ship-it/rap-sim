@@ -128,6 +128,7 @@ export function StudioHome({ go, onRecord }: { go: (to: Go) => void; onUseBeat?:
           })}
         </div>
       </section>
+      <p className="text-[10px] text-ink3 leading-snug">Sounds: drum and instrument samples from Freesound.org contributors (CC0), including deadrobotmusic, tboneaudio, TheEndOfACycle, HenKonen, OwlStorm, deLargeBC, James_KuKu, Cloud-10, modularsamples and juancamiloorjuela. Pad: "Pad 002 – Lofi Structure" by Jovica, licensed CC BY 4.0.</p>
     </div>
   );
 }

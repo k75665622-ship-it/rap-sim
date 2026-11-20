@@ -377,7 +377,7 @@ import {
   emptyBeats, storeCatalogue, dropInterval, teamBeat, orderQuote, customBeatQuality, takesOrder, beatName, beatGrade, LEASE_PENALTY, houseBeats,
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
-import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL } from '../sim/engineerMix';
+import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL, engineerTier, specialtyOf, lateDays } from '../sim/engineerMix';
 import { beatSpecFor } from '../audio/beat';
 import {
   MAX_ENERGY,
@@ -2252,10 +2252,10 @@ function mixContext(state: GameState, song: Song) {
 function deliverEngineerMix(state: GameState, song: Song, w: MixWork): boolean {
   const skill = Math.round(w.skill ?? 50);
   const cx = mixContext(state, song);
-  const m = engineerMix({ ...cx, skill, seed: `${song.id}|${w.producerId}` });
+  const m = engineerMix({ ...cx, skill, seed: `${song.id}|${w.producerId}`, specialty: specialtyOf(w.producerId), takeScore: song.boothTake?.score });
   song.engineerMix = {
     npcId: w.producerId, by: w.producerName, role: w.role ?? 'producer', skill, fx: m.fx, notes: m.notes, rough: { ...cx.rough },
-    round: 1, freeRounds: skill >= 70 ? 3 : 2, status: 'review', history: [],
+    round: 1, freeRounds: engineerTier(skill).freeRounds, status: 'review', history: [],
   } satisfies EngineerMix;
   if (state.npcs.some((n) => n.id === w.producerId)) {
     pushDM(state, w.producerId, { fromPlayer: false, content: `Here's the mix of "${song.title}" 🎚️\n• ${m.notes.join('\n• ')}\nListen and tell me what you think — notes are part of the job.`, attachedSongId: song.id, attachedTitle: song.title });
@@ -10934,7 +10934,8 @@ export const useGameStore = create<GameState & GameActions>()(
           ? undefined
           : Math.max(1, Math.min(100, Math.round(song.criticalPotential * ratio)));
 
-        const daysTotal = craft.days;
+        const late = deal ? 0 : lateDays(skill, `${song.id}|${producer.id}`);
+        const daysTotal = craft.days + late;
         const startSerial = dateToSerial(state.gameDate);
 
         const gain = productionAfter - productionBefore;
@@ -10973,7 +10974,7 @@ export const useGameStore = create<GameState & GameActions>()(
         });
 
         state.lastEventLog.unshift(
-          `🎚️ ${producer.name} took "${song.title}" away to mix — ${daysTotal} days, $${cost.toLocaleString()}.`,
+          `🎚️ ${producer.name} took "${song.title}" away to mix — ${daysTotal} days, $${cost.toLocaleString()}.${late ? ` (They warned it'll run ${late} day${late > 1 ? 's' : ''} late.)` : ''}`,
         );
         state.lastEventLog = state.lastEventLog.slice(0, 10);
 

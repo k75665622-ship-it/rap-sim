@@ -11,7 +11,7 @@ import type { VocalFx } from '../types/game';
 import { BeatPlayer, type BeatSpec } from './beat';
 import { tuneBuffer } from './autotune';
 
-export const DEFAULT_FX: VocalFx = { preset: 'clean', voice: 0.9, beat: 0.85, reverb: 12, echo: 0, echoTime: '1/8', double: false, tone: 0, punch: 35, grit: 0, lofi: false, nudgeMs: 0, tune: 0, tuneSpeed: 50, hook: 0, harmony: 0 };
+export const DEFAULT_FX: VocalFx = { preset: 'clean', voice: 0.9, beat: 0.85, reverb: 12, echo: 0, echoTime: '1/8', double: false, tone: 0, punch: 35, grit: 0, lofi: false, nudgeMs: 0, tune: 0, tuneSpeed: 50, hook: 0, harmony: 0, deess: 30, denoise: 30 };
 
 export const FX_PRESETS: { id: string; label: string; emoji: string; blurb: string; fx: Partial<VocalFx> }[] = [
   { id: 'clean', label: 'Clean', emoji: '🎤', blurb: 'Natural and upfront', fx: { reverb: 12, echo: 0, double: false, tone: 0, punch: 35, grit: 0, lofi: false, tune: 0 } },
@@ -110,6 +110,7 @@ export class VocalChain {
   private fx: VocalFx;
   private plan: { at: number; bar: number; ranges: Ranges } | null = null;
   private lofiDry: GainNode; private lofiWet: GainNode;
+  private rumble: BiquadFilterNode; private ess: BiquadFilterNode; private hiss: BiquadFilterNode;
   private low: BiquadFilterNode; private high: BiquadFilterNode; private pres: BiquadFilterNode;
   private shaper: WaveShaperNode; private comp: DynamicsCompressorNode; private makeup: GainNode;
   private level: GainNode; private verb: GainNode; private echo: GainNode; private delay: DelayNode; private fb: GainNode; private dbl: GainNode;
@@ -129,13 +130,14 @@ export class VocalChain {
     this.lofiDry = g(1); this.lofiWet = g(0);
     this.input.connect(this.lofiDry).connect(sum);
     this.input.connect(f('highpass', 420)).connect(f('lowpass', 3000)).connect(this.lofiWet).connect(sum);
-    const rumble = f('highpass', 90);
+    const rumble = f('highpass', 90); this.rumble = rumble;
+    this.ess = f('peaking', 6800, 2.2); this.hiss = f('highshelf', 10500);
     this.low = f('lowshelf', 220); this.high = f('highshelf', 5200); this.pres = f('peaking', 3000, 1);
     this.shaper = ctx.createWaveShaper(); this.shaper.oversample = '2x';
     this.comp = ctx.createDynamicsCompressor(); this.comp.attack.value = 0.004; this.comp.release.value = 0.12; this.comp.knee.value = 6;
     this.makeup = g();
     this.level = g();
-    sum.connect(rumble).connect(this.low).connect(this.high).connect(this.pres).connect(this.shaper).connect(this.comp).connect(this.makeup).connect(this.level).connect(dest);
+    sum.connect(rumble).connect(this.ess).connect(this.hiss).connect(this.low).connect(this.high).connect(this.pres).connect(this.shaper).connect(this.comp).connect(this.makeup).connect(this.level).connect(dest);
     // The room.
     const conv = ctx.createConvolver(); conv.buffer = impulse(ctx, 2.6, 2.4);
     this.verb = g(0);
@@ -190,6 +192,8 @@ export class VocalChain {
     const set = (p: AudioParam, v: number) => { if (now) p.value = v; else p.setTargetAtTime(v, t, 0.03); };
     const hook = (fx.hook ?? 0) / 100;
     this.auto(this.level.gain, fx.voice, fx.voice * (1 + hook * 0.15), now);
+    const ds = (fx.deess ?? 0) / 100, dn = (fx.denoise ?? 0) / 100;
+    set(this.ess.gain, -ds * 11); set(this.hiss.gain, -dn * 9); set(this.rumble.frequency, 90 + dn * 70);
     set(this.lofiWet.gain, fx.lofi ? 1 : 0); set(this.lofiDry.gain, fx.lofi ? 0 : 1);
     set(this.low.gain, -fx.tone * 0.16); set(this.high.gain, fx.tone * 0.2); set(this.pres.gain, Math.max(0, fx.tone) * 0.06);
     if (fx.grit !== this.grit) { this.shaper.curve = gritCurve(fx.grit); this.grit = fx.grit; }
@@ -206,7 +210,7 @@ export class VocalChain {
 }
 
 /** A take, ready to play: tuned if asked, a harmony if the hook needs one, and how loud to make it. */
-export interface Prepared { main: AudioBuffer; harmony: AudioBuffer | null; gain: number }
+export interface Prepared { main: AudioBuffer; harmony: AudioBuffer | null; gain: number; /** Extra tracks (ad-libs, hand-sung harmonies), already lined up with the main take. */ layers?: { buf: AudioBuffer; gain: number }[] }
 
 export async function prepareVocal(ctx: BaseAudioContext, take: AudioBuffer, fx: VocalFx, key: { root: number; major: boolean }, hookBars: number[] | undefined, onProgress?: (p: number) => void): Promise<Prepared> {
   const gain = levelFor(take);
@@ -235,6 +239,8 @@ export function playMix(ctx: AudioContext, spec: BeatSpec, v: Prepared, fx: Voca
   chain.hookPlan(at, bar, hookBars);
   const src = ctx.createBufferSource(); src.buffer = v.main; src.connect(chain.input);
   startVoice(src, at, lead, fx, v.main);
+  const ls: AudioBufferSourceNode[] = [];
+  for (const l of v.layers ?? []) { const s = ctx.createBufferSource(); s.buffer = l.buf; const g = ctx.createGain(); g.gain.value = l.gain; s.connect(g).connect(chain.input); startVoice(s, at, lead, fx, l.buf); ls.push(s); }
   let hs: AudioBufferSourceNode | null = null;
   if (v.harmony) { hs = ctx.createBufferSource(); hs.buffer = v.harmony; hs.connect(chain.harmonyIn); startVoice(hs, at, lead, fx, v.harmony); }
   let done = false;
@@ -242,7 +248,7 @@ export function playMix(ctx: AudioContext, spec: BeatSpec, v: Prepared, fx: Voca
   const stop = () => {
     if (done) return; done = true;
     if (tail !== null) window.clearTimeout(tail);
-    beat.stop(); try { src.stop(); } catch { /* ended */ } try { hs?.stop(); } catch { /* ended */ }
+    beat.stop(); try { src.stop(); } catch { /* ended */ } try { hs?.stop(); } catch { /* ended */ } ls.forEach((x) => { try { x.stop(); } catch { /* ended */ } });
     window.setTimeout(() => { chain.dispose(); try { bus.disconnect(); } catch { /* gone */ } }, 800);
   };
   // Let the last words ring out over a bar of beat before it stops.
@@ -263,12 +269,13 @@ export async function renderSong(spec: BeatSpec, v: Prepared, fx: VocalFx, lead:
   chain.hookPlan(0.05, bar, hookBars);
   const src = oc.createBufferSource(); src.buffer = v.main; src.connect(chain.input);
   startVoice(src, 0.05, lead, fx, v.main);
+  for (const l of v.layers ?? []) { const s = oc.createBufferSource(); s.buffer = l.buf; const g = oc.createGain(); g.gain.value = l.gain; s.connect(g).connect(chain.input); startVoice(s, 0.05, lead, fx, l.buf); }
   if (v.harmony) { const hs = oc.createBufferSource(); hs.buffer = v.harmony; hs.connect(chain.harmonyIn); startVoice(hs, 0.05, lead, fx, v.harmony); }
   const out = await oc.startRendering();
   return wav(out);
 }
 
-function wav(b: AudioBuffer): Blob {
+export function wav(b: AudioBuffer): Blob {
   const ch = b.numberOfChannels; const len = b.length; const sr = b.sampleRate;
   const v = new DataView(new ArrayBuffer(44 + len * ch * 2));
   const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };

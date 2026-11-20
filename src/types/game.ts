@@ -272,6 +272,10 @@ export interface VocalFx {
   hook?: number; harmony?: number;
   /** An engineer's master: louder, clearer, glued. Only a mix brings this. */
   polish?: number;
+  /** De-esser: tames harsh S sounds (0 = off). */
+  deess?: number;
+  /** Noise cleanup: cuts rumble and hiss around the voice (0 = off). */
+  denoise?: number;
 }
 
 /** What you can ask the person mixing your record to change. */

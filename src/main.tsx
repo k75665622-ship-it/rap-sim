@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
+import "./studio-cinematic.css";
 import { flushAutosave, flushSideTicks, useGameStore, awardWorld } from "./store/gameStore";
 import * as awardSeasons from "./sim/awardSeasons";
 import * as saves from "./store/saves";

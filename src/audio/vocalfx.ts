@@ -16,14 +16,16 @@ export const DEFAULT_FX: VocalFx = { preset: 'clean', voice: 0.9, beat: 0.85, re
 export const FX_PRESETS: { id: string; label: string; emoji: string; blurb: string; fx: Partial<VocalFx> }[] = [
   { id: 'clean', label: 'Clean', emoji: '🎤', blurb: 'Natural and upfront', fx: { reverb: 12, echo: 0, double: false, tone: 0, punch: 35, grit: 0, lofi: false, tune: 0 } },
   { id: 'radio', label: 'Radio', emoji: '📻', blurb: 'Loud, bright, in your face', fx: { reverb: 14, echo: 12, echoTime: '1/8', double: false, tone: 22, punch: 75, grit: 8, lofi: false, tune: 10, tuneSpeed: 40 } },
-  { id: 'trap', label: 'Trap star', emoji: '💎', blurb: 'Glossy double, 1/8 echo, a touch of tune', fx: { reverb: 24, echo: 34, echoTime: '1/8', double: true, tone: 30, punch: 62, grit: 0, lofi: false, tune: 35, tuneSpeed: 65 } },
+  { id: 'trap', label: 'Trap', emoji: '💎', blurb: 'Glossy double, 1/8 echo, a touch of tune', fx: { reverb: 24, echo: 34, echoTime: '1/8', double: true, tone: 30, punch: 62, grit: 0, lofi: false, tune: 35, tuneSpeed: 65 } },
   { id: 'melodic', label: 'Melodic', emoji: '🎶', blurb: 'Tuned and smooth — sing-rap', fx: { reverb: 34, echo: 26, echoTime: '1/4', double: true, tone: 12, punch: 48, grit: 0, lofi: false, tune: 70, tuneSpeed: 55, hook: 50, harmony: 40 } },
-  { id: 'hardtune', label: 'Hard tune', emoji: '🤖', blurb: 'Full auto-tune, robotic snap', fx: { reverb: 22, echo: 24, echoTime: '1/8', double: true, tone: 20, punch: 60, grit: 0, lofi: false, tune: 100, tuneSpeed: 100 } },
-  { id: 'drill', label: 'Drill dark', emoji: '🌑', blurb: 'Dark, gritty, cold', fx: { reverb: 16, echo: 22, echoTime: '3/16', double: true, tone: -18, punch: 78, grit: 35, lofi: false, tune: 0 } },
-  { id: 'afro', label: 'Afro warm', emoji: '🌴', blurb: 'Warm, soft big space, light tune', fx: { reverb: 38, echo: 24, echoTime: '1/4', double: false, tone: 8, punch: 45, grit: 0, lofi: false, tune: 40, tuneSpeed: 45 } },
-  { id: 'lofi', label: 'Lo-fi tape', emoji: '📼', blurb: 'Dusty old tape', fx: { reverb: 20, echo: 10, echoTime: '1/4', double: false, tone: -30, punch: 40, grit: 28, lofi: true, tune: 0 } },
+  { id: 'rnb', label: 'R&B', emoji: '🌙', blurb: 'Silky, close, lots of air and a soft double', fx: { reverb: 30, echo: 18, echoTime: '1/4', double: true, tone: 6, punch: 40, grit: 0, lofi: false, tune: 45, tuneSpeed: 35, harmony: 35 } },
+  { id: 'harmonies', label: 'Harmonies', emoji: '🎼', blurb: 'Stacked harmony on your marked hook bars', fx: { reverb: 32, echo: 20, echoTime: '1/4', double: true, tone: 10, punch: 50, grit: 0, lofi: false, tune: 55, tuneSpeed: 50, hook: 65, harmony: 80 } },
+  { id: 'hardtune', label: 'Hard autotune', emoji: '🤖', blurb: 'Full auto-tune, robotic snap', fx: { reverb: 22, echo: 24, echoTime: '1/8', double: true, tone: 20, punch: 60, grit: 0, lofi: false, tune: 100, tuneSpeed: 100 } },
+  { id: 'drill', label: 'Drill', emoji: '🌑', blurb: 'Dark, gritty, cold', fx: { reverb: 16, echo: 22, echoTime: '3/16', double: true, tone: -18, punch: 78, grit: 35, lofi: false, tune: 0 } },
+  { id: 'afro', label: 'Afrobeats', emoji: '🌴', blurb: 'Warm, soft big space, light tune', fx: { reverb: 38, echo: 24, echoTime: '1/4', double: false, tone: 8, punch: 45, grit: 0, lofi: false, tune: 40, tuneSpeed: 45 } },
+  { id: 'lofi', label: 'Lo-fi', emoji: '📼', blurb: 'Dusty old tape', fx: { reverb: 20, echo: 10, echoTime: '1/4', double: false, tone: -30, punch: 40, grit: 28, lofi: true, tune: 0 } },
   { id: 'stadium', label: 'Stadium', emoji: '🏟️', blurb: 'Huge hall, wide', fx: { reverb: 70, echo: 28, echoTime: '1/4', double: true, tone: 14, punch: 55, grit: 0, lofi: false } },
-  { id: 'phone', label: 'Phone call', emoji: '📞', blurb: 'For a skit or an intro', fx: { reverb: 0, echo: 0, double: false, tone: 18, punch: 50, grit: 18, lofi: true, tune: 0 } },
+  { id: 'phone', label: 'Telephone', emoji: '📞', blurb: 'For a skit or an intro', fx: { reverb: 0, echo: 0, double: false, tone: 18, punch: 50, grit: 18, lofi: true, tune: 0 } },
 ];
 
 export function withPreset(fx: VocalFx, id: string): VocalFx {
@@ -33,7 +35,7 @@ export function withPreset(fx: VocalFx, id: string): VocalFx {
 
 /** The preset that suits a beat style best — what an engineer would reach for first. */
 export function suggestedPreset(style: string): string {
-  return style === 'trap' ? 'trap' : style === 'drill' ? 'drill' : style === 'afro' || style === 'amapiano' ? 'afro' : style === 'rnb' ? 'melodic' : style === 'dembow' ? 'radio' : 'clean';
+  return style === 'trap' ? 'trap' : style === 'drill' ? 'drill' : style === 'afro' || style === 'amapiano' ? 'afro' : style === 'rnb' ? 'rnb' : style === 'dembow' ? 'radio' : 'clean';
 }
 
 const echoSeconds = (t: VocalFx['echoTime'], bpm: number) => (60 / bpm) * (t === '1/4' ? 1 : t === '3/16' ? 0.75 : 0.5);

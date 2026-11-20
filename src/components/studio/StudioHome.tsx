@@ -41,13 +41,13 @@ export function StudioHome({ go, onRecord }: { go: (to: Go) => void; onUseBeat?:
   const coming = outbound.filter((r) => r.status === 'paid_waiting' || r.status === 'verse_ready').length;
 
   return (
-    <div className="space-y-5">
+    <div className="studio-home-cinematic space-y-5">
       {/* Start */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4">
         <div className="flex flex-col gap-3">
-          <button onClick={() => onRecord()} className="flex-1 text-left rounded-[18px] p-6 border border-fall/50 hover:border-fall transition group relative overflow-hidden" style={{ background: 'radial-gradient(90% 120% at 0% 0%, rgba(255,72,72,0.28), rgba(255,72,72,0.03) 70%)' }}>
+          <button onClick={() => onRecord()} className="studio-record-hero flex-1 text-left rounded-[18px] p-6 border border-fall/50 hover:border-fall transition group relative overflow-hidden" style={{ background: 'radial-gradient(90% 120% at 0% 0%, rgba(255,72,72,0.28), rgba(255,72,72,0.03) 70%)' }}>
             <div className="flex items-center gap-4">
-              <span className="w-16 h-16 rounded-full bg-fall text-white flex flex-col items-center justify-center shadow-[0_0_0_6px_rgba(255,72,72,0.2)] group-hover:scale-105 transition"><span className="text-[20px] leading-none">●</span><span className="text-[10px] font-bold mt-0.5">REC</span></span>
+              <span className="studio-record-disc w-16 h-16 rounded-full bg-fall text-white flex flex-col items-center justify-center shadow-[0_0_0_6px_rgba(255,72,72,0.2)] group-hover:scale-105 transition"><span className="text-[20px] leading-none">●</span><span className="text-[10px] font-bold mt-0.5">REC</span></span>
               <div>
                 <div className="text-[22px] font-bold text-ink">Record a song</div>
                 <div className="text-[13px] text-ink2 mt-0.5 max-w-md">Pick a beat, put your headphones on and rap into your mic. Keep your best take — that's the song. No writing needed.</div>

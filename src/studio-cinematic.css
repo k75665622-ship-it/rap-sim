@@ -1,0 +1,252 @@
+
+/* RAP-SIM — CINEMATIC STUDIO DESIGN
+   Add this file to the project's CSS imports, or paste its contents into src/index.css.
+*/
+
+@keyframes studio-glow {
+  0%, 100% { opacity: .55; transform: scale(1); }
+  50% { opacity: .9; transform: scale(1.04); }
+}
+@keyframes studio-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,72,72,.28); }
+  50% { box-shadow: 0 0 0 12px rgba(255,72,72,0); }
+}
+@keyframes studio-bars {
+  0%, 100% { transform: scaleY(.25); }
+  50% { transform: scaleY(1); }
+}
+@keyframes studio-scan {
+  0% { transform: translateY(-120%); opacity: 0; }
+  15% { opacity: .45; }
+  85% { opacity: .2; }
+  100% { transform: translateY(120%); opacity: 0; }
+}
+@keyframes studio-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.studio-home-cinematic {
+  position: relative;
+  isolation: isolate;
+  padding: 4px 2px 28px;
+}
+.studio-home-cinematic::before {
+  content: "";
+  position: absolute;
+  inset: -32px -24px;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(70% 40% at 12% 0%, rgba(255,72,72,.15), transparent 70%),
+    radial-gradient(50% 35% at 90% 15%, rgba(255,183,77,.08), transparent 72%);
+}
+.studio-home-cinematic::after {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .16;
+  background-image:
+    linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+}
+
+.studio-home-cinematic .group {
+  transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+.studio-home-cinematic .group:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 45px rgba(0,0,0,.18);
+}
+.studio-home-cinematic .bg-card {
+  transition: transform .22s ease, border-color .22s ease, background .22s ease, box-shadow .22s ease;
+}
+.studio-home-cinematic .bg-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 35px rgba(0,0,0,.14);
+}
+
+.studio-home-cinematic .studio-record-hero {
+  position: relative;
+  overflow: hidden;
+}
+.studio-home-cinematic .studio-record-hero::before {
+  content: "";
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  right: -90px;
+  top: -130px;
+  border-radius: 999px;
+  background: rgba(255,72,72,.18);
+  filter: blur(28px);
+  animation: studio-glow 4s ease-in-out infinite;
+  pointer-events: none;
+}
+.studio-home-cinematic .studio-record-disc {
+  animation: studio-pulse 2.4s ease-in-out infinite;
+}
+
+/* Recording booth / modal */
+.studio-cinematic {
+  background:
+    radial-gradient(90% 70% at 50% 0%, rgba(255,72,72,.13), transparent 62%),
+    radial-gradient(65% 60% at 100% 100%, rgba(255,178,72,.08), transparent 65%),
+    rgba(4,6,10,.82);
+  backdrop-filter: blur(16px);
+}
+
+.studio-cinematic .studio-booth-panel {
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgba(255,255,255,.09);
+  background:
+    linear-gradient(145deg, rgba(22,25,32,.98), rgba(9,11,16,.98));
+  box-shadow:
+    0 35px 100px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.055);
+}
+.studio-cinematic .studio-booth-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 35% at 20% 0%, rgba(255,72,72,.11), transparent 75%),
+    linear-gradient(90deg, transparent, rgba(255,255,255,.025), transparent);
+}
+.studio-cinematic .studio-booth-panel::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 22%;
+  top: -25%;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, rgba(255,72,72,.06), transparent);
+  animation: studio-scan 7s linear infinite;
+}
+
+.studio-cinematic .studio-window {
+  border: 1px solid rgba(255,255,255,.08);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255,72,72,.10), transparent 28%),
+    linear-gradient(135deg, rgba(255,255,255,.045), rgba(255,255,255,.012));
+  box-shadow: inset 0 0 45px rgba(0,0,0,.35);
+}
+
+.studio-cinematic .studio-level {
+  position: relative;
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,.07);
+}
+.studio-cinematic .studio-level > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #48d597 0%, #f4c95d 65%, #ff4848 100%);
+  box-shadow: 0 0 14px rgba(255,72,72,.22);
+}
+
+.studio-cinematic .studio-wave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 58px;
+}
+.studio-cinematic .studio-wave i {
+  width: 3px;
+  min-height: 6px;
+  border-radius: 99px;
+  background: currentColor;
+  opacity: .75;
+  transform-origin: center;
+  animation: studio-bars 850ms ease-in-out infinite;
+}
+.studio-cinematic .studio-wave i:nth-child(2n) { animation-delay: -180ms; }
+.studio-cinematic .studio-wave i:nth-child(3n) { animation-delay: -360ms; }
+.studio-cinematic .studio-wave i:nth-child(4n) { animation-delay: -540ms; }
+
+.studio-cinematic .studio-record-button {
+  width: 112px;
+  height: 112px;
+  border-radius: 999px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  border: 8px solid rgba(255,255,255,.08);
+  background: radial-gradient(circle, #ff5a5a 0 34%, #e83232 35% 65%, #a91616 66%);
+  box-shadow:
+    0 0 0 1px rgba(255,72,72,.5),
+    0 0 35px rgba(255,72,72,.24),
+    inset 0 2px 10px rgba(255,255,255,.22);
+  transition: transform .2s ease, filter .2s ease;
+}
+.studio-cinematic .studio-record-button:hover {
+  transform: scale(1.045);
+  filter: brightness(1.08);
+}
+.studio-cinematic .studio-record-button:active {
+  transform: scale(.97);
+}
+.studio-cinematic .studio-record-button::after {
+  content: "";
+  position: absolute;
+  inset: -13px;
+  border-radius: inherit;
+  border: 1px solid rgba(255,72,72,.2);
+  animation: studio-pulse 2s ease-in-out infinite;
+}
+
+.studio-cinematic .studio-chip {
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.035);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+}
+
+.studio-cinematic input:not([type=range]):not([type=checkbox]),
+.studio-cinematic select,
+.studio-cinematic textarea {
+  background: rgba(255,255,255,.035);
+  border-color: rgba(255,255,255,.09);
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.studio-cinematic input:not([type=range]):not([type=checkbox]):focus,
+.studio-cinematic select:focus,
+.studio-cinematic textarea:focus {
+  background: rgba(255,255,255,.05);
+  border-color: rgba(255,72,72,.48);
+  box-shadow: 0 0 0 3px rgba(255,72,72,.08);
+  outline: none;
+}
+
+.studio-cinematic .studio-success {
+  animation: studio-float 3s ease-in-out infinite;
+}
+
+@media (max-width: 640px) {
+  .studio-cinematic .studio-record-button {
+    width: 92px;
+    height: 92px;
+  }
+  .studio-cinematic .studio-wave {
+    height: 45px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-home-cinematic *,
+  .studio-cinematic * {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

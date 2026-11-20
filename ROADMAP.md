@@ -61,6 +61,7 @@ The better you are at the hard tool, the better the music sounds. That gives eve
 Producers and engineers are played by **expert AI characters** until real players take those jobs. AI experts range from cheap beginners to legends; the better they are, the more they cost and the longer they're booked up.
 
 ## M1 — VOX: the booth app
+**Status: M1a done** (cinematic booth design, headphone check, latency calibration, 10 presets incl. R&B/Harmonies, Quick vs Engineer, Auto-mix, scrolling lyrics prompter, per-take quality score with noise check). **Still to do (M1b):** real instrument sample packs (needs royalty-free audio files added), punch-in on one line, separate ad-lib/harmony tracks, de-esser and noise-removal in the chain.
 - **Real instrument sounds:** royalty-free drum kits, 808s, keys, guitars and pads replace the beeps the game makes now. This is the single biggest sound upgrade.
 - **Before recording:** a headphones check (no headphones means the beat bleeds into the vocal) and latency calibration so the vocal lands on the beat.
 - **Vocal presets with live effects:**

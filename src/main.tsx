@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import "./studio-cinematic.css";
+import { loadKit } from "./audio/kit";
 import { flushAutosave, flushSideTicks, useGameStore, awardWorld } from "./store/gameStore";
 import * as awardSeasons from "./sim/awardSeasons";
 import * as saves from "./store/saves";
@@ -118,3 +119,6 @@ async function boot() {
 }
 
 void boot();
+
+// Real drum and instrument sounds load quietly in the background.
+(window.requestIdleCallback ?? ((f: () => void) => window.setTimeout(f, 800)))(() => { void loadKit(); });

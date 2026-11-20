@@ -18,6 +18,7 @@
 
 import { ListenButton } from '../studio/Listen';
 import { MixReview } from '../studio/MixReview';
+import { StudioPro } from '../studio/StudioPro';
 import { ArrangeDialog } from '../studio/ArrangeDialog';
 import { useMemo, useState } from 'react';
 import { useGameStore, type StudioSessionPayload } from '../../store/gameStore';
@@ -273,6 +274,7 @@ function VaultRow({
 }) {
   const [arranging, setArranging] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [pro, setPro] = useState(false);
   const isArchived = !!song.archivedAt;
   const setScreen = useGameStore((st) => st.setScreen);
   const selectSong = useGameStore((st) => st.selectSong);
@@ -377,6 +379,8 @@ function VaultRow({
             {reviewing && <MixReview songId={song.id} onClose={() => setReviewing(false)} />}
             <Button size="sm" variant="secondary" onClick={() => setArranging(true)}>🎛️ Arrange</Button>
             {arranging && <ArrangeDialog songId={song.id} onClose={() => setArranging(false)} />}
+            {song.boothTake && song.engineerMix?.status !== 'revising' && (!isMixed || song.proMix) && <Button size="sm" variant="secondary" onClick={() => setPro(true)}>{song.proMix ? `🎛️ STUDIO PRO · grade ${song.proMix.grade}` : '🎛️ Mix it in STUDIO PRO'}</Button>}
+            {pro && <StudioPro songId={song.id} onClose={() => setPro(false)} />}
             {isMixed ? (
               <Button size="sm" variant="gold" onClick={onRelease}>
                 🚀 Release

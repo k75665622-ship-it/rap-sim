@@ -471,3 +471,7 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 ## M2 — pro engineers
 - `engineerTier` (Student/Local/Pro/Legend), `specialtyOf` (their signature style: +skill when your beat matches), `lateDays` (Students run late 30% of the time, Locals 15%, Pros 5%, Legends never).
 - Mix dialog and mix review show tier, specialty, days and rounds of notes included; mixes use the new de-esser and noise cleanup; engineers tell you straight when the take is the weak link.
+
+## Sample kit + M3a STUDIO PRO
+- `public/music/kit/` (16 mono WAVs, ~1.5 MB, credits.txt) + `src/audio/kit.ts`: real kicks, snares, clap, rim, hats, 808, bell/keys, pluck, pad, xylophone replace the synth sounds in the beat engine; the synth stays as fallback. Echo-pad (unverified licence) and the duplicate keys file were left out. The pad is CC BY 4.0 and is credited on the Studio page.
+- `StudioPro.tsx`: the pro mixing desk (Studio vault → "Mix it in STUDIO PRO"). `finishProMix` prints it: quality changes by (grade − 55) × 0.07, capped -3…+3.5, and re-printing replaces the old effect.

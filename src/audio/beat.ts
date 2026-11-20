@@ -1,3 +1,4 @@
+import { playSample, kitHas, kitPitch } from './kit';
 // ─── THE BEAT ──────────────────────────────────────────────────────────────
 // A real beat, made in the browser. Every beat is its own: the drum pattern,
 // chord progression, key, tempo, bass line, lead instrument and melody are
@@ -193,9 +194,17 @@ export class BeatPlayer {
   }
   private env(g: GainNode, t: number, peak: number, dur: number) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
   private tone(t: number, f: number, dur: number, type: OscillatorType, peak: number) { const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); o.type = type; o.frequency.value = f; this.env(g, t, peak, dur); o.connect(g).connect(this.out); o.start(t); o.stop(t + dur + 0.05); }
-  private kick(t: number) { const k = this.spec.sig; const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(k.kick, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12); this.env(g, t, 1, k.kickDecay + 0.1); o.connect(g).connect(this.out); o.start(t); o.stop(t + k.kickDecay + 0.15); }
+  private kick(t: number) {
+    const style = this.spec.style;
+    const name = style === 'trap' || style === 'drill' || style === 'rnb' ? ['kick-2', 'kick-3'][this.spec.seed % 2] : ['kick-1', 'kick-3'][this.spec.seed % 2];
+    if (playSample(this.ctx, this.out, name, t, { gain: 1 })) return;
+    this.synthKick(t);
+  }
+  private synthKick(t: number) { const k = this.spec.sig; const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(k.kick, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12); this.env(g, t, 1, k.kickDecay + 0.1); o.connect(g).connect(this.out); o.start(t); o.stop(t + k.kickDecay + 0.15); }
   private noiseHit(t: number, type: BiquadFilterType, freq: number, peak: number, dur: number) { const src = this.ctx.createBufferSource(); src.buffer = this.noise; const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; const g = this.ctx.createGain(); this.env(g, t, peak, dur); src.connect(f).connect(g).connect(this.out); src.start(t, this.rand() * 0.5); src.stop(t + dur + 0.02); }
   private snare(t: number, kind: BeatSpec['snareKind'], peak = 0.55) {
+    const name = kind === 'clap' ? 'clap-1' : kind === 'rim' ? 'rim-1' : `snare-${1 + (this.spec.seed % 3)}`;
+    if (playSample(this.ctx, this.out, name, t, { gain: Math.min(1, peak * 1.5) * (kind === 'clap' ? 0.9 : kind === 'rim' ? 0.7 : 1) })) return;
     if (kind === 'clap') { this.noiseHit(t, 'bandpass', 1300, peak * 0.85, 0.12); this.noiseHit(t + 0.012, 'bandpass', 1500, peak * 0.6, 0.14); return; }
     if (kind === 'rim') { this.tone(t, 1700, 0.03, 'square', peak * 0.35); this.noiseHit(t, 'highpass', 3000, peak * 0.3, 0.04); return; }
     this.noiseHit(t, 'bandpass', 1900, peak, 0.18); this.tone(t, 190, 0.09, 'triangle', peak * 0.5);
@@ -203,7 +212,8 @@ export class BeatPlayer {
   private hats(t: number, s: number) {
     const mode = this.spec.hats;
     const bright = 6500 + this.spec.sig.hats * 1200;
-    const hit = (tt: number, p: number, open = false) => this.noiseHit(tt, 'highpass', bright, p, open ? 0.2 : 0.045);
+    const closed = `hat-closed-${1 + (this.spec.seed % 2)}`;
+    const hit = (tt: number, p: number, open = false) => { if (!playSample(this.ctx, this.out, open ? 'hat-open-1' : closed, tt, { gain: Math.min(1, p * 2.4), hold: open ? 0.3 : 0.08 })) this.noiseHit(tt, 'highpass', bright, p, open ? 0.2 : 0.045); };
     if (mode === 'eighth') { if (s % 2 === 0) hit(t, s % 4 === 2 ? 0.13 : 0.18, s === 14 && this.rand() < 0.25); }
     else if (mode === 'offbeat') { if (s % 4 === 2) hit(t, 0.2, this.rand() < 0.3); else if (s % 2 === 1 && this.spec.quality > 60) hit(t, 0.07); }
     else if (mode === 'sixteenth') hit(t, s % 2 === 0 ? 0.14 : 0.08);
@@ -214,6 +224,12 @@ export class BeatPlayer {
   private conga(t: number) { const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(220, t + 0.08); this.env(g, t, 0.22, 0.14); o.connect(g).connect(this.out); o.start(t); o.stop(t + 0.18); }
   private crash(t: number) { this.noiseHit(t, 'highpass', 4000, 0.14, 1.1); }
   private bass(t: number, f: number, dur: number, slide: boolean) {
+    // The 808 is a real sample, folded into the 36–72 Hz range so every note stays in key and stays low.
+    const sub = this.spec.style === 'trap' || this.spec.style === 'drill' || this.spec.style === 'rnb';
+    if (sub && kitHas('808-C')) {
+      let hz = f; while (hz >= 72) hz /= 2; while (hz < 36) hz *= 2;
+      if (playSample(this.ctx, this.out, '808-C', t, { gain: 0.95, rate: hz / kitPitch('808-C'), hold: dur })) return;
+    }
     const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
     o.type = this.spec.sig.saw && (this.spec.style === 'boom' || this.spec.style === 'afro') ? 'sawtooth' : 'sine';
     o.frequency.setValueAtTime(slide ? f * 0.75 : f, t); if (slide) o.frequency.exponentialRampToValueAtTime(f, t + 0.09);
@@ -231,6 +247,16 @@ export class BeatPlayer {
   }
   private lead(t: number, f: number, dur: number) {
     const kind = this.spec.lead;
+    // Real instrument notes where we have them; flute, brass and guitar stay synthesised.
+    const real: Partial<Record<Lead, { n: string; r: number; g: number; hold: number; a?: number }>> = {
+      keys: { n: 'bell-C3', r: f / kitPitch('bell-C3'), g: 0.5, hold: dur * 1.5 },
+      bell: { n: 'xylophone-C3', r: (f * 4) / kitPitch('xylophone-C3'), g: 0.45, hold: dur * 1.6 },
+      pluck: { n: 'pluck-C3', r: f / kitPitch('pluck-C3'), g: 0.55, hold: dur * 1.4 },
+      pad: { n: 'pad-C3', r: f / kitPitch('pad-C3'), g: 0.22, hold: dur * 1.2, a: 0.08 },
+      choir: { n: 'pad-C3', r: f / kitPitch('pad-C3'), g: 0.22, hold: dur * 1.2, a: 0.08 },
+    };
+    const rl = real[kind];
+    if (rl && kitHas(rl.n) && playSample(this.ctx, this.out, rl.n, t, { gain: rl.g, rate: Math.min(4, Math.max(0.5, rl.r)), hold: rl.hold, attack: rl.a })) return;
     const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); const fl = this.ctx.createBiquadFilter();
     const type: Record<Lead, OscillatorType> = { keys: 'triangle', pluck: 'square', bell: 'sine', pad: 'triangle', flute: 'sine', brass: 'sawtooth', choir: 'sawtooth', guitar: 'sawtooth' };
     o.type = type[kind];

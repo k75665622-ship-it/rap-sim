@@ -462,3 +462,8 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 - Quick mode (Auto-mix, presets, two levels) vs Engineer mode (every knob), remembered per device.
 - Lyrics prompter: notepad lines scroll two bars per line while recording.
 - Each take is scored on the spot: quality, timing, presence, energy, room noise.
+
+## M1b — punch-in, layers, cleanup
+- `src/audio/takeedit.ts`: splice (punch-in), align (layers on the take's timeline), bake (fold layers into the saved vocal).
+- Take rows: ↻ Punch in (pick the bar; your take plays until then), 🗣️ + Ad-libs, 🎼 + Harmony. Layers play live and are baked in when you make it a song.
+- Chain: de-esser (dips 6.8 kHz) and noise cleanup (rumble highpass + hiss shelf); Engineer knobs, auto-mix raises cleanup for noisy rooms.

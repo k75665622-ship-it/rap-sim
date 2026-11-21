@@ -1,0 +1,96 @@
+STUDIO SAMPLE KIT — CREDITS
+================================
+
+All source sounds were downloaded from Freesound.org.
+The links below are the original Freesound pages.
+
+DRUMS
+-----
+
+kick-1.wav
+Source: "What's Kickin'?" by tboneaudio
+Link: https://freesound.org/people/tboneaudio/sounds/843024/
+License: Creative Commons 0 (CC0)
+
+kick-2.wav
+Source: "Serum Kick 3" by deadrobotmusic
+Link: https://freesound.org/people/deadrobotmusic/sounds/652007/
+License: Creative Commons 0 (CC0)
+
+kick-3.wav
+Source: "Serum Kick 6" by deadrobotmusic
+Link: https://freesound.org/people/deadrobotmusic/sounds/652010/
+License: Creative Commons 0 (CC0)
+
+snare-1.wav
+Source: "DR Snare 001" by deadrobotmusic
+Link: https://freesound.org/people/deadrobotmusic/sounds/577176/
+License: Creative Commons 0 (CC0)
+
+snare-2.wav
+Source: "DR Snare 008" by deadrobotmusic
+Link: https://freesound.org/people/deadrobotmusic/sounds/577177/
+License: Creative Commons 0 (CC0)
+
+snare-3.wav
+Source: "DR Snare 102" by deadrobotmusic
+Link: https://freesound.org/people/deadrobotmusic/sounds/577226/
+License: Creative Commons 0 (CC0)
+
+clap-1.wav
+Source: "Solo Clap" by OwlStorm
+Link: https://freesound.org/people/OwlStorm/sounds/151219/
+License: Creative Commons 0 (CC0)
+
+hat-closed-1.wav
+Source: "Hi-Hat Closed Hit - Clean" by TheEndOfACycle
+Link: https://freesound.org/people/TheEndOfACycle/sounds/674296/
+License: Creative Commons 0 (CC0)
+
+hat-closed-2.wav
+Source: "Hi-Hat Closed Hit 02" by TheEndOfACycle
+Link: https://freesound.org/people/TheEndOfACycle/sounds/674295/
+License: Creative Commons 0 (CC0)
+
+hat-open-1.wav
+Source: "Hat open f.wav" by HenKonen
+Link: https://freesound.org/people/HenKonen/sounds/700792/
+License: Creative Commons 0 (CC0)
+
+rim-1.wav
+Source: "Rimshot" by deLargeBC
+Link: https://freesound.org/people/deLargeBC/sounds/388447/
+License: Creative Commons 0 (CC0)
+
+
+808 / MELODY
+------------
+
+808-C.wav
+Source: "Tiger - C" by James_KuKu
+Link: https://freesound.org/people/James_KuKu/sounds/729525/
+License: Creative Commons 0 (CC0)
+
+pad-C3.flac
+Source: "Pad 002 - Lofi Structure - C3.flac" by Jovica
+Link: https://freesound.org/people/Jovica/sounds/52467/
+License: Creative Commons Attribution 4.0 (CC BY 4.0)
+Attribution is required when distributing/using this sound under that license.
+
+bell-C3.wav
+Source: "Piano Bell Sound (C3).wav" by Cloud-10
+Link: https://freesound.org/people/Cloud-10/sounds/632255/
+License: Creative Commons 0 (CC0)
+
+pluck-C3.wav
+Source: "Korg Z1 - Z1 8 bit pluck - C3" by modularsamples
+Link: https://freesound.org/people/modularsamples/sounds/298490/
+License: Creative Commons 0 (CC0)
+
+xylophone-C3.wav
+Source: "Xylophone C3.wav" by juancamiloorjuela
+Link: https://freesound.org/people/juancamiloorjuela/sounds/204636/
+License: Creative Commons 0 (CC0)
+
+(Trimmed, converted to mono 44.1 kHz and normalised for the game; otherwise unchanged.)
+Note: bell-C3, pluck-C3, pad-C3, xylophone-C3 file names are the source labels; their real pitches are set in src/audio/kit.ts.

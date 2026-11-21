@@ -462,3 +462,30 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 - Quick mode (Auto-mix, presets, two levels) vs Engineer mode (every knob), remembered per device.
 - Lyrics prompter: notepad lines scroll two bars per line while recording.
 - Each take is scored on the spot: quality, timing, presence, energy, room noise.
+
+## M1b — punch-in, layers, cleanup
+- `src/audio/takeedit.ts`: splice (punch-in), align (layers on the take's timeline), bake (fold layers into the saved vocal).
+- Take rows: ↻ Punch in (pick the bar; your take plays until then), 🗣️ + Ad-libs, 🎼 + Harmony. Layers play live and are baked in when you make it a song.
+- Chain: de-esser (dips 6.8 kHz) and noise cleanup (rumble highpass + hiss shelf); Engineer knobs, auto-mix raises cleanup for noisy rooms.
+
+## M2 — pro engineers
+- `engineerTier` (Student/Local/Pro/Legend), `specialtyOf` (their signature style: +skill when your beat matches), `lateDays` (Students run late 30% of the time, Locals 15%, Pros 5%, Legends never).
+- Mix dialog and mix review show tier, specialty, days and rounds of notes included; mixes use the new de-esser and noise cleanup; engineers tell you straight when the take is the weak link.
+
+## Sample kit + M3a STUDIO PRO
+- `public/music/kit/` (16 mono WAVs, ~1.5 MB, credits.txt) + `src/audio/kit.ts`: real kicks, snares, clap, rim, hats, 808, bell/keys, pluck, pad, xylophone replace the synth sounds in the beat engine; the synth stays as fallback. Echo-pad (unverified licence) and the duplicate keys file were left out. The pad is CC BY 4.0 and is credited on the Studio page.
+- `StudioPro.tsx`: the pro mixing desk (Studio vault → "Mix it in STUDIO PRO"). `finishProMix` prints it: quality changes by (grade − 55) × 0.07, capped -3…+3.5, and re-printing replaces the old effect.
+
+## M4a — Beat maker
+- `BeatMaker.tsx` (portal modal), `sim/beatMaker.ts` (templates, chord helper, `scorePattern`), `CustomPattern` + pattern registry in `audio/beat.ts` (registered by beat id from `main.tsx`, so every `beatSpecFor` call plays your pattern), `makeBeat` store action (⚡12, grade, +production knowledge). OwnedBeat has `pattern`, source `'made'`.
+
+## M5a — Academy
+- `sim/academy.ts` (courses, lessons, quizzes, exam pool, tutor), `audio/academyDemo.ts` (effect demos on the real beat engine), `Academy.tsx` (portal modal). State `academy` is saved; `finishLesson` (+0.4 production knowledge once per lesson) and `finishExam` (+3 once per certificate).
+- VOX cert: +3 on take quality scores in the booth; PRO cert: +4 on printed mix grades (`finishProMix`).
+
+## M6a — Director's Cut
+- `src/world/shootcam.ts`: four shoot angles; shoot clock now wall-time so slow devices still get all four.
+- `src/video/`: `clipstore.ts` (IndexedDB shoots), `edl.ts` (edit list, auto-edit, grading), `render.ts` (frame bank, filters, transitions, text, real-time MediaRecorder export, offline audio).
+- `src/components/studio/DirectorsCut.tsx`: editor (portal). Song.directorCut + `attachDirectorCut`; `directorCutBonus` feeds shootQuality in createMusicVideo and its preview.
+- beat.ts: tone/noiseHit ignore non-finite values (fixes the old AudioParam errors).
+- Known: exported webm has no duration header (some players can't seek); export is real-time; audio not checked by ear.

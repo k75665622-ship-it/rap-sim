@@ -61,7 +61,7 @@ The better you are at the hard tool, the better the music sounds. That gives eve
 Producers and engineers are played by **expert AI characters** until real players take those jobs. AI experts range from cheap beginners to legends; the better they are, the more they cost and the longer they're booked up.
 
 ## M1 — VOX: the booth app
-**Status: M1a done** (cinematic booth design, headphone check, latency calibration, 10 presets incl. R&B/Harmonies, Quick vs Engineer, Auto-mix, scrolling lyrics prompter, per-take quality score with noise check). **Still to do (M1b):** real instrument sample packs (needs royalty-free audio files added), punch-in on one line, separate ad-lib/harmony tracks, de-esser and noise-removal in the chain.
+**Status: M1a done** (cinematic booth design, headphone check, latency calibration, 10 presets incl. R&B/Harmonies, Quick vs Engineer, Auto-mix, scrolling lyrics prompter, per-take quality score with noise check). **M1b done:** punch-in on any bar, ad-lib and harmony layers (folded into the saved vocal), de-esser and noise cleanup in the chain. **Still to do:** real instrument sample packs (needs royalty-free audio files added), a true noise gate, and starting punch-ins mid-song instead of from the top.
 - **Real instrument sounds:** royalty-free drum kits, 808s, keys, guitars and pads replace the beeps the game makes now. This is the single biggest sound upgrade.
 - **Before recording:** a headphones check (no headphones means the beat bleeds into the vocal) and latency calibration so the vocal lands on the beat.
 - **Vocal presets with live effects:**
@@ -85,6 +85,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - Export or share the song (feeds Stage 13 clips).
 
 ## M2 — Expert AI engineers and producers, and the "send it to a pro" workflow
+**Status: M2 done** — the send-to-mix flow already existed; M2 added named tiers (Student/Local/Pro/Legend) with price, days and rounds included shown up front, a specialty style per engineer, late deliveries for cheaper ones, honest feedback when your take is the problem, and de-esser/noise cleanup in their mixes. Still open for later: disputes/refunds, booked-up waiting lists for Legends, and the beat-making side for producers (M4).
 - Hire an AI engineer or producer by tier: Student → Local → Pro → Legend. Each has a price, waiting time, a style, and a revision limit.
 - **They really process your audio:** a mixing chain that runs on the device, tuned by their skill. Better engineers use more precise pitch correction, de-essing, automation, wider stereo and louder masters.
 - The mix comes back with written notes and a before/after comparison. You can request revisions.
@@ -92,6 +93,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - Built so a **real player** can later take the same job and use the same tools (M3).
 
 ## M3 — STUDIO PRO: the mixing desk
+**Status: M3a done** — vocal and beat strips (level, pan, 3-band EQ, compressor, saturation, de-esser, noise cleanup, pitch correction), reverb/delay sends, mastering, A/B compare, a real loudness/peak measurement and a mix grade; printing sets the record's sound and lifts or hurts its quality. **Still to do (M3b):** true multitrack (separate ad-lib/harmony/double tracks, instead of folded into one vocal), automation (volume rides, delay throws), project files you can send to another player, per-track beat stems.
 - A multitrack session: beat stems, lead vocal, doubles, ad-libs, harmonies.
 - **Each track** has volume, pan, EQ, compressor, de-esser, saturation and send effects (reverb, delay).
 - Automation basics (volume rides, a delay throw on the last word), a loudness meter, a mastering chain, A/B comparison.
@@ -99,16 +101,19 @@ Producers and engineers are played by **expert AI characters** until real player
 - Hard by design: a bad mix sounds bad, and a great mix charts better.
 
 ## M4 — STUDIO PRO: making beats
+**Status: M4a done** — Beat maker (Studio home → Make a beat): drum step sequencer on the real kit, 808 and melody piano rolls with slides, chord helper, arrangement timeline, templates (Trap/Boom bap/Afrobeats), live playback, a grade from what's in the beat plus your production skill, WAV and stem export, saved to your library and playable in the booth. **Still to do (M4b):** selling beats (lease/exclusive in coins, then real money via M7), editing a saved beat from the Beats list, sample chopping/uploading, velocity and humanise.
 - **Tools:** step sequencer, piano roll, sampler with real drum kits, 808 slides, chord helper, arrangement timeline (intro, hook, verse, bridge, outro).
 - **Export** stems for artists.
 - **Sell beats:** lease or exclusive, with in-game coins now and real money later (M7).
 
 ## M5 — The Academy teaches the tools
+**Status: M5a done** — Academy (Studio home, 🎓 Learn in the booth and STUDIO PRO): 9 lessons in two courses (VOX 4, STUDIO PRO 5), each with a hearable on/off demo using the real beat engine and a 3-question quiz; course exams (5/6 to pass) give VOX Certified (+3 on every take score) and PRO Certified (+4 on every mix grade); a keyword tutor answers from the lessons. **Still to do (M5b):** an AI tutor via the AI bridge, lessons on the beat maker and ear training, advanced modules unlocked by certificates, higher rates for certified players (with M7), and grades that build a visible reputation.
 - Interactive lessons inside VOX and STUDIO PRO, for example "Lesson 3: what a compressor does", taught by an AI tutor.
 - Exams; certificates unlock advanced modules and higher rates; your reputation grows with your grades.
 - Players genuinely learn real mixing and production.
 
 ## M6 — DIRECTOR'S CUT: the video editor
+**Status: M6a done** — the street shoot now films 4 camera angles (wide orbit, close-up, low hero, drone; 3s each) and keeps the frames in IndexedDB (last 3 shoots). Director's Cut (opens from the shoot's wrap card, Studio vault, Create video): Auto-edit (12/20/30s, cuts on the beat, genre look, title) and Timeline (angle, length in beats, start, transition, camera push/pull, text per cut; filter, grain, cinema bars, title, end card; your vocal or the beat, start bar). Renders to a .webm/.mp4 in real time. A director's grade (auto ≈ 74, careful hand-cut 90+) is attached to the song and lifts the next music video's quality by up to +8. **Still to do (M6b):** more angles/locations, sections-aware cutting, stickers/lyrics captions, export at higher quality, editing real phone footage (needs moderation), and a lesson in the Academy.
 - Edit clips shot in the game: camera angles, cuts on the beat, filters, text, transitions. The game renders the finished video.
 - **Two levels:**
   - **Auto-edit:** one tap, decent result.

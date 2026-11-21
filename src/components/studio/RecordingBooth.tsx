@@ -14,8 +14,10 @@ import { BeatPlayer, beatSpecFor, STYLE_LABEL, LEAD_LABEL, type BeatSpec } from 
 import { saveTake, loadTake, scoreTake, type TakeScore } from '../../audio/take';
 import { calibrationNudge, setupSeen, type Calibration } from '../../audio/calibrate';
 import { BoothSetup } from './BoothSetup';
+import { Academy } from './Academy';
+import { splice, alignLayer, bake, toWav, LAYER_KINDS, type LayerKind } from '../../audio/takeedit';
 import { stopPreview } from '../../audio/preview';
-import { DEFAULT_FX, FX_PRESETS, withPreset, suggestedPreset, playMix, renderSong, downloadBlob, createBus, prepareVocal, type Mix, type Prepared } from '../../audio/vocalfx';
+import { levelFor, DEFAULT_FX, FX_PRESETS, withPreset, suggestedPreset, playMix, renderSong, downloadBlob, createBus, prepareVocal, type Mix, type Prepared } from '../../audio/vocalfx';
 import { BarStrip } from './BarStrip';
 import { houseBeats, beatGrade, type OwnedBeat } from '../../sim/beats';
 import { MOODS } from '../../sim/studio';
@@ -25,7 +27,8 @@ import { cn } from '@/utils/cn';
 
 const MAX_SECONDS = 90;
 const KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-type Take = { id: number; blob: Blob; url: string; seconds: number; lead: number; sc?: TakeScore };
+type Take = { id: number; blob: Blob; url: string; seconds: number; lead: number; sc?: TakeScore; layers?: { kind: LayerKind; blob: Blob }[] };
+type Pass = { kind: 'take' | 'punch' | LayerKind; target?: Take; bar?: number };
 const tier = (n: number) => (n >= 80 ? 'Studio ready' : n >= 60 ? 'Solid' : n >= 40 ? 'Rough' : 'Redo');
 const MODE_KEY = 'rl_vox_mode';
 
@@ -94,6 +97,8 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const [tuning, setTuning] = useState<number | null>(null);
   const [playBar, setPlayBar] = useState<number | null>(null);
   const [more, setMore] = useState(false);
+  const [learn, setLearn] = useState(false);
+  const voxCert = useGameStore((s) => !!s.academy?.certs?.vox);
   const [engineer, setEngineer] = useState(() => { try { return localStorage.getItem(MODE_KEY) === 'engineer'; } catch { return false; } });
   const [setup, setSetup] = useState(() => fresh && !setupSeen());
   const pickMode = (e: boolean) => { setEngineer(e); try { localStorage.setItem(MODE_KEY, e ? 'engineer' : 'quick'); } catch { /* ignore */ } };
@@ -118,6 +123,9 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const tickRef = useRef<number | null>(null);
   const startRef = useRef(0);
   const decoded = useRef(new WeakMap<Blob, AudioBuffer>());
+  const monitorRef = useRef<AudioBufferSourceNode | null>(null);
+  const [recKind, setRecKind] = useState<'take' | 'punch' | LayerKind>('take');
+  const [punch, setPunch] = useState<{ id: number; bar: number } | null>(null);
 
   useEffect(() => { let on = true; if (!fresh && songId) loadTake(songId).then((b) => { if (on) setSaved(b); }); return () => { on = false; }; }, [songId, fresh]);
   useEffect(() => {
@@ -145,16 +153,21 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     return buf;
   }
   /** The take as it should sound: tuned into the beat's key, and a harmony for the hook if asked. */
-  async function ready(blob: Blob): Promise<Prepared> {
+  async function ready(blob: Blob, layers?: Take['layers']): Promise<Prepared> {
     const buf = await decode(blob);
     const slow = (fx.tune ?? 0) > 0 || ((fx.harmony ?? 0) > 0 && hookBars.length > 0);
     if (slow) setTuning(0);
-    try { return await prepareVocal(ctx(), buf, fx, { root: spec!.root, major: spec!.major }, hookBars, (p) => setTuning(p)); }
+    try {
+      const v = await prepareVocal(ctx(), buf, fx, { root: spec!.root, major: spec!.major }, hookBars, (p) => setTuning(p));
+      if (layers?.length) v.layers = await Promise.all(layers.map(async (l) => { const b = await decode(l.blob); return { buf: b, gain: LAYER_KINDS[l.kind].gain * (levelFor(b) / Math.max(1e-6, v.gain)) }; }));
+      return v;
+    }
     finally { setTuning(null); }
   }
   function stopAll() {
     beatRef.current?.stop(); beatRef.current = null;
     mixRef.current?.stop(); mixRef.current = null;
+    try { monitorRef.current?.stop(); } catch { /* ended */ } monitorRef.current = null;
     if (recRef.current && recRef.current.state !== 'inactive') recRef.current.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null;
     if (tickRef.current !== null) cancelAnimationFrame(tickRef.current); tickRef.current = null;
@@ -174,6 +187,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     let next = withPreset(fx, suggested);
     if (sc) {
       next = { ...next, voice: sc.presence < 45 ? 1.25 : sc.presence > 90 ? 0.95 : 1.1, punch: Math.min(100, next.punch + (sc.energy < 55 ? 15 : 0)) };
+      if ((sc.clean ?? 100) < 60) next = { ...next, denoise: Math.min(100, 70 + (60 - (sc.clean ?? 0)) / 2) };
       if ((sc.clean ?? 100) < 45) next = { ...next, reverb: Math.max(0, next.reverb - 12), echo: Math.max(0, next.echo - 8), grit: Math.max(0, next.grit - 10) };
     }
     change(next);
@@ -211,9 +225,11 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     setPreviewing(key);
     setMode('preview');
   }
-  async function record() {
+  /** One trip into the booth: a fresh take, a punch-in on part of a take, or an ad-lib / harmony layer over a take. */
+  async function record(pass: Pass = { kind: 'take' }) {
     if (!spec) return;
-    if (takes.length >= 3) { setMsg('Three takes max — delete one first.'); return; }
+    const target = pass.target;
+    if (pass.kind === 'take' && takes.length >= 3) { setMsg('Three takes max — delete one first.'); return; }
     stopAll();
     setMsg(null);
     let stream: MediaStream;
@@ -231,33 +247,64 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     const mime = pickMime();
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     const chunks: BlobPart[] = [];
-    // One bar of beat to find the pocket, then you're on.
     const at = c.currentTime + 0.05;
     const bar = barOf(spec);
+    // When, on the beat's clock, the mic opens: after the count-in bar, or at the bar you punch in.
+    const punchAt = pass.kind === 'punch' && target ? target.lead + (pass.bar ?? 0) * bar : null;
+    const openAt = punchAt ?? bar;
     let lead = bar;
     rec.onstart = () => {
-      // Where the recording really starts against the beat, minus what the
-      // speakers and the mic add — so the vocal lines up when you play it back.
       const out = (c as AudioContext & { outputLatency?: number }).outputLatency || c.baseLatency || 0;
       const inLat = (stream.getAudioTracks()[0]?.getSettings() as MediaTrackSettings & { latency?: number })?.latency || 0;
-      lead = Math.max(0, Math.min(bar + 0.6, c.currentTime - at - out - inLat));
+      lead = Math.max(0, Math.min(openAt + 0.6, c.currentTime - at - out - inLat));
     };
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-    rec.onstop = () => {
+    rec.onstop = async () => {
       const blob = new Blob(chunks, { type: rec.mimeType || mime || 'audio/webm' });
       const seconds = Math.min(MAX_SECONDS, Math.round((performance.now() - startRef.current) / 1000));
-      if (seconds >= 3) {
+      if (pass.kind === 'take') {
+        if (seconds < 3) { setMsg('Too short — rap for at least a few seconds.'); return; }
         const id = Date.now();
         setTakes((t) => [...t, { id, blob, url: URL.createObjectURL(blob), seconds, lead }]);
-        // Listen back in the background so every take shows its score before you pick one.
         decode(blob).then((b) => scoreTake(ctx(), b, spec.bpm)).then((sc) => setTakes((t) => t.map((x) => (x.id === id ? { ...x, sc } : x)))).catch(() => {});
+        return;
       }
-      else setMsg('Too short — rap for at least a few seconds.');
+      if (!target || seconds < 1) { setMsg('Too short — nothing was changed.'); return; }
+      try {
+        const old = await decode(target.blob); const neu = await decode(blob);
+        const shift = lead - target.lead;
+        if (pass.kind === 'punch') {
+          const out = toWav(splice(ctx(), old, neu, shift));
+          const fresh = { ...target, blob: out, url: URL.createObjectURL(out), seconds: Math.max(target.seconds, Math.round(seconds + Math.max(0, shift))), sc: undefined };
+          URL.revokeObjectURL(target.url);
+          setTakes((t) => t.map((x) => (x.id === target.id ? fresh : x)));
+          decode(out).then((b) => scoreTake(ctx(), b, spec.bpm)).then((sc) => setTakes((t) => t.map((x) => (x.id === target.id ? { ...x, sc } : x)))).catch(() => {});
+          setMsg(`↻ Punched in from bar ${(pass.bar ?? 0) + 1}. Play the take to hear it.`);
+        } else {
+          const kind = pass.kind;
+          const lay = toWav(alignLayer(ctx(), neu, shift, old.length));
+          setTakes((t) => t.map((x) => (x.id === target.id ? { ...x, layers: [...(x.layers ?? []).filter((l) => l.kind !== kind), { kind, blob: lay }] } : x)));
+          setMsg(`${LAYER_KINDS[kind].emoji} ${LAYER_KINDS[kind].label} added. Play the take to hear it with the beat.`);
+        }
+      } catch { setMsg('Could not add that recording. Try again.'); }
     };
     recRef.current = rec;
     startBeat(at);
+    // Hear what you're recording over: the take itself, until the punch-in point.
+    if (target) {
+      try {
+        const src = c.createBufferSource(); src.buffer = await decode(target.blob);
+        const g = c.createGain(); g.gain.value = Math.min(1.2, levelFor(src.buffer) * 0.8);
+        src.connect(g).connect(bus());
+        src.start(at + Math.max(0, target.lead + fx.nudgeMs / 1000));
+        if (punchAt !== null) src.stop(at + punchAt);
+        monitorRef.current = src;
+      } catch { /* no monitor — you still record */ }
+    }
+    setRecKind(pass.kind);
     setMode('count');
-    window.setTimeout(() => { if (recRef.current !== rec) return; rec.start(); startRef.current = performance.now(); setMode('rec'); }, Math.max(0, (at - c.currentTime + bar) * 1000));
+    window.setTimeout(() => { if (recRef.current !== rec) return; rec.start(); startRef.current = performance.now(); setMode('rec'); }, Math.max(0, (at - c.currentTime + openAt) * 1000));
+    const cap = pass.kind === 'take' || pass.kind === 'punch' ? MAX_SECONDS : Math.max(3, target?.seconds ?? MAX_SECONDS);
     const loop = () => {
       an.getByteTimeDomainData(buf);
       let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
@@ -265,19 +312,19 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
       if (recRef.current?.state === 'recording') {
         const s = (performance.now() - startRef.current) / 1000;
         setElapsed(s);
-        if (s >= MAX_SECONDS) { stopAll(); setMode('idle'); return; }
+        if (s >= cap) { stopAll(); setMode('idle'); return; }
       }
       tickRef.current = requestAnimationFrame(loop);
     };
     tickRef.current = requestAnimationFrame(loop);
   }
   function stop() { stopAll(); setMode('idle'); }
-  async function play(id: string, blob: Blob, lead: number) {
+  async function play(id: string, blob: Blob, lead: number, layers?: Take['layers']) {
     if (playingId === id) { stopAll(); setMode('idle'); return; }
     stopAll(); stopPreview();
     if (!spec) return;
     try {
-      const voice = await ready(blob);
+      const voice = await ready(blob, layers);
       mixRef.current = playMix(ctx(), spec, voice, fx, lead, hookBars, () => { mixRef.current = null; setPlayingId(null); setMode('idle'); });
       setPlayingId(id);
       setMode('play');
@@ -285,24 +332,32 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
       setMsg('Could not play that take. Try recording it again.');
     }
   }
-  async function download(id: string, blob: Blob, lead: number, name: string) {
+  async function download(id: string, blob: Blob, lead: number, name: string, layers?: Take['layers']) {
     if (!spec || rendering) return;
     setRendering(id);
     try {
-      const out = await renderSong(spec, await ready(blob), fx, lead, hookBars);
+      const out = await renderSong(spec, await ready(blob, layers), fx, lead, hookBars);
       downloadBlob(out, `${name}${player?.artistName ? ` - ${player.artistName}` : ''}.wav`);
     } catch {
       setMsg('Could not render the song on this device.');
     }
     setRendering(null);
   }
-  async function useTake(t: Take) {
+  async function useTake(t0: Take) {
     if (!spec) return;
+    let t = t0;
     stopAll(); setMode('idle');
     setMsg('Listening back…');
     try {
+      // Ad-libs and harmonies you laid down are folded into the vocal that gets saved.
+      if (t0.layers?.length) {
+        const main = await decode(t0.blob);
+        const folded = toWav(bake(ctx(), main, await Promise.all(t0.layers.map(async (l) => ({ kind: l.kind, buf: await decode(l.blob) })))));
+        t = { ...t0, blob: folded };
+      }
       const buf = await decode(t.blob);
       const sc = await scoreTake(ctx(), buf, spec.bpm);
+      if (voxCert) sc.score = Math.min(99, sc.score + 3); // VOX Certified
       // How far your words sit from the beat's grid — what an engineer uses to line the vocal up.
       const grid = 60 / spec.bpm / 4;
       let off = (sc.phase + t.lead) % grid; if (off > grid / 2) off -= grid;
@@ -417,6 +472,10 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
               <div className="flex gap-1 mt-1">{(['1/8', '3/16', '1/4'] as const).map((t) => <button key={t} onClick={() => change({ ...fx, echoTime: t, preset: 'custom' })} className={cn('flex-1 h-7 rounded-[8px] border text-[11px]', fx.echoTime === t ? 'border-amber text-amber' : 'border-line text-ink2')}>{t}</button>)}</div>
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <Knob label="De-esser (soften S sounds)" value={fx.deess ?? 0} min={0} max={100} show={(fx.deess ?? 0) === 0 ? 'off' : `${Math.round(fx.deess ?? 0)}`} onChange={(v) => change({ ...fx, deess: v })} />
+            <Knob label="Noise cleanup (rumble & hiss)" value={fx.denoise ?? 0} min={0} max={100} show={(fx.denoise ?? 0) === 0 ? 'off' : `${Math.round(fx.denoise ?? 0)}`} onChange={(v) => change({ ...fx, denoise: v })} />
+          </div>
           <div className="flex gap-4 text-[12px] text-ink2">
             <label className="flex items-center gap-2"><input type="checkbox" checked={fx.double} onChange={(e) => change({ ...fx, double: e.target.checked, preset: 'custom' })} /> Double (wide)</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={fx.lofi} onChange={(e) => change({ ...fx, lofi: e.target.checked, preset: 'custom' })} /> Lo-fi</label>
@@ -438,10 +497,12 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
         <div className="flex items-center justify-between">
           <div><div className="text-[18px] font-bold text-ink">🎙️ {fresh ? 'New song' : 'Recording booth'}</div><div className="text-[11px] text-ink3">{fresh ? 'Pick a beat, hit record, keep your best take. Writing is optional.' : 'Rap over the beat for real — up to 1:30.'}</div></div>
           <div className="flex items-center gap-2">
+            <button onClick={() => setLearn(true)} className="h-9 px-3 rounded-full border border-line text-ink2 text-[11px]" aria-label="Open the Academy">🎓 Learn</button>
             <button onClick={() => setSetup((v) => !v)} className="h-9 px-3 rounded-full border border-line text-ink2 text-[11px]" aria-label="Headphones and timing setup">🎧 Setup</button>
             <button onClick={close} className="w-9 h-9 rounded-full border border-line text-ink2" aria-label="Close">✕</button>
           </div>
         </div>
+        {learn && <Academy onClose={() => setLearn(false)} openLesson="vox-1" />}
         {setup && <BoothSetup getCtx={ctx} onChange={(c: Calibration | null) => { const n = c && c.ms >= 60 ? -Math.min(300, Math.round(c.ms / 10) * 10) : 0; change({ ...fx, nudgeMs: n }, false); }} onClose={() => setSetup(false)} />}
 
         {fresh ? (
@@ -497,11 +558,11 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
               <div className="studio-level"><span style={{ width: `${Math.round(level * 100)}%`, transition: 'width 75ms' }} /></div>
               {live && <div className="studio-wave text-fall" aria-hidden>{Array.from({ length: 28 }, (_, i) => <i key={i} style={{ height: `${10 + Math.round(level * 44 * (0.35 + 0.65 * Math.abs(Math.sin(i * 1.7))))}px`, animationDuration: `${700 + (i % 5) * 90}ms` }} />)}</div>}
               {mode === 'rec' && prompter}
-              {mode === 'count' && <div className="text-[13px] text-amber font-semibold">Find the pocket… you're on after this bar</div>}
+              {mode === 'count' && <div className="text-[13px] text-amber font-semibold">{recKind === 'punch' ? 'Beat rolling — your take plays, you take over at the bar…' : recKind === 'take' ? "Find the pocket… you're on after this bar" : 'Listen to your take, then add the layer…'}</div>}
               {live
                 ? <button onClick={stop} className="studio-record-button mx-auto text-white font-bold text-[13px]">■ Stop</button>
-                : <button onClick={record} aria-label="Record a take" className="studio-record-button mx-auto flex-col text-white font-bold disabled:opacity-40"><span className="text-[22px] leading-none">●</span><span className="text-[11px] mt-1">REC</span></button>}
-              <div className="text-[11px] text-ink3">{live ? 'Recording…' : `Take ${Math.min(3, takes.length + 1)} of 3`}</div>
+                : <button onClick={() => record()} aria-label="Record a take" className="studio-record-button mx-auto flex-col text-white font-bold disabled:opacity-40"><span className="text-[22px] leading-none">●</span><span className="text-[11px] mt-1">REC</span></button>}
+              <div className="text-[11px] text-ink3">{live ? (recKind === 'punch' ? 'Punching in…' : recKind === 'take' ? 'Recording…' : `Recording ${LAYER_KINDS[recKind].label.toLowerCase()}…`) : `Take ${Math.min(3, takes.length + 1)} of 3`}</div>
             </div>
             {takes.length > 0 && (
               <div className="space-y-2">
@@ -509,8 +570,8 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
                   <div key={t.id} className="rounded-[12px] border border-line px-3 py-2 space-y-1.5">
                    <div className="flex items-center gap-1.5">
                     <span className="text-[12px] text-ink font-semibold">Take {i + 1}</span><span className="text-[11px] text-ink3">{t.seconds}s</span>
-                    <button onClick={() => play(String(t.id), t.blob, t.lead)} disabled={live} className={cn('ml-auto h-8 px-3 rounded-full border text-[12px] disabled:opacity-40', playingId === String(t.id) ? 'border-amber bg-amber text-black' : 'border-line text-ink2')}>{playingId === String(t.id) ? '■ Stop' : '▶ Play'}</button>
-                    <button onClick={() => download(String(t.id), t.blob, t.lead, `${songName} (take ${i + 1})`)} disabled={live || !!rendering} title="Download this take with the beat" aria-label="Download take" className="h-8 w-8 rounded-full border border-line text-ink2 text-[12px] disabled:opacity-40">{rendering === String(t.id) ? '…' : '⬇'}</button>
+                    <button onClick={() => play(String(t.id), t.blob, t.lead, t.layers)} disabled={live} className={cn('ml-auto h-8 px-3 rounded-full border text-[12px] disabled:opacity-40', playingId === String(t.id) ? 'border-amber bg-amber text-black' : 'border-line text-ink2')}>{playingId === String(t.id) ? '■ Stop' : '▶ Play'}</button>
+                    <button onClick={() => download(String(t.id), t.blob, t.lead, `${songName} (take ${i + 1})`, t.layers)} disabled={live || !!rendering} title="Download this take with the beat" aria-label="Download take" className="h-8 w-8 rounded-full border border-line text-ink2 text-[12px] disabled:opacity-40">{rendering === String(t.id) ? '…' : '⬇'}</button>
                     <button onClick={() => useTake(t)} disabled={live} className="h-8 px-3 rounded-full bg-amber text-black text-[12px] font-bold disabled:opacity-40">{fresh ? '✓ Make it a song' : 'Use it'}</button>
                     <button onClick={() => { if (playingId === String(t.id)) stop(); URL.revokeObjectURL(t.url); setTakes((x) => x.filter((y) => y.id !== t.id)); }} disabled={live} className="h-8 w-8 rounded-full border border-line text-ink3 text-[12px]" aria-label="Delete take">✕</button>
                    </div>
@@ -523,6 +584,23 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
                       {t.sc.clean !== undefined && <span className="studio-chip rounded-full px-2 py-0.5">Room {t.sc.clean >= 60 ? 'quiet' : t.sc.clean >= 35 ? 'some noise' : 'noisy'}</span>}
                     </>) : <span>Listening back…</span>}
                    </div>
+                   <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <button onClick={() => setPunch(punch?.id === t.id ? null : { id: t.id, bar: 0 })} disabled={live} className={cn('h-7 px-2.5 rounded-full border disabled:opacity-40', punch?.id === t.id ? 'border-amber text-amber' : 'border-line text-ink2')}>↻ Punch in</button>
+                    {(['adlib', 'harmony'] as LayerKind[]).map((k) => (
+                      <button key={k} onClick={() => record({ kind: k, target: t })} disabled={live} className="h-7 px-2.5 rounded-full border border-line text-ink2 disabled:opacity-40">{LAYER_KINDS[k].emoji} + {LAYER_KINDS[k].label}</button>
+                    ))}
+                    {(t.layers ?? []).map((l) => <button key={l.kind} onClick={() => setTakes((x) => x.map((y) => (y.id === t.id ? { ...y, layers: (y.layers ?? []).filter((z) => z.kind !== l.kind) } : y)))} disabled={live} className="studio-chip rounded-full px-2 py-0.5 text-[10px] text-ink2" title="Remove this layer">{LAYER_KINDS[l.kind].emoji} {LAYER_KINDS[l.kind].label} ✕</button>)}
+                   </div>
+                   {punch?.id === t.id && spec && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-[10px] border border-amber/40 bg-amber/5 px-2.5 py-2 text-[11px] text-ink2">
+                      <span>Re-record from bar</span>
+                      <button onClick={() => setPunch({ id: t.id, bar: Math.max(0, punch.bar - 1) })} className="w-7 h-7 rounded-full border border-line" aria-label="Earlier bar">−</button>
+                      <span className="num text-ink font-bold w-6 text-center">{punch.bar + 1}</span>
+                      <button onClick={() => setPunch({ id: t.id, bar: Math.min(Math.max(0, Math.ceil(t.seconds / barOf(spec)) - 1), punch.bar + 1) })} className="w-7 h-7 rounded-full border border-line" aria-label="Later bar">+</button>
+                      <button onClick={() => { const p = punch; setPunch(null); record({ kind: 'punch', target: t, bar: p.bar }); }} disabled={live} className="ml-auto h-8 px-3 rounded-full bg-fall text-white font-bold">● Record from here</button>
+                      <span className="basis-full text-ink3">The beat plays from the top and your take plays until that bar — then you take over. Stop when the line is done; the rest of the take stays.</span>
+                    </div>
+                   )}
                   </div>
                 ))}
               </div>

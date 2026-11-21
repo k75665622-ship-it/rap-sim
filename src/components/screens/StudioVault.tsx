@@ -18,8 +18,10 @@
 
 import { ListenButton } from '../studio/Listen';
 import { MixReview } from '../studio/MixReview';
+import { StudioPro } from '../studio/StudioPro';
 import { ArrangeDialog } from '../studio/ArrangeDialog';
 import { useMemo, useState } from 'react';
+import { DirectorsCut } from '../studio/DirectorsCut';
 import { useGameStore, type StudioSessionPayload } from '../../store/gameStore';
 import { Card, Button, Badge } from '../ui/Card';
 import { FeaturePicker, FeatureRequestRow } from '../studio/FeatureShop';
@@ -273,6 +275,8 @@ function VaultRow({
 }) {
   const [arranging, setArranging] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [pro, setPro] = useState(false);
+  const [cutting, setCutting] = useState(false);
   const isArchived = !!song.archivedAt;
   const setScreen = useGameStore((st) => st.setScreen);
   const selectSong = useGameStore((st) => st.selectSong);
@@ -377,6 +381,8 @@ function VaultRow({
             {reviewing && <MixReview songId={song.id} onClose={() => setReviewing(false)} />}
             <Button size="sm" variant="secondary" onClick={() => setArranging(true)}>🎛️ Arrange</Button>
             {arranging && <ArrangeDialog songId={song.id} onClose={() => setArranging(false)} />}
+            {song.boothTake && song.engineerMix?.status !== 'revising' && (!isMixed || song.proMix) && <Button size="sm" variant="secondary" onClick={() => setPro(true)}>{song.proMix ? `🎛️ STUDIO PRO · grade ${song.proMix.grade}` : '🎛️ Mix it in STUDIO PRO'}</Button>}
+            {pro && <StudioPro songId={song.id} onClose={() => setPro(false)} />}
             {isMixed ? (
               <Button size="sm" variant="gold" onClick={onRelease}>
                 🚀 Release
@@ -389,6 +395,10 @@ function VaultRow({
             <Button size="sm" variant="secondary" onClick={() => { selectSong(song.id); setScreen('create_video'); }}>
               {heldVideos.length ? '🎬 Another video' : '🎬 Make a video'}
             </Button>
+            <Button size="sm" variant="secondary" onClick={() => { selectSong(song.id); setCutting(true); }}>
+              ✂️ Director's Cut{song.directorCut ? ` · ${song.directorCut.grade}` : ''}
+            </Button>
+            {cutting && <DirectorsCut onClose={() => setCutting(false)} />}
             {heldVideos.length > 0 && <span className="self-center text-[11px] text-green-400">✓ {heldVideos.length} video{heldVideos.length > 1 ? 's' : ''} shot · goes up with the record, or later from Videos</span>}
             <Button
               size="sm"

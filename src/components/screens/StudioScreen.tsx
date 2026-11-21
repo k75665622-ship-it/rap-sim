@@ -34,6 +34,7 @@ import {
   getSelfProducedBeats,
   producerFee,
   producerPriceBand,
+  mixCraft,
   describeProducerTier,
   describeScore,
   describeSplit,
@@ -67,6 +68,7 @@ import { RecordingBooth } from '../studio/RecordingBooth';
 import { FeaturesPanel } from '../studio/FeaturesPanel';
 import { GENRE_LIST, GENRE_BY_ID, FAMILY_LABEL, type GenreFamily } from '../../data/genres';
 import { RemixDialog } from './RemixDialog';
+import { engineerTier, specialtyOf, STYLE_NAME } from '../../sim/engineerMix';
 import { Segmented } from '../ui/kit';
 import { StudioHome } from '../studio/StudioHome';
 import { BeatsPanel } from '../studio/BeatsPanel';
@@ -2081,6 +2083,9 @@ export function StudioScreen() {
                     </div>
                     <div className="text-xs text-gray-500 truncate">
                       <span className="text-gray-400">{producerPriceBand(p.skill)}</span> · {describeProducerTier(p.skill)}
+                    </div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">
+                      {engineerTier(p.skill).emoji} {engineerTier(p.skill).name} · knows {STYLE_NAME[specialtyOf(p.id)]} · ~{mixCraft("producer", p.skill).days} days · {engineerTier(p.skill).freeRounds} round{engineerTier(p.skill).freeRounds > 1 ? 's' : ''} of notes included{p.skill < 60 ? ' · can run late' : ''}
                     </div>
                   </button>
                 );

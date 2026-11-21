@@ -3,6 +3,7 @@
 // The 3D view. Builds the city once, then every frame: read input, move the
 // player or the car, pose the models, and put the camera behind them.
 
+import { shootCam } from './shootcam';
 import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -369,13 +370,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     if (cam.fov !== fov) { cam.fov = fov; cam.updateProjectionMatrix(); }
     let dist = (driving ? 8.2 + Math.min(4, Math.abs(c.v) * 0.09) : 5.2) * (portrait ? 1.3 : 1);
     if (live.shoot.on) {
-      // Director's camera: a slow swing round you, drifting in and up.
-      live.shoot.t += frameDt;
-      const st = live.shoot.t;
-      const ang = p.rot + 0.6 + st * 0.38;
-      const r = (portrait ? 5.2 : 4.4) - st * 0.18;
-      camera.position.set(p.x + Math.sin(ang) * r, p.y + 1.1 + Math.sin(st * 0.7) * 0.7, p.z + Math.cos(ang) * r);
-      camera.lookAt(p.x, p.y + 1.35, p.z);
+      // Director's camera: four angles, three seconds each (see shootcam.ts).
+      const sc = shootCam(live.shoot.t, p, portrait);
+      camera.position.set(sc.px, sc.py, sc.pz);
+      camera.lookAt(sc.lx, sc.ly, sc.lz);
       dist = -1;
     }
     if (dist > 0) {

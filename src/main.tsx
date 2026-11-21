@@ -2,6 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import "./studio-cinematic.css";
+import { loadKit } from "./audio/kit";
+import { registerPattern } from "./audio/beat";
 import { flushAutosave, flushSideTicks, useGameStore, awardWorld } from "./store/gameStore";
 import * as awardSeasons from "./sim/awardSeasons";
 import * as saves from "./store/saves";
@@ -118,3 +120,14 @@ async function boot() {
 }
 
 void boot();
+
+// Real drum and instrument sounds load quietly in the background.
+(window.requestIdleCallback ?? ((f: () => void) => window.setTimeout(f, 800)))(() => { void loadKit(); });
+
+// Beats you built play exactly as you made them: register their patterns whenever the library changes.
+{
+  let seen: unknown;
+  const sync = () => { const lib = useGameStore.getState().beats?.library; if (lib === seen) return; seen = lib; (lib ?? []).forEach((b) => { if (b.pattern) registerPattern(b.id, b.pattern); }); };
+  sync();
+  useGameStore.subscribe(sync);
+}

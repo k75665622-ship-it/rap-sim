@@ -306,6 +306,7 @@ import {
   npcStyle,
   npcDirectorName,
   shootQuality,
+  directorCutBonus,
   buildInitialVideos,
   commentPage,
   repliesTo,
@@ -377,7 +378,10 @@ import {
   emptyBeats, storeCatalogue, dropInterval, teamBeat, orderQuote, customBeatQuality, takesOrder, beatName, beatGrade, LEASE_PENALTY, houseBeats,
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
-import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL } from '../sim/engineerMix';
+import { scorePattern } from '../sim/beatMaker';
+import { LESSONS, COURSES, lessonsOf, emptyAcademy, examPass, type CourseId } from '../sim/academy';
+import type { CustomPattern } from '../audio/beat';
+import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL, engineerTier, specialtyOf, lateDays } from '../sim/engineerMix';
 import { beatSpecFor } from '../audio/beat';
 import {
   MAX_ENERGY,
@@ -850,6 +854,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         teamChat: (state.teamChat ?? []).slice(-80),
         teamChatUnread: state.teamChatUnread,
         cityMet: state.cityMet,
+        academy: state.academy,
         lastMealAt: state.lastMealAt,
         cityGigDay: state.cityGigDay,
         teamPolicy: state.teamPolicy,
@@ -2252,10 +2257,10 @@ function mixContext(state: GameState, song: Song) {
 function deliverEngineerMix(state: GameState, song: Song, w: MixWork): boolean {
   const skill = Math.round(w.skill ?? 50);
   const cx = mixContext(state, song);
-  const m = engineerMix({ ...cx, skill, seed: `${song.id}|${w.producerId}` });
+  const m = engineerMix({ ...cx, skill, seed: `${song.id}|${w.producerId}`, specialty: specialtyOf(w.producerId), takeScore: song.boothTake?.score });
   song.engineerMix = {
     npcId: w.producerId, by: w.producerName, role: w.role ?? 'producer', skill, fx: m.fx, notes: m.notes, rough: { ...cx.rough },
-    round: 1, freeRounds: skill >= 70 ? 3 : 2, status: 'review', history: [],
+    round: 1, freeRounds: engineerTier(skill).freeRounds, status: 'review', history: [],
   } satisfies EngineerMix;
   if (state.npcs.some((n) => n.id === w.producerId)) {
     pushDM(state, w.producerId, { fromPlayer: false, content: `Here's the mix of "${song.title}" 🎚️\n• ${m.notes.join('\n• ')}\nListen and tell me what you think — notes are part of the job.`, attachedSongId: song.id, attachedTitle: song.title });
@@ -3403,6 +3408,15 @@ interface GameActions {
   setHookBars: (songId: string, bars: number[]) => FeatureActionResult;
   /** Sign off on the mix that came back. */
   approveMix: (songId: string) => FeatureActionResult;
+  /** Record a lesson quiz result (score out of 3; 2 passes). */
+  finishLesson: (lessonId: string, score: number) => FeatureActionResult;
+  /** Record a course exam; passing earns the certificate. */
+  finishExam: (course: CourseId, score: number, total: number) => FeatureActionResult;
+  /** Save a beat you made (or update one you made and haven't used yet). */
+  makeBeat: (o: { id?: string; name: string; genre: Genre; mood: SongMood; pattern: CustomPattern }) => FeatureActionResult & { beatId?: string };
+  /** Print a mix you made yourself on the STUDIO PRO desk. How well it measured decides what it does for the record. */
+  finishProMix: (songId: string, fx: VocalFx, report: { grade: number; loudness: number; peak: number }) => FeatureActionResult;
+  attachDirectorCut: (songId: string, grade: number, seconds: number, auto: boolean) => FeatureActionResult;
   /** Keep your own rough mix instead. */
   keepRoughMix: (songId: string) => FeatureActionResult;
   /** Send notes on the mix. */
@@ -10934,7 +10948,8 @@ export const useGameStore = create<GameState & GameActions>()(
           ? undefined
           : Math.max(1, Math.min(100, Math.round(song.criticalPotential * ratio)));
 
-        const daysTotal = craft.days;
+        const late = deal ? 0 : lateDays(skill, `${song.id}|${producer.id}`);
+        const daysTotal = craft.days + late;
         const startSerial = dateToSerial(state.gameDate);
 
         const gain = productionAfter - productionBefore;
@@ -10973,7 +10988,7 @@ export const useGameStore = create<GameState & GameActions>()(
         });
 
         state.lastEventLog.unshift(
-          `🎚️ ${producer.name} took "${song.title}" away to mix — ${daysTotal} days, $${cost.toLocaleString()}.`,
+          `🎚️ ${producer.name} took "${song.title}" away to mix — ${daysTotal} days, $${cost.toLocaleString()}.${late ? ` (They warned it'll run ${late} day${late > 1 ? 's' : ''} late.)` : ''}`,
         );
         state.lastEventLog = state.lastEventLog.slice(0, 10);
 
@@ -13571,7 +13586,7 @@ export const useGameStore = create<GameState & GameActions>()(
           budget,
           songQuality: song.quality,
           seed,
-          crewBonus: crewBonuses(raw(state.crew) as CrewMember[]).videoBonus,
+          crewBonus: crewBonuses(raw(state.crew) as CrewMember[]).videoBonus + directorCutBonus(song),
           cameoBonus,
         });
 
@@ -16779,6 +16794,97 @@ export const useGameStore = create<GameState & GameActions>()(
           pushDM(state, m.npcId, { fromPlayer: false, content: pick3(['Let\'s gooo 🔥 Glad you love it.', 'Appreciate you. That one\'s going to knock 🙏🏾', 'Love to hear it. Send the next one 🎚️'], song.id) });
         }
         result = { ok: true, message: `Mix approved. ${fit >= 75 ? 'It sits exactly right for the record.' : fit >= 55 ? 'It works for the record.' : 'Some of it fights the record — people may hear that.'}` };
+      });
+      return result;
+    },
+
+    finishLesson: (lessonId, score) => {
+      let result: FeatureActionResult = { ok: false, message: 'Unknown lesson.' };
+      set((state) => {
+        const lesson = LESSONS.find((l) => l.id === lessonId);
+        if (!lesson || !state.player) return;
+        const ac = state.academy ?? (state.academy = emptyAcademy());
+        const prev = ac.lessons[lessonId];
+        const passed = score >= 2;
+        if (!passed) { result = { ok: false, message: `${score}/3 — not quite. Read the lesson again and retry.` }; return; }
+        if (!prev) state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + 0.4);
+        ac.lessons[lessonId] = { best: Math.max(prev?.best ?? 0, score), at: prev?.at ?? dateToSerial(state.gameDate) };
+        result = { ok: true, message: `${score}/3 — lesson passed${prev ? '' : ' (+0.4 production knowledge)'}.` };
+      });
+      return result;
+    },
+
+    finishExam: (course, score, total) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not record the exam.' };
+      set((state) => {
+        if (!state.player) return;
+        const ac = state.academy ?? (state.academy = emptyAcademy());
+        const need = lessonsOf(course).every((l) => ac.lessons[l.id]);
+        if (!need) { result = { ok: false, message: 'Pass every lesson in the course first.' }; return; }
+        if (score / total < examPass) { result = { ok: false, message: `${score}/${total} — you need ${Math.ceil(total * examPass)} to pass. Review the lessons and sit it again.` }; return; }
+        const first = !ac.certs[course];
+        const old = ac.certs[course];
+        if (!old || score / total > old.score / old.total) ac.certs[course] = { score, total, at: dateToSerial(state.gameDate) };
+        if (first) state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + 3);
+        result = { ok: true, message: first ? `${score}/${total} — certified! ${COURSES.find((c) => c.id === course)?.reward}` : `${score}/${total} — certificate kept${old && score / total > old.score / old.total ? ' (new best score)' : ''}.` };
+      });
+      return result;
+    },
+
+    makeBeat: (o) => {
+      let result: FeatureActionResult & { beatId?: string } = { ok: false, message: 'Start a career first.' };
+      set((state) => {
+        if (!state.player) return;
+        if (!state.beats || !Array.isArray(state.beats.library)) state.beats = emptyBeats();
+        const lib = state.beats.library;
+        const existing = o.id ? lib.find((b) => b.id === o.id && b.source === 'made') : undefined;
+        if (existing?.usedOnSongId) { result = { ok: false, message: 'That beat is already on a record — save it as a new beat instead.' }; return; }
+        const hasSound = o.pattern.drums.kick.length + o.pattern.drums.snare.length + o.pattern.drums.clap.length + o.pattern.bass.length + o.pattern.melody.length > 0;
+        if (!hasSound) { result = { ok: false, message: 'Put some sounds in it first.' }; return; }
+        const { quality, notes } = scorePattern(o.pattern, state.player.stats.productionKnowledge ?? 0);
+        if (!existing && !spendEnergy(state, 12)) { result = { ok: false, message: 'Too tired to make a beat — rest first.' }; return; }
+        const bpm = Math.round(o.pattern.bpm);
+        const name = o.name.trim().slice(0, 40) || 'Untitled beat';
+        if (existing) { existing.pattern = o.pattern; existing.quality = quality; existing.name = name; existing.bpm = bpm; existing.genre = o.genre; existing.mood = o.mood; }
+        else lib.unshift({ id: uuidv4(), name, quality, genre: o.genre, bpm, mood: o.mood, producerName: state.player.artistName, source: 'made', license: 'inhouse', acquiredSerial: dateToSerial(state.gameDate), pattern: o.pattern });
+        const id = existing?.id ?? lib[0].id;
+        // Making beats is how you learn to make beats.
+        if (!existing) state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (quality >= 60 ? 0.8 : 0.3));
+        result = { ok: true, beatId: id, message: `${quality >= 75 ? 'That one knocks.' : quality >= 55 ? 'Solid beat.' : 'It is a start.'} "${name}" is in your library — grade ${quality}.${notes.length ? ' Notes: ' + notes.join(' ') : ''}` };
+      });
+      return result;
+    },
+
+    finishProMix: (songId, fx, report) => {
+      let result: FeatureActionResult = { ok: false, message: 'That record is not on your desk.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId);
+        if (!song || !state.player || song.archivedAt) return;
+        if (song.masterStatus !== 'recorded' && !song.proMix) { result = { ok: false, message: 'Only a rough record can be mixed here.' }; return; }
+        if (!song.proMix && !spendEnergy(state, ENERGY_COSTS.mixMaster)) { result = { ok: false, message: 'Too tired to sit at the desk — rest first.' }; return; }
+        // A great hand-made mix lifts the record; a sloppy one hurts it. Re-printing swaps the old effect for the new one.
+        const grade = Math.min(100, report.grade + (state.academy?.certs?.pro ? 4 : 0));
+        const delta = Math.max(-3, Math.min(3.5, Math.round((grade - 55) * 7) / 100));
+        const before = song.proMix?.delta ?? 0;
+        song.quality = Math.max(1, Math.min(99, Math.round((song.quality - before + delta) * 10) / 10));
+        song.proMix = { grade, delta, loudness: report.loudness, peak: report.peak };
+        song.vocalFx = { ...fx, preset: 'custom' };
+        song.masterStatus = 'mastered';
+        state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (report.grade >= 70 ? 0.6 : 0.2));
+        result = { ok: true, message: report.grade >= 80 ? `Printed. That mix is radio-ready — "${song.title}" got a real lift.` : report.grade >= 60 ? `Printed. A solid mix — "${song.title}" is ready to release.` : `Printed — but the mix is rough, and it shows. A pro engineer would do better.` };
+      });
+      return result;
+    },
+
+    attachDirectorCut: (songId, grade, seconds, auto) => {
+      let result: FeatureActionResult = { ok: false, message: 'That record is not on your desk.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId);
+        if (!song || !state.player) return;
+        song.directorCut = { grade: Math.max(0, Math.min(100, Math.round(grade))), seconds: Math.round(seconds), auto };
+        const b = directorCutBonus(song);
+        state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (grade >= 75 && !auto ? 0.5 : 0.15));
+        result = { ok: true, message: b > 0 ? `Cut attached to "${song.title}" — your next music video for it shoots +${b} better.` : `Cut attached to "${song.title}", but it is not strong enough to lift the video.` };
       });
       return result;
     },

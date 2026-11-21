@@ -10,6 +10,7 @@ import type { GameScreen } from '../../types/game';
 import { energyColor, energyLabel, needsRest, restRefusal, restOutcomeLine, REST_OPTIONS } from '../../sim/energy';
 import { crewBonuses } from '../../sim/roles';
 import { money } from '@/utils/format';
+import { MISSIONS, dailyDef, progress, metricsOf, isUnlocked } from '../../sim/goals';
 import { GameClock } from './GameClock';
 import { goBack, useCanGoBack } from './nav';
 import { Portrait } from '../avatar/Portrait';
@@ -88,8 +89,16 @@ export function Sidebar() {
   const courtAlerts = (cases ?? []).filter((c) => (c.side === 'defendant' && c.status === 'served') || c.offers.some((o) => o.status === 'open' && o.from === 'them')).length;
   const rentDue = useGameStore((s) => (s.home?.due ? 1 : 0));
 
+  const goals = useGameStore((s) => s.goals);
+  const setShowAll = useGameStore((s) => s.setShowAll);
+  const songsN = useGameStore((s) => s.songs);
+  useGameStore((s) => s.player?.career.totalEarnings); useGameStore((s) => s.player?.career.money);
+  const gm = metricsOf(useGameStore.getState(), goals);
+  const claimable = goals ? goals.daily.filter((d) => !d.claimed && dailyDef(d.id) && progress(dailyDef(d.id)!, gm, goals.base) >= dailyDef(d.id)!.target).length + (goals.legacy ? 0 : MISSIONS.filter((x) => !goals.claimed[x.id] && x.done(gm, goals)).length) : 0;
+  void songsN;
+
   const navItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: <IconHome />, group: 'main' },
+    { id: 'dashboard', label: 'Dashboard', icon: <IconHome />, badge: claimable, group: 'main' },
     // Free roam: walk and drive round town; doors open the screens below.
     { id: 'city', label: 'Go Outside', icon: <IconMap />, group: 'main' },
     { id: 'studio', label: 'Studio', icon: <IconMic />, group: 'main' },
@@ -194,7 +203,7 @@ export function Sidebar() {
 
       <nav className="flex-1 py-2 overflow-y-auto">
         {groups.map((group) => {
-          const items = navItems.filter((i) => i.group === group.id);
+          const items = navItems.filter((i) => i.group === group.id && isUnlocked(i.id, useGameStore.getState(), goals, gm));
           if (items.length === 0) return null;
           return (
             <div key={group.id} className="mb-2">
@@ -232,6 +241,11 @@ export function Sidebar() {
             </div>
           );
         })}
+        {goals && !goals.legacy ? (
+          <button onClick={() => setShowAll(!goals.showAll)} className="mx-4 my-2 text-[11px] text-ink3 hover:text-ink underline" data-testid="show-all">
+            {goals.showAll ? 'Simplify the menu' : 'Show every menu'}
+          </button>
+        ) : null}
       </nav>
 
       {player ? (

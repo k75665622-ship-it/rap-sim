@@ -379,6 +379,7 @@ import {
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
 import { scorePattern } from '../sim/beatMaker';
+import { MISSIONS, STREAK_REWARDS, emptyGoals, metricsOf, pickDaily, pickWeekly, dailyDef, weeklyDef, progress } from '../sim/goals';
 import { LESSONS, COURSES, lessonsOf, emptyAcademy, examPass, type CourseId } from '../sim/academy';
 import type { CustomPattern } from '../audio/beat';
 import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL, engineerTier, specialtyOf, lateDays } from '../sim/engineerMix';
@@ -855,6 +856,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         teamChatUnread: state.teamChatUnread,
         cityMet: state.cityMet,
         academy: state.academy,
+        goals: state.goals,
         lastMealAt: state.lastMealAt,
         cityGigDay: state.cityGigDay,
         teamPolicy: state.teamPolicy,
@@ -3417,6 +3419,12 @@ interface GameActions {
   /** Print a mix you made yourself on the STUDIO PRO desk. How well it measured decides what it does for the record. */
   finishProMix: (songId: string, fx: VocalFx, report: { grade: number; loudness: number; peak: number }) => FeatureActionResult;
   attachDirectorCut: (songId: string, grade: number, seconds: number, auto: boolean) => FeatureActionResult;
+  /** Roll the day, record visits, and keep goals up to date. Safe to call often. */
+  syncGoals: () => void;
+  goalEvent: (kind: string, n?: number) => void;
+  claimGoal: (kind: 'mission' | 'daily' | 'weekly', id: string) => FeatureActionResult;
+  setShowAll: (on: boolean) => void;
+  seeUnlocks: (ids: string[]) => void;
   /** Keep your own rough mix instead. */
   keepRoughMix: (songId: string) => FeatureActionResult;
   /** Send notes on the mix. */
@@ -10686,6 +10694,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
         // Backstop. The UI explains the shortfall; this prevents a bypass.
         if (state.player.career.money < cost) return;
+        if (state.goals) state.goals.counters.training = (state.goals.counters.training ?? 0) + 1;
         // A session is a physical day's work. Out of energy, no session.
         if (!spendEnergy(state, sessionEnergy(payload.effort))) return;
 
@@ -13912,6 +13921,7 @@ export const useGameStore = create<GameState & GameActions>()(
       set((state) => {
         const p = state.player;
         if (!p) return;
+        if (state.goals) state.goals.counters.gigs = (state.goals.counters.gigs ?? 0) + 1;
         const today = dateToSerial(state.gameDate);
         if (state.cityGigDay === today) { result = { ok: false, message: "You've already played the open mic today." }; return; }
         if (p.energy < 15) { result = { ok: false, message: 'Too tired to perform.' }; return; }
@@ -16888,6 +16898,71 @@ export const useGameStore = create<GameState & GameActions>()(
       });
       return result;
     },
+
+    syncGoals: () => {
+      set((state) => {
+        if (!state.player || state.screen === 'splash' || state.screen === 'welcome' || state.screen === 'create_artist') return;
+        const today = dateToSerial(state.gameDate);
+        let g = state.goals;
+        if (!g) {
+          const legacy0 = metricsOf(state);
+          const legacy = legacy0.songs > 0 || legacy0.videos > 0 || legacy0.beats > 0;
+          g = state.goals = emptyGoals(legacy, today, legacy0);
+        }
+        g.visited[state.screen] = true;
+        const m = metricsOf(state, g);
+        if (g.day !== today) {
+          g.day = today; g.base = m; g.daily = pickDaily(today, m).map((id) => ({ id }));
+        }
+        const wk = Math.floor(today / 7);
+        if (Math.floor(g.weekStart / 7) !== wk || g.weekStart > today) { g.weekStart = today; g.weekBase = m; g.weekly = { id: pickWeekly(wk, m) }; }
+      });
+    },
+
+    goalEvent: (kind, n = 1) => {
+      set((state) => {
+        if (!state.goals) return;
+        state.goals.counters[kind] = (state.goals.counters[kind] ?? 0) + n;
+      });
+    },
+
+    claimGoal: (kind, id) => {
+      let result: FeatureActionResult = { ok: false, message: 'Nothing to claim.' };
+      set((state) => {
+        const g = state.goals; const p = state.player;
+        if (!g || !p) return;
+        const m = metricsOf(state, g);
+        let reward = 0; let label = '';
+        if (kind === 'mission') {
+          const mi = MISSIONS.find((x) => x.id === id);
+          if (!mi || g.claimed[id] || !mi.done(m, g)) return;
+          g.claimed[id] = true; reward = mi.reward; label = mi.title;
+        } else if (kind === 'daily') {
+          const slot = g.daily.find((x) => x.id === id); const def = dailyDef(id);
+          if (!slot || !def || slot.claimed || progress(def, m, g.base) < def.target) return;
+          slot.claimed = true; reward = def.reward; label = def.text;
+          // Two of three makes it a "done" day. Missing a day or two keeps the streak; a long gap halves it.
+          if (g.daily.filter((x) => x.claimed).length >= 2 && g.lastDone !== g.day) {
+            const gap = g.day - g.lastDone;
+            g.streak = gap <= 2 ? g.streak + 1 : Math.floor(g.streak / 2) + 1;
+            g.best = Math.max(g.best, g.streak); g.lastDone = g.day;
+            const bonus = STREAK_REWARDS[g.streak];
+            if (bonus) { reward += bonus; label += ` · ${g.streak}-day streak bonus!`; }
+          }
+        } else {
+          const def = weeklyDef(g.weekly.id);
+          if (!def || g.weekly.claimed || progress(def, m, g.weekBase) < def.target) return;
+          g.weekly.claimed = true; reward = def.reward; label = def.text;
+        }
+        p.career.money += reward;
+        p.career.totalEarnings = (p.career.totalEarnings ?? 0) + reward;
+        result = { ok: true, message: `+$${reward.toLocaleString()} — ${label}` };
+      });
+      return result;
+    },
+
+    setShowAll: (on) => set((state) => { if (state.goals) state.goals.showAll = on; }),
+    seeUnlocks: (ids) => set((state) => { if (state.goals) state.goals.seenUnlocks = Array.from(new Set([...state.goals.seenUnlocks, ...ids])); }),
 
     keepRoughMix: (songId) => {
       let result: FeatureActionResult = { ok: false, message: 'There is no mix to turn down.' };

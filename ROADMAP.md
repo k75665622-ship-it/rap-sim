@@ -158,6 +158,7 @@ Producers and engineers are played by **expert AI characters** until real player
 # PHASE A — Great on your own (single player, offline)
 
 ## Stage 6 — The first 15 minutes + reasons to come back
+**Status: 6a done** — 10-step "first steps" mission chain on the Dashboard (step outside → Mama's Kitchen → record → release → 100 fans → shoot → charts/rival → beat → mix → Director's Cut), 3 daily goals + 1 weekly goal (pools filtered by what's possible for you), streak that survives a 1–2 day gap and only halves after longer, streak bonuses at 3/7/14/30; progressive sidebar unlocks (Tax, Courthouse, My Label, Money, Awards, social apps, etc. appear as the career needs them; "Show every menu" toggle; older saves keep everything); local analytics ring buffer (`window.__rapAnalytics.summary()`). **Still to do (6b):** districts that unlock with career growth, city-placed missions (deliver a beat, park rap battle, landmark shoot), a scripted guided opening/first rival, the first-5-minutes "wow" polish, optional upload of analytics.
 - Guided opening: create your character, then in the first 15 minutes you get a first win in your chosen path, a first fan or client, and a first rival.
 - **Progressive unlocks:** the deep menus (tax, court, label, markets) stay hidden until your career needs them.
 - **City missions:** deliver a beat, a rap battle in the park, a shoot at a landmark, a meeting at Mama's Kitchen.

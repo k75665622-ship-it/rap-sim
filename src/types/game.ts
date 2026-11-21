@@ -2655,6 +2655,8 @@ export interface GameState {
   cityMet?: Record<string, number>;
   /** The Academy: lessons passed (best score out of 3) and certificates earned. */
   academy?: import('../sim/academy').AcademyState;
+  /** Missions, daily goals and what the menu shows (Stage 6). */
+  goals?: import('../sim/goals').GoalsState;
   /** The city: when you last ate at Mama's Kitchen (absolute game minute). */
   lastMealAt?: number;
   /** The city: day serial of your last open-mic set at The Stage. */

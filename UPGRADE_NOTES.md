@@ -478,3 +478,7 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 
 ## M4a — Beat maker
 - `BeatMaker.tsx` (portal modal), `sim/beatMaker.ts` (templates, chord helper, `scorePattern`), `CustomPattern` + pattern registry in `audio/beat.ts` (registered by beat id from `main.tsx`, so every `beatSpecFor` call plays your pattern), `makeBeat` store action (⚡12, grade, +production knowledge). OwnedBeat has `pattern`, source `'made'`.
+
+## M5a — Academy
+- `sim/academy.ts` (courses, lessons, quizzes, exam pool, tutor), `audio/academyDemo.ts` (effect demos on the real beat engine), `Academy.tsx` (portal modal). State `academy` is saved; `finishLesson` (+0.4 production knowledge once per lesson) and `finishExam` (+3 once per certificate).
+- VOX cert: +3 on take quality scores in the booth; PRO cert: +4 on printed mix grades (`finishProMix`).

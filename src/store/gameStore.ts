@@ -378,6 +378,7 @@ import {
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
 import { scorePattern } from '../sim/beatMaker';
+import { LESSONS, COURSES, lessonsOf, emptyAcademy, examPass, type CourseId } from '../sim/academy';
 import type { CustomPattern } from '../audio/beat';
 import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL, engineerTier, specialtyOf, lateDays } from '../sim/engineerMix';
 import { beatSpecFor } from '../audio/beat';
@@ -852,6 +853,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         teamChat: (state.teamChat ?? []).slice(-80),
         teamChatUnread: state.teamChatUnread,
         cityMet: state.cityMet,
+        academy: state.academy,
         lastMealAt: state.lastMealAt,
         cityGigDay: state.cityGigDay,
         teamPolicy: state.teamPolicy,
@@ -3405,6 +3407,10 @@ interface GameActions {
   setHookBars: (songId: string, bars: number[]) => FeatureActionResult;
   /** Sign off on the mix that came back. */
   approveMix: (songId: string) => FeatureActionResult;
+  /** Record a lesson quiz result (score out of 3; 2 passes). */
+  finishLesson: (lessonId: string, score: number) => FeatureActionResult;
+  /** Record a course exam; passing earns the certificate. */
+  finishExam: (course: CourseId, score: number, total: number) => FeatureActionResult;
   /** Save a beat you made (or update one you made and haven't used yet). */
   makeBeat: (o: { id?: string; name: string; genre: Genre; mood: SongMood; pattern: CustomPattern }) => FeatureActionResult & { beatId?: string };
   /** Print a mix you made yourself on the STUDIO PRO desk. How well it measured decides what it does for the record. */
@@ -16790,6 +16796,39 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
+    finishLesson: (lessonId, score) => {
+      let result: FeatureActionResult = { ok: false, message: 'Unknown lesson.' };
+      set((state) => {
+        const lesson = LESSONS.find((l) => l.id === lessonId);
+        if (!lesson || !state.player) return;
+        const ac = state.academy ?? (state.academy = emptyAcademy());
+        const prev = ac.lessons[lessonId];
+        const passed = score >= 2;
+        if (!passed) { result = { ok: false, message: `${score}/3 — not quite. Read the lesson again and retry.` }; return; }
+        if (!prev) state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + 0.4);
+        ac.lessons[lessonId] = { best: Math.max(prev?.best ?? 0, score), at: prev?.at ?? dateToSerial(state.gameDate) };
+        result = { ok: true, message: `${score}/3 — lesson passed${prev ? '' : ' (+0.4 production knowledge)'}.` };
+      });
+      return result;
+    },
+
+    finishExam: (course, score, total) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not record the exam.' };
+      set((state) => {
+        if (!state.player) return;
+        const ac = state.academy ?? (state.academy = emptyAcademy());
+        const need = lessonsOf(course).every((l) => ac.lessons[l.id]);
+        if (!need) { result = { ok: false, message: 'Pass every lesson in the course first.' }; return; }
+        if (score / total < examPass) { result = { ok: false, message: `${score}/${total} — you need ${Math.ceil(total * examPass)} to pass. Review the lessons and sit it again.` }; return; }
+        const first = !ac.certs[course];
+        const old = ac.certs[course];
+        if (!old || score / total > old.score / old.total) ac.certs[course] = { score, total, at: dateToSerial(state.gameDate) };
+        if (first) state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + 3);
+        result = { ok: true, message: first ? `${score}/${total} — certified! ${COURSES.find((c) => c.id === course)?.reward}` : `${score}/${total} — certificate kept${old && score / total > old.score / old.total ? ' (new best score)' : ''}.` };
+      });
+      return result;
+    },
+
     makeBeat: (o) => {
       let result: FeatureActionResult & { beatId?: string } = { ok: false, message: 'Start a career first.' };
       set((state) => {
@@ -16822,10 +16861,11 @@ export const useGameStore = create<GameState & GameActions>()(
         if (song.masterStatus !== 'recorded' && !song.proMix) { result = { ok: false, message: 'Only a rough record can be mixed here.' }; return; }
         if (!song.proMix && !spendEnergy(state, ENERGY_COSTS.mixMaster)) { result = { ok: false, message: 'Too tired to sit at the desk — rest first.' }; return; }
         // A great hand-made mix lifts the record; a sloppy one hurts it. Re-printing swaps the old effect for the new one.
-        const delta = Math.max(-3, Math.min(3.5, Math.round((report.grade - 55) * 7) / 100));
+        const grade = Math.min(100, report.grade + (state.academy?.certs?.pro ? 4 : 0));
+        const delta = Math.max(-3, Math.min(3.5, Math.round((grade - 55) * 7) / 100));
         const before = song.proMix?.delta ?? 0;
         song.quality = Math.max(1, Math.min(99, Math.round((song.quality - before + delta) * 10) / 10));
-        song.proMix = { grade: report.grade, delta, loudness: report.loudness, peak: report.peak };
+        song.proMix = { grade, delta, loudness: report.loudness, peak: report.peak };
         song.vocalFx = { ...fx, preset: 'custom' };
         song.masterStatus = 'mastered';
         state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (report.grade >= 70 ? 0.6 : 0.2));

@@ -11,6 +11,7 @@ import { ROLE_SPECS } from '../../sim/roles';
 import type { OwnedBeat } from '../../sim/beats';
 import { BeatTile } from './BeatsPanel';
 import { BeatMaker } from './BeatMaker';
+import { Academy } from './Academy';
 
 type Go = 'single' | 'beats' | 'room' | 'vault' | 'album' | 'remix' | 'order' | 'guest';
 
@@ -32,6 +33,8 @@ export function StudioHome({ go, onRecord }: { go: (to: Go) => void; onUseBeat?:
   const inbound = useGameStore((s) => s.inboundRequests);
   const outbound = useGameStore((s) => s.featureRequests);
 
+  const [learning, setLearning] = useState(false);
+  const academy = useGameStore((s) => s.academy);
   const [making, setMaking] = useState<string | true | null>(null);
   const fresh = useMemo(() => (beats?.library ?? []).filter((b) => !b.usedOnSongId).sort((a, b) => b.quality - a.quality).slice(0, 3), [beats]);
   const unmixed = songs.filter((s) => s.masterStatus === 'recorded' && !s.archivedAt).length;
@@ -59,6 +62,11 @@ export function StudioHome({ go, onRecord }: { go: (to: Go) => void; onUseBeat?:
           <button onClick={() => setMaking(true)} className="text-left rounded-[14px] px-5 py-3 border border-line bg-card hover:bg-cardhover transition flex items-center gap-3">
             <span className="text-[20px]">🎹</span>
             <span className="flex-1"><span className="block text-[14px] font-semibold text-ink">Make a beat</span><span className="block text-[11px] text-ink3">Drum sequencer, 808s, melody, chords and arrangement — with real sounds.</span></span>
+            <span className="text-[12px] text-amber font-semibold">Open →</span>
+          </button>
+          <button onClick={() => setLearning(true)} className="text-left rounded-[14px] px-5 py-3 border border-line bg-card hover:bg-cardhover transition flex items-center gap-3">
+            <span className="text-[20px]">🎓</span>
+            <span className="flex-1"><span className="block text-[14px] font-semibold text-ink">The Academy</span><span className="block text-[11px] text-ink3">Learn VOX and STUDIO PRO for real. {academy?.certs?.vox ? '🏅 VOX ' : ''}{academy?.certs?.pro ? '🏅 PRO' : (!academy?.certs?.vox ? 'Certificates make your takes and mixes better.' : '')}</span></span>
             <span className="text-[12px] text-amber font-semibold">Open →</span>
           </button>
           <button onClick={() => go('single')} className="text-left rounded-[14px] px-5 py-3 border border-line bg-card hover:bg-cardhover transition flex items-center gap-3">
@@ -135,6 +143,7 @@ export function StudioHome({ go, onRecord }: { go: (to: Go) => void; onUseBeat?:
           })}
         </div>
       </section>
+      {learning && <Academy onClose={() => setLearning(false)} />}
       {making && <BeatMaker beatId={typeof making === 'string' ? making : undefined} onClose={() => setMaking(null)} onUse={(id) => { setMaking(null); onRecord(id); }} />}
       <p className="text-[10px] text-ink3 leading-snug">Sounds: drum and instrument samples from Freesound.org contributors (CC0), including deadrobotmusic, tboneaudio, TheEndOfACycle, HenKonen, OwlStorm, deLargeBC, James_KuKu, Cloud-10, modularsamples and juancamiloorjuela. Pad: "Pad 002 – Lofi Structure" by Jovica, licensed CC BY 4.0.</p>
     </div>

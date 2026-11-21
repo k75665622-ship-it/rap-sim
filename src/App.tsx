@@ -98,6 +98,7 @@ function Standalone({ children }: { children: React.ReactNode }) {
 startNav();
 
 import { startAnalytics, trackScreen } from './analytics';
+import { StoryHost } from './components/story/StoryHost';
 
 export default function App() {
   const screen = useGameStore((s) => s.screen);
@@ -107,9 +108,11 @@ export default function App() {
   // One interval for the whole app: the world moves whichever page is open.
   useGameClock();
   const syncGoals = useGameStore((s) => s.syncGoals);
+  const storyTick = useGameStore((s) => s.storyTick);
+  const hourKey = useGameStore((s) => Math.floor((s.clockMinute ?? 0) / 60));
   const dayKey = useGameStore((s) => s.gameDate && `${s.gameDate.year}-${s.gameDate.month}-${s.gameDate.day}`);
   useEffect(() => { startAnalytics(); }, []);
-  useEffect(() => { trackScreen(screen); if (player) syncGoals(); }, [screen, dayKey, player?.id, syncGoals]);
+  useEffect(() => { trackScreen(screen); if (player) { syncGoals(); storyTick(); } }, [screen, dayKey, hourKey, player?.id, syncGoals, storyTick]);
   useAIRunner();
 
   const account = useAccount();
@@ -205,9 +208,10 @@ export default function App() {
         <AppointmentModal />
         <CourtModal />
         <CeremonyModal />
+        <StoryHost />
       </>
     );
   }
 
-  return <GameLayout>{renderScreen()}</GameLayout>;
+  return <><GameLayout>{renderScreen()}</GameLayout><StoryHost /></>;
 }

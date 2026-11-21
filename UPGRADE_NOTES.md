@@ -494,3 +494,7 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 - `src/sim/goals.ts` (metrics derived from state; MISSIONS, DAILY_POOL, WEEKLY_POOL, isUnlocked), store: syncGoals/goalEvent/claimGoal/setShowAll/seeUnlocks, `goals` saved in the payload; App syncs on screen/day change.
 - `GoalsCard` on Dashboard; Sidebar gating + badge; `src/analytics.ts`.
 - goalEvent counters: shoots (Stage Shoot), gigs (performStreetGig), training (trainStat). Existing careers are detected as legacy (nothing hidden).
+
+## Stage 7a — story engine
+- `src/story/` (types, cast, engine, content/rapper|others). Store: story, storyTick/Choose/Open/Decline, setStoryPath. `StoryHost` mounted in App. Save payload includes `story`.
+- Authoring: add nodes + triggers to an Arc in `src/story/content`. Tokens {name}, {city}.

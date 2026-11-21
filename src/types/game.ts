@@ -220,6 +220,8 @@ export interface Song {
   /** A take you recorded for real in the booth, and how it scored. */
   /** Finished by hand on the STUDIO PRO desk: how good the mix measured, and what it did to the record's quality. */
   proMix?: { grade: number; delta: number; loudness: number; peak: number };
+  /** A video edit made in Director's Cut and attached to this record. */
+  directorCut?: { grade: number; seconds: number; auto: boolean };
   boothTake?: { score: number; timing: number; at: number; seconds: number; lead?: number; align?: number };
   /** How the recorded vocal is processed: levels, effects, timing. */
   vocalFx?: VocalFx;

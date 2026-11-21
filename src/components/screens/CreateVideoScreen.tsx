@@ -9,12 +9,13 @@
 // waits in the video vault until the record comes out.
 
 import { useMemo, useState } from 'react';
+import { DirectorsCut } from '../studio/DirectorsCut';
 import { useGameStore, isSongReleased, VIDEO_DIRECTORS, VIDEO_CONCEPTS, VIDEO_STYLES, VIDEO_BUDGETS } from '../../store/gameStore';
 import { cn } from '@/utils/cn';
 import { compact, money } from '@/utils/format';
 import { Button, EmptyState, PageTitle, Panel, SectionTitle, Tag } from '../ui/kit';
 import { Artwork } from '../ui/kit';
-import { shootQuality, videoSeed } from '../../sim/video';
+import { shootQuality, videoSeed, directorCutBonus } from '../../sim/video';
 import { crewBonuses } from '../../sim/roles';
 import { dateToSerial, formatMedium, serialToDate } from '../../sim/gameClock';
 import { ENERGY_COSTS } from '../../sim/energy';
@@ -53,6 +54,7 @@ export function CreateVideoScreen() {
   }, [songs, search, showAll]);
 
   // Arriving from a record's page, that record is the one being shot.
+  const [cutting, setCutting] = useState(false);
   const [songId, setSongId] = useState<string>(songs.find((s) => s.id === state.selectedSongId)?.id ?? songs[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [concept, setConcept] = useState(VIDEO_CONCEPTS[0]);
@@ -110,7 +112,7 @@ export function CreateVideoScreen() {
         budget,
         songQuality: song.quality,
         seed: videoSeed(`vid-${song.id}-${releaseSerial}`),
-        crewBonus: crewBonuses(state.crew).videoBonus,
+        crewBonus: crewBonuses(state.crew).videoBonus + directorCutBonus(song),
         cameoBonus,
       })
     : 0;
@@ -141,6 +143,8 @@ export function CreateVideoScreen() {
   if (songs.length === 0) {
     return (
       <div className="pb-16 max-w-3xl">
+        <div className="mb-2"><Button size="sm" variant="secondary" onClick={() => setCutting(true)}>✂️ Director's Cut — edit footage you shot in the city</Button></div>
+        {cutting && <DirectorsCut onClose={() => setCutting(false)} />}
         <PageTitle subtitle="Shoot a visual for anything you have recorded — out or not.">
           Create a music video
         </PageTitle>
@@ -158,6 +162,8 @@ export function CreateVideoScreen() {
 
   return (
     <div className="pb-16 max-w-5xl">
+      <div className="mb-2"><Button size="sm" variant="secondary" onClick={() => setCutting(true)}>✂️ Director's Cut — edit footage you shot in the city</Button></div>
+      {cutting && <DirectorsCut onClose={() => setCutting(false)} />}
       <PageTitle
         subtitle="Pick a record, a director and a budget. Quality is decided by the shoot, not by how much you spent alone."
         action={

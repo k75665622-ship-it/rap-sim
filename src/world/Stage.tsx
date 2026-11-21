@@ -15,6 +15,10 @@ import { stopPreview, togglePreview } from '../audio/preview';
 import { dateToSerial } from '../sim/gameClock';
 import { hudStore } from './input';
 import { live } from './sim';
+import { addAfterEffect } from '@react-three/fiber';
+import { ANGLES, ANGLE_SEC, SHOOT_SEC, angleAt } from './shootcam';
+import { saveShoot } from '../video/clipstore';
+import { DirectorsCut } from '../components/studio/DirectorsCut';
 
 const LEN = 28; // seconds of open mic
 
@@ -136,7 +140,8 @@ function Gig() {
 
 // ─── video shoot ───────────────────────────────────────────────────────────
 
-const SHOOT = 8;
+const SHOOT = SHOOT_SEC;
+const CAP_FPS = 20;
 
 function Shoot() {
   const setScreen = useGameStore((s) => s.setScreen);
@@ -145,6 +150,8 @@ function Shoot() {
   const [url, setUrl] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [ext, setExt] = useState('webm');
+  const [shootId, setShootId] = useState<string | null>(null);
+  const [cutting, setCutting] = useState(false);
   const stopRef = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -164,6 +171,25 @@ function Shoot() {
         rec.start();
       }
     } catch { rec = null; }
+    // Coverage: every angle's frames, for the editor.
+    const frames: Promise<Blob | null>[][] = ANGLES.map(() => []);
+    const scratch = document.createElement('canvas');
+    let lastCap = 0, cw = 640, ch = 360;
+    if (canvas) { const k = 640 / Math.max(canvas.width, canvas.height); cw = Math.max(2, Math.round(canvas.width * k)); ch = Math.max(2, Math.round(canvas.height * k)); }
+    scratch.width = cw; scratch.height = ch;
+    const sg = scratch.getContext('2d');
+    const stopCap = addAfterEffect(() => {
+      if (!canvas || !sg || !live.shoot.on) return;
+      const now = performance.now();
+      // wall-clock: a slow device still gets all four angles
+      live.shoot.t = (now - started) / 1000;
+      if (now - lastCap < 1000 / CAP_FPS) return;
+      lastCap = now;
+      const a = angleAt(live.shoot.t);
+      if (frames[a].length >= ANGLE_SEC * CAP_FPS) return;
+      sg.drawImage(canvas, 0, 0, cw, ch);
+      frames[a].push(new Promise((res) => scratch.toBlob((b) => res(b), 'image/jpeg', 0.72)));
+    });
     const started = performance.now();
     const tick = window.setInterval(() => setLeft(Math.max(0, SHOOT - Math.floor((performance.now() - started) / 1000))), 250);
     const finish = () => {
@@ -171,8 +197,16 @@ function Shoot() {
       window.clearTimeout(end);
       try { if (rec && rec.state !== 'inactive') rec.stop(); } catch { /* done */ }
       live.shoot.on = false;
+      stopCap();
       stopPreview();
       setDone(true);
+      Promise.all(frames.map((a) => Promise.all(a))).then((all) => {
+        const ok = all.map((a) => a.filter((b): b is Blob => !!b));
+        (window as unknown as { __shootDbg?: number[] }).__shootDbg = ok.map((a) => a.length);
+        if (ok.some((a) => a.length < 1)) return;
+        const id = `shoot-${Date.now().toString(36)}`;
+        saveShoot({ meta: { id, at: Date.now(), fps: CAP_FPS, w: cw, h: ch, angles: ANGLES.length, secPerAngle: ANGLE_SEC, bpm: spec.bpm }, frames: ok }).then(() => setShootId(id)).catch(() => {});
+      });
     };
     stopRef.current = finish;
     const end = window.setTimeout(finish, SHOOT * 1000);
@@ -187,7 +221,7 @@ function Shoot() {
       <div className="absolute inset-0 z-40 pointer-events-none">
         <div className="absolute top-0 inset-x-0 h-[11%] bg-black" />
         <div className="absolute bottom-0 inset-x-0 h-[11%] bg-black" />
-        <div className="absolute top-[3%] left-4 flex items-center gap-2 text-[13px] font-bold"><span className="w-3 h-3 rounded-full bg-fall animate-pulse" />REC 0:0{left}</div>
+        <div className="absolute top-[3%] left-4 flex items-center gap-2 text-[13px] font-bold"><span className="w-3 h-3 rounded-full bg-fall animate-pulse" />REC 0:{String(left).padStart(2, '0')}</div>
         <button onClick={() => stopRef.current()} className="pointer-events-auto absolute bottom-[3%] right-4 h-9 px-4 rounded-full bg-white/15 border border-white/20 text-[13px] font-semibold">Stop</button>
       </div>
     );
@@ -199,10 +233,12 @@ function Shoot() {
         {url ? <video src={url} autoPlay loop muted playsInline className="w-full rounded-[12px] bg-black mb-3" /> : <p className="text-[13px] text-ink2 mb-3">This browser can't record the screen, but the shoot happened — release it from Videos.</p>}
         <div className="flex flex-wrap gap-2">
           {url ? <a href={url} download={`rap-life-clip.${ext}`} className="h-10 px-4 rounded-[10px] border border-line text-[13px] font-semibold flex items-center">Save clip</a> : null}
+          {shootId ? <button onClick={() => setCutting(true)} className="h-10 px-4 rounded-[10px] bg-fall/90 text-white text-[13px] font-bold">🎬 Edit in Director's Cut</button> : <span className="h-10 px-2 flex items-center text-[12px] text-ink2">Saving footage…</span>}
           <button onClick={() => { close(); setScreen('create_video'); }} className="h-10 px-4 rounded-[10px] bg-amber text-black text-[13px] font-bold">Release a music video</button>
           <button onClick={close} className="h-10 px-4 rounded-[10px] border border-line text-[13px] text-ink2">Done</button>
         </div>
       </div>
+      {cutting && shootId ? <DirectorsCut shootId={shootId} onClose={() => setCutting(false)} /> : null}
     </div>
   );
 }

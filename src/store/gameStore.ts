@@ -306,6 +306,7 @@ import {
   npcStyle,
   npcDirectorName,
   shootQuality,
+  directorCutBonus,
   buildInitialVideos,
   commentPage,
   repliesTo,
@@ -3415,6 +3416,7 @@ interface GameActions {
   makeBeat: (o: { id?: string; name: string; genre: Genre; mood: SongMood; pattern: CustomPattern }) => FeatureActionResult & { beatId?: string };
   /** Print a mix you made yourself on the STUDIO PRO desk. How well it measured decides what it does for the record. */
   finishProMix: (songId: string, fx: VocalFx, report: { grade: number; loudness: number; peak: number }) => FeatureActionResult;
+  attachDirectorCut: (songId: string, grade: number, seconds: number, auto: boolean) => FeatureActionResult;
   /** Keep your own rough mix instead. */
   keepRoughMix: (songId: string) => FeatureActionResult;
   /** Send notes on the mix. */
@@ -13584,7 +13586,7 @@ export const useGameStore = create<GameState & GameActions>()(
           budget,
           songQuality: song.quality,
           seed,
-          crewBonus: crewBonuses(raw(state.crew) as CrewMember[]).videoBonus,
+          crewBonus: crewBonuses(raw(state.crew) as CrewMember[]).videoBonus + directorCutBonus(song),
           cameoBonus,
         });
 
@@ -16870,6 +16872,19 @@ export const useGameStore = create<GameState & GameActions>()(
         song.masterStatus = 'mastered';
         state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (report.grade >= 70 ? 0.6 : 0.2));
         result = { ok: true, message: report.grade >= 80 ? `Printed. That mix is radio-ready — "${song.title}" got a real lift.` : report.grade >= 60 ? `Printed. A solid mix — "${song.title}" is ready to release.` : `Printed — but the mix is rough, and it shows. A pro engineer would do better.` };
+      });
+      return result;
+    },
+
+    attachDirectorCut: (songId, grade, seconds, auto) => {
+      let result: FeatureActionResult = { ok: false, message: 'That record is not on your desk.' };
+      set((state) => {
+        const song = state.songs.find((x) => x.id === songId);
+        if (!song || !state.player) return;
+        song.directorCut = { grade: Math.max(0, Math.min(100, Math.round(grade))), seconds: Math.round(seconds), auto };
+        const b = directorCutBonus(song);
+        state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (grade >= 75 && !auto ? 0.5 : 0.15));
+        result = { ok: true, message: b > 0 ? `Cut attached to "${song.title}" — your next music video for it shoots +${b} better.` : `Cut attached to "${song.title}", but it is not strong enough to lift the video.` };
       });
       return result;
     },

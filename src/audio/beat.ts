@@ -261,7 +261,7 @@ export class BeatPlayer {
     return this.spec.major ? [0, 5, 7].includes(off) : [3, 8, 10].includes(off);
   }
   private env(g: GainNode, t: number, peak: number, dur: number) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
-  private tone(t: number, f: number, dur: number, type: OscillatorType, peak: number) { const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); o.type = type; o.frequency.value = f; this.env(g, t, peak, dur); o.connect(g).connect(this.out); o.start(t); o.stop(t + dur + 0.05); }
+  private tone(t: number, f: number, dur: number, type: OscillatorType, peak: number) { if (!Number.isFinite(f) || !Number.isFinite(t) || !Number.isFinite(dur)) return; const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); o.type = type; o.frequency.value = f; this.env(g, t, peak, dur); o.connect(g).connect(this.out); o.start(t); o.stop(t + dur + 0.05); }
   private kick(t: number) {
     const style = this.spec.style;
     const name = style === 'trap' || style === 'drill' || style === 'rnb' ? ['kick-2', 'kick-3'][this.spec.seed % 2] : ['kick-1', 'kick-3'][this.spec.seed % 2];
@@ -269,7 +269,7 @@ export class BeatPlayer {
     this.synthKick(t);
   }
   private synthKick(t: number) { const k = this.spec.sig; const o = this.ctx.createOscillator(); const g = this.ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(k.kick, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12); this.env(g, t, 1, k.kickDecay + 0.1); o.connect(g).connect(this.out); o.start(t); o.stop(t + k.kickDecay + 0.15); }
-  private noiseHit(t: number, type: BiquadFilterType, freq: number, peak: number, dur: number) { const src = this.ctx.createBufferSource(); src.buffer = this.noise; const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; const g = this.ctx.createGain(); this.env(g, t, peak, dur); src.connect(f).connect(g).connect(this.out); src.start(t, this.rand() * 0.5); src.stop(t + dur + 0.02); }
+  private noiseHit(t: number, type: BiquadFilterType, freq: number, peak: number, dur: number) { if (!Number.isFinite(freq) || !Number.isFinite(t)) return; const src = this.ctx.createBufferSource(); src.buffer = this.noise; const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; const g = this.ctx.createGain(); this.env(g, t, peak, dur); src.connect(f).connect(g).connect(this.out); src.start(t, this.rand() * 0.5); src.stop(t + dur + 0.02); }
   private snare(t: number, kind: BeatSpec['snareKind'], peak = 0.55) {
     const name = kind === 'clap' ? 'clap-1' : kind === 'rim' ? 'rim-1' : `snare-${1 + (this.spec.seed % 3)}`;
     if (playSample(this.ctx, this.out, name, t, { gain: Math.min(1, peak * 1.5) * (kind === 'clap' ? 0.9 : kind === 'rim' ? 0.7 : 1) })) return;

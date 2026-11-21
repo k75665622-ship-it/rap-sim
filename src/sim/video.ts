@@ -349,6 +349,12 @@ export function createVideo(spec: VideoSpec): Video {
  * song's own quality sets the ceiling — you cannot shoot a great video for a
  * bad record.
  */
+/** Quality points a Director's Cut edit adds to the next shoot of this record: -2 for a sloppy cut, up to +8 for a great one. */
+export function directorCutBonus(song?: { directorCut?: { grade: number } } | null): number {
+  const g = song?.directorCut?.grade;
+  return g == null ? 0 : Math.max(-2, Math.min(8, Math.round(((g - 50) / 50) * 8)));
+}
+
 export function shootQuality(opts: {
   directorSkill: number;
   budget: number;

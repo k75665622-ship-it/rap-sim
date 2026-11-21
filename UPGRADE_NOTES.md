@@ -475,3 +475,6 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 ## Sample kit + M3a STUDIO PRO
 - `public/music/kit/` (16 mono WAVs, ~1.5 MB, credits.txt) + `src/audio/kit.ts`: real kicks, snares, clap, rim, hats, 808, bell/keys, pluck, pad, xylophone replace the synth sounds in the beat engine; the synth stays as fallback. Echo-pad (unverified licence) and the duplicate keys file were left out. The pad is CC BY 4.0 and is credited on the Studio page.
 - `StudioPro.tsx`: the pro mixing desk (Studio vault → "Mix it in STUDIO PRO"). `finishProMix` prints it: quality changes by (grade − 55) × 0.07, capped -3…+3.5, and re-printing replaces the old effect.
+
+## M4a — Beat maker
+- `BeatMaker.tsx` (portal modal), `sim/beatMaker.ts` (templates, chord helper, `scorePattern`), `CustomPattern` + pattern registry in `audio/beat.ts` (registered by beat id from `main.tsx`, so every `beatSpecFor` call plays your pattern), `makeBeat` store action (⚡12, grade, +production knowledge). OwnedBeat has `pattern`, source `'made'`.

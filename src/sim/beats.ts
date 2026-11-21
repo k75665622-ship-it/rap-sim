@@ -18,12 +18,14 @@
 import type { Genre, NPC, SongMood } from '../types/game';
 import { hashString } from './rng';
 import { producerFee, producerSkillOf } from './studio';
-import { beatSpecFor } from '../audio/beat';
+import { beatSpecFor, type CustomPattern } from '../audio/beat';
 
-export type BeatSource = 'team' | 'store' | 'custom';
+export type BeatSource = 'team' | 'store' | 'custom' | 'made';
 export type BeatLicense = 'lease' | 'exclusive' | 'inhouse';
 
 export interface OwnedBeat {
+  /** Beats you built yourself carry the pattern, so they play exactly as made. */
+  pattern?: CustomPattern;
   id: string;
   name: string;
   /** How good the beat is, 0-100, as it will sound on the record. */

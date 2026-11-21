@@ -15,7 +15,38 @@ export type Lead = 'keys' | 'pluck' | 'bell' | 'pad' | 'flute' | 'brass' | 'choi
 /** A producer's sound: the same producer always sounds like themselves. */
 export interface Signature { kick: number; kickDecay: number; clap: boolean; hats: 0 | 1 | 2; saw: boolean; glide: number; lead: Lead; swing: number; perc: boolean; tag: number[] }
 
+// ─── A beat you made ───────────────────────────────────────────────────────
+// A step-sequenced pattern (drums, 808 line, melody, chords) arranged into
+// sections. Beats you make are registered by id so every place that asks for
+// "the spec for this beat" gets your pattern instead of a generated one.
+export type DrumLane = 'kick' | 'snare' | 'clap' | 'hatC' | 'hatO' | 'rim';
+export type Section = 'intro' | 'verse' | 'hook' | 'bridge' | 'outro';
+export interface PatNote { step: number; len: number; semis: number; slide?: boolean }
+export interface CustomPattern {
+  bpm: number; style: BeatStyle; root: number; major: boolean; lead: Lead; swing: number;
+  /** Pattern length in bars (1–4); it loops inside every section. */
+  bars: number; sectionBars: number;
+  drums: Record<DrumLane, number[]>; bass: PatNote[]; melody: PatNote[];
+  /** Chord root (semitones above the key) for each bar of the pattern. */
+  chords: number[];
+  arrangement: Section[];
+}
+export const DRUM_LANES: { id: DrumLane; label: string }[] = [{ id: 'kick', label: 'Kick' }, { id: 'snare', label: 'Snare' }, { id: 'clap', label: 'Clap' }, { id: 'hatC', label: 'Hat' }, { id: 'hatO', label: 'Open hat' }, { id: 'rim', label: 'Rim' }];
+/** What plays in each part of the song. */
+export const SECTION_LAYERS: Record<Section, { drums: boolean; bass: boolean; melody: boolean; chords: boolean }> = {
+  intro: { drums: false, bass: false, melody: true, chords: true },
+  verse: { drums: true, bass: true, melody: false, chords: true },
+  hook: { drums: true, bass: true, melody: true, chords: true },
+  bridge: { drums: false, bass: true, melody: true, chords: true },
+  outro: { drums: false, bass: false, melody: false, chords: true },
+};
+export type LayerMask = { drums: boolean; bass: boolean; melody: boolean; chords: boolean };
+const PATTERNS = new Map<string, CustomPattern>();
+export function registerPattern(id: string, p: CustomPattern | undefined) { if (p) PATTERNS.set(id, p); else PATTERNS.delete(id); }
+export const SCALE_NOTES = { maj: [0, 2, 4, 5, 7, 9, 11], min: [0, 2, 3, 5, 7, 8, 10] };
+
 export interface BeatSpec {
+  custom?: CustomPattern;
   bpm: number; style: BeatStyle; seed: number; quality: number; root: number; major: boolean; sig: Signature;
   kick: number[]; snare: number[]; hats: 'eighth' | 'sixteenth' | 'offbeat' | 'triplet' | 'rolls'; prog: number[]; lead: Lead; rhythm: number[]; snareKind: 'snare' | 'clap' | 'rim';
 }
@@ -85,7 +116,7 @@ export function beatSpecFor(genre: string, bpm: number | undefined, seed: string
   const rolled = Math.round(lo + r() * (hi - lo));
   const tempo = bpm && bpm >= lo - 12 && bpm <= hi + 12 ? bpm : rolled;
   const major = /love|romantic|joy|happy|uplift|celebrat|party/.test(String(mood ?? '').toLowerCase()) ? r() < 0.8 : r() < 0.18;
-  return {
+  const spec: BeatSpec = {
     bpm: Math.round(tempo), style, seed: h, quality: Math.max(20, Math.min(99, quality)), root: Math.floor(r() * 12), major, sig,
     kick: pickR(r, KICKS[style]), snare: pickR(r, SNARES[style]), hats: pickR(r, HATS[style]),
     prog: pickR(r, major ? PROG_MAJ : PROG_MIN),
@@ -94,6 +125,9 @@ export function beatSpecFor(genre: string, bpm: number | undefined, seed: string
     rhythm: pickR(r, RHYTHMS),
     snareKind: style === 'afro' || style === 'amapiano' ? (r() < 0.5 ? 'rim' : 'clap') : sig.clap ? 'clap' : r() < 0.3 ? 'clap' : 'snare',
   };
+  const mine = PATTERNS.get(seed);
+  if (mine) Object.assign(spec, { custom: mine, bpm: mine.bpm, style: mine.style, root: mine.root, major: mine.major, lead: mine.lead });
+  return spec;
 }
 
 export class BeatPlayer {
@@ -104,6 +138,8 @@ export class BeatPlayer {
   private next = 0;
   private step = 0;
   private spec: BeatSpec;
+  /** Which layers play — turned off one by one to print stems. */
+  mask: LayerMask = { drums: true, bass: true, melody: true, chords: true };
   private rand: () => number;
   private motif: number[];
   private counter: number[];
@@ -131,6 +167,8 @@ export class BeatPlayer {
     this.counter = Array.from({ length: 8 }, () => Math.floor(this.rand() * 5) + 2);
   }
   setVolume(v: number) { this.out.gain.value = v; }
+  /** Swap in an edited pattern while it plays. */
+  setPattern(c: CustomPattern) { this.spec.custom = c; this.spec.bpm = c.bpm; this.spec.root = c.root; this.spec.major = c.major; this.spec.lead = c.lead; this.spec.style = c.style; }
   get stepDur() { return 60 / this.spec.bpm / 4; }
   start(when: number) {
     this.next = when;
@@ -151,6 +189,7 @@ export class BeatPlayer {
   }
 
   private play(step: number, t0: number) {
+    if (this.spec.custom) { this.playCustom(step, t0); return; }
     const sp = this.spec;
     const sig = sp.sig;
     const s = step % 16;
@@ -189,6 +228,35 @@ export class BeatPlayer {
     }
     if (second && q >= 0.7 && s % 4 === 2 && !intro) this.tone(t, midi(72 + sp.root + scale[this.counter[(s / 4 + bar) % 8]]), this.stepDur * 1.2, 'sine', 0.035);
   }
+  /** One step of a beat you made. */
+  private playCustom(step: number, t0: number) {
+    const c = this.spec.custom!;
+    const s = step % 16;
+    const total = Math.max(1, c.arrangement.length) * c.sectionBars;
+    const bar = Math.floor(step / 16) % total;
+    const sec = c.arrangement[Math.floor(bar / c.sectionBars)] ?? 'verse';
+    const L = SECTION_LAYERS[sec];
+    const ps = (bar % c.bars) * 16 + s;
+    const t = t0 + (s % 2 === 1 ? this.stepDur * c.swing * 0.5 : 0);
+    const has = (lane: DrumLane) => c.drums[lane]?.includes(ps);
+    if (L.drums && this.mask.drums) {
+      if (has('kick')) this.kick(t);
+      if (has('snare')) this.snare(t, 'snare');
+      if (has('clap')) this.snare(t, 'clap');
+      if (has('rim')) this.snare(t, 'rim');
+      const hat = (open: boolean, g: number) => { if (!playSample(this.ctx, this.out, open ? 'hat-open-1' : `hat-closed-${1 + (this.spec.seed % 2)}`, t, { gain: g, hold: open ? 0.3 : 0.08 })) this.noiseHit(t, 'highpass', 7000, g * 0.2, open ? 0.2 : 0.045); };
+      if (has('hatC')) hat(false, 0.5);
+      if (has('hatO')) hat(true, 0.45);
+    }
+    const rootMidi = 36 + c.root;
+    if (L.bass && this.mask.bass) for (const n of c.bass) if (n.step === ps) this.bass(t, midi(rootMidi + n.semis), this.stepDur * n.len, !!n.slide);
+    if (L.chords && this.mask.chords && s === 0) {
+      const off = c.chords[(bar % c.bars) % Math.max(1, c.chords.length)] ?? 0;
+      const third = c.major ? ([0, 5, 7].includes(off % 12) ? 4 : 3) : ([3, 8, 10].includes(off % 12) ? 4 : 3);
+      this.chord(t, [rootMidi + off + 24, rootMidi + off + 24 + third, rootMidi + off + 31], this.stepDur * 16);
+    }
+    if (L.melody && this.mask.melody) for (const n of c.melody) if (n.step === ps) this.lead(t, midi(60 + c.root + n.semis), this.stepDur * n.len);
+  }
   private isMajorChord(off: number) {
     return this.spec.major ? [0, 5, 7].includes(off) : [3, 8, 10].includes(off);
   }
@@ -225,10 +293,10 @@ export class BeatPlayer {
   private crash(t: number) { this.noiseHit(t, 'highpass', 4000, 0.14, 1.1); }
   private bass(t: number, f: number, dur: number, slide: boolean) {
     // The 808 is a real sample, folded into the 36–72 Hz range so every note stays in key and stays low.
-    const sub = this.spec.style === 'trap' || this.spec.style === 'drill' || this.spec.style === 'rnb';
+    const sub = !!this.spec.custom || this.spec.style === 'trap' || this.spec.style === 'drill' || this.spec.style === 'rnb';
     if (sub && kitHas('808-C')) {
       let hz = f; while (hz >= 72) hz /= 2; while (hz < 36) hz *= 2;
-      if (playSample(this.ctx, this.out, '808-C', t, { gain: 0.95, rate: hz / kitPitch('808-C'), hold: dur })) return;
+      if (playSample(this.ctx, this.out, '808-C', t, { gain: 0.95, rate: hz / kitPitch('808-C'), hold: dur, from: slide ? 0.8 : undefined })) return;
     }
     const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
     o.type = this.spec.sig.saw && (this.spec.style === 'boom' || this.spec.style === 'afro') ? 'sawtooth' : 'sine';

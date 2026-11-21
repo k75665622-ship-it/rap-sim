@@ -101,6 +101,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - Hard by design: a bad mix sounds bad, and a great mix charts better.
 
 ## M4 — STUDIO PRO: making beats
+**Status: M4a done** — Beat maker (Studio home → Make a beat): drum step sequencer on the real kit, 808 and melody piano rolls with slides, chord helper, arrangement timeline, templates (Trap/Boom bap/Afrobeats), live playback, a grade from what's in the beat plus your production skill, WAV and stem export, saved to your library and playable in the booth. **Still to do (M4b):** selling beats (lease/exclusive in coins, then real money via M7), editing a saved beat from the Beats list, sample chopping/uploading, velocity and humanise.
 - **Tools:** step sequencer, piano roll, sampler with real drum kits, 808 slides, chord helper, arrangement timeline (intro, hook, verse, bridge, outro).
 - **Export** stems for artists.
 - **Sell beats:** lease or exclusive, with in-game coins now and real money later (M7).

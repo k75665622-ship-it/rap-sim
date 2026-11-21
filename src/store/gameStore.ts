@@ -377,6 +377,8 @@ import {
   emptyBeats, storeCatalogue, dropInterval, teamBeat, orderQuote, customBeatQuality, takesOrder, beatName, beatGrade, LEASE_PENALTY, houseBeats,
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
+import { scorePattern } from '../sim/beatMaker';
+import type { CustomPattern } from '../audio/beat';
 import { engineerMix, reviseMix, mixFit, revisionFee, ASK_LABEL, engineerTier, specialtyOf, lateDays } from '../sim/engineerMix';
 import { beatSpecFor } from '../audio/beat';
 import {
@@ -3403,6 +3405,8 @@ interface GameActions {
   setHookBars: (songId: string, bars: number[]) => FeatureActionResult;
   /** Sign off on the mix that came back. */
   approveMix: (songId: string) => FeatureActionResult;
+  /** Save a beat you made (or update one you made and haven't used yet). */
+  makeBeat: (o: { id?: string; name: string; genre: Genre; mood: SongMood; pattern: CustomPattern }) => FeatureActionResult & { beatId?: string };
   /** Print a mix you made yourself on the STUDIO PRO desk. How well it measured decides what it does for the record. */
   finishProMix: (songId: string, fx: VocalFx, report: { grade: number; loudness: number; peak: number }) => FeatureActionResult;
   /** Keep your own rough mix instead. */
@@ -16782,6 +16786,30 @@ export const useGameStore = create<GameState & GameActions>()(
           pushDM(state, m.npcId, { fromPlayer: false, content: pick3(['Let\'s gooo 🔥 Glad you love it.', 'Appreciate you. That one\'s going to knock 🙏🏾', 'Love to hear it. Send the next one 🎚️'], song.id) });
         }
         result = { ok: true, message: `Mix approved. ${fit >= 75 ? 'It sits exactly right for the record.' : fit >= 55 ? 'It works for the record.' : 'Some of it fights the record — people may hear that.'}` };
+      });
+      return result;
+    },
+
+    makeBeat: (o) => {
+      let result: FeatureActionResult & { beatId?: string } = { ok: false, message: 'Start a career first.' };
+      set((state) => {
+        if (!state.player) return;
+        if (!state.beats || !Array.isArray(state.beats.library)) state.beats = emptyBeats();
+        const lib = state.beats.library;
+        const existing = o.id ? lib.find((b) => b.id === o.id && b.source === 'made') : undefined;
+        if (existing?.usedOnSongId) { result = { ok: false, message: 'That beat is already on a record — save it as a new beat instead.' }; return; }
+        const hasSound = o.pattern.drums.kick.length + o.pattern.drums.snare.length + o.pattern.drums.clap.length + o.pattern.bass.length + o.pattern.melody.length > 0;
+        if (!hasSound) { result = { ok: false, message: 'Put some sounds in it first.' }; return; }
+        const { quality, notes } = scorePattern(o.pattern, state.player.stats.productionKnowledge ?? 0);
+        if (!existing && !spendEnergy(state, 12)) { result = { ok: false, message: 'Too tired to make a beat — rest first.' }; return; }
+        const bpm = Math.round(o.pattern.bpm);
+        const name = o.name.trim().slice(0, 40) || 'Untitled beat';
+        if (existing) { existing.pattern = o.pattern; existing.quality = quality; existing.name = name; existing.bpm = bpm; existing.genre = o.genre; existing.mood = o.mood; }
+        else lib.unshift({ id: uuidv4(), name, quality, genre: o.genre, bpm, mood: o.mood, producerName: state.player.artistName, source: 'made', license: 'inhouse', acquiredSerial: dateToSerial(state.gameDate), pattern: o.pattern });
+        const id = existing?.id ?? lib[0].id;
+        // Making beats is how you learn to make beats.
+        if (!existing) state.player.stats.productionKnowledge = Math.min(100, (state.player.stats.productionKnowledge ?? 0) + (quality >= 60 ? 0.8 : 0.3));
+        result = { ok: true, beatId: id, message: `${quality >= 75 ? 'That one knocks.' : quality >= 55 ? 'Solid beat.' : 'It is a start.'} "${name}" is in your library — grade ${quality}.${notes.length ? ' Notes: ' + notes.join(' ') : ''}` };
       });
       return result;
     },

@@ -33,10 +33,12 @@ export const kitHas = (name: string) => buffers.has(name);
 export const kitPitch = (name: string) => PITCH[name] ?? 0;
 
 /** One hit or note. `rate` re-pitches it, `gain` is on top of the levelled sample, `hold` fades it out after that many seconds. Returns false if the sample isn't loaded. */
-export function playSample(ctx: BaseAudioContext, dest: AudioNode, name: string, t: number, o: { gain?: number; rate?: number; hold?: number; attack?: number } = {}): boolean {
+export function playSample(ctx: BaseAudioContext, dest: AudioNode, name: string, t: number, o: { gain?: number; rate?: number; hold?: number; attack?: number; from?: number } = {}): boolean {
   const buf = buffers.get(name);
   if (!buf) return false;
   const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = o.rate ?? 1;
+  // A slide: start lower (or higher) and glide into the note.
+  if (o.from) { src.playbackRate.setValueAtTime((o.rate ?? 1) * o.from, t); src.playbackRate.exponentialRampToValueAtTime(o.rate ?? 1, t + 0.09); }
   const g = ctx.createGain();
   const peak = (o.gain ?? 1) * (0.9 / (PEAK[name] ?? 1));
   const a = o.attack ?? 0.002;

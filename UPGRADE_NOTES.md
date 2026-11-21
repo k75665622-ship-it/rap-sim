@@ -482,3 +482,10 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 ## M5a — Academy
 - `sim/academy.ts` (courses, lessons, quizzes, exam pool, tutor), `audio/academyDemo.ts` (effect demos on the real beat engine), `Academy.tsx` (portal modal). State `academy` is saved; `finishLesson` (+0.4 production knowledge once per lesson) and `finishExam` (+3 once per certificate).
 - VOX cert: +3 on take quality scores in the booth; PRO cert: +4 on printed mix grades (`finishProMix`).
+
+## M6a — Director's Cut
+- `src/world/shootcam.ts`: four shoot angles; shoot clock now wall-time so slow devices still get all four.
+- `src/video/`: `clipstore.ts` (IndexedDB shoots), `edl.ts` (edit list, auto-edit, grading), `render.ts` (frame bank, filters, transitions, text, real-time MediaRecorder export, offline audio).
+- `src/components/studio/DirectorsCut.tsx`: editor (portal). Song.directorCut + `attachDirectorCut`; `directorCutBonus` feeds shootQuality in createMusicVideo and its preview.
+- beat.ts: tone/noiseHit ignore non-finite values (fixes the old AudioParam errors).
+- Known: exported webm has no duration header (some players can't seek); export is real-time; audio not checked by ear.

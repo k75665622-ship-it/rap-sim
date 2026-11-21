@@ -113,6 +113,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - Players genuinely learn real mixing and production.
 
 ## M6 — DIRECTOR'S CUT: the video editor
+**Status: M6a done** — the street shoot now films 4 camera angles (wide orbit, close-up, low hero, drone; 3s each) and keeps the frames in IndexedDB (last 3 shoots). Director's Cut (opens from the shoot's wrap card, Studio vault, Create video): Auto-edit (12/20/30s, cuts on the beat, genre look, title) and Timeline (angle, length in beats, start, transition, camera push/pull, text per cut; filter, grain, cinema bars, title, end card; your vocal or the beat, start bar). Renders to a .webm/.mp4 in real time. A director's grade (auto ≈ 74, careful hand-cut 90+) is attached to the song and lifts the next music video's quality by up to +8. **Still to do (M6b):** more angles/locations, sections-aware cutting, stickers/lyrics captions, export at higher quality, editing real phone footage (needs moderation), and a lesson in the Academy.
 - Edit clips shot in the game: camera angles, cuts on the beat, filters, text, transitions. The game renders the finished video.
 - **Two levels:**
   - **Auto-edit:** one tap, decent result.

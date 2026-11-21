@@ -379,6 +379,8 @@ import {
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
 import { scorePattern } from '../sim/beatMaker';
+import { emptyStory, lapseNow as lapseNowFn, tick as storyTickFn, choose as storyChooseFn, type Ctx as StoryCtx } from '../story/engine';
+import type { Effect as StoryEffect, Path as StoryPath } from '../story/types';
 import { MISSIONS, STREAK_REWARDS, emptyGoals, metricsOf, pickDaily, pickWeekly, dailyDef, weeklyDef, progress } from '../sim/goals';
 import { LESSONS, COURSES, lessonsOf, emptyAcademy, examPass, type CourseId } from '../sim/academy';
 import type { CustomPattern } from '../audio/beat';
@@ -857,6 +859,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         cityMet: state.cityMet,
         academy: state.academy,
         goals: state.goals,
+        story: state.story,
         lastMealAt: state.lastMealAt,
         cityGigDay: state.cityGigDay,
         teamPolicy: state.teamPolicy,
@@ -3425,6 +3428,12 @@ interface GameActions {
   claimGoal: (kind: 'mission' | 'daily' | 'weekly', id: string) => FeatureActionResult;
   setShowAll: (on: boolean) => void;
   seeUnlocks: (ids: string[]) => void;
+  /** Run the story Director: deliver calls, texts and encounters that are due. */
+  storyTick: () => void;
+  storyChoose: (nodeId: string, choiceId: string) => string | undefined;
+  storyOpen: (nodeId: string) => void;
+  storyDecline: (nodeId: string) => void;
+  setStoryPath: (path: StoryPath) => void;
   /** Keep your own rough mix instead. */
   keepRoughMix: (songId: string) => FeatureActionResult;
   /** Send notes on the mix. */
@@ -9265,6 +9274,26 @@ function passTime(minutes: number): void {
 // ─── THE JOURNAL ───────────────────────────────────────────────────────────
 
 /** Write a line in the career's journal. */
+function storyCtx(state: GameState): StoryCtx {
+  const m = metricsOf(state, state.goals);
+  const mine = state.songs.filter((x) => !x.ownerId && !x.archivedAt);
+  return {
+    day: dateToSerial(state.gameDate), hour: Math.floor((state.clockMinute ?? 0) / 60), money: state.player?.career.money ?? 0,
+    metrics: { song: m.songs, release: m.released, gig: m.gigs, shoot: m.shoots, mix: m.mixes, beat: m.beats, cut: m.cuts },
+    quality: { song: mine.length ? mine[mine.length - 1].quality : 0, mix: Math.max(0, ...mine.map((x) => x.proMix?.grade ?? 0)) },
+  };
+}
+function applyStoryWorld(state: GameState, fx: StoryEffect[]) {
+  const p = state.player; if (!p) return;
+  for (const e of fx) {
+    if (e.k === 'money') { p.career.money += e.v; if (e.v > 0) p.career.totalEarnings = (p.career.totalEarnings ?? 0) + e.v; }
+    else if (e.k === 'fame') p.career.localFame = Math.max(0, Math.min(100, p.career.localFame + e.v));
+    else if (e.k === 'fans') p.career.fanbase = Math.max(0, p.career.fanbase + e.v);
+    else if (e.k === 'energy') p.energy = Math.max(0, Math.min(p.maxEnergy, p.energy + e.v));
+    else if (e.k === 'memory') remember(state, (e.kind ?? 'people') as MemoryKind, e.text, { weight: e.weight, tone: e.tone });
+  }
+}
+
 function remember(state: GameState, kind: MemoryKind, text: string, opts: { npcIds?: string[]; weight?: number; tone?: Memory['tone'] } = {}): void {
   if (!state.player) return;
   state.memories = addMemory(state.memories ?? [], {
@@ -16960,6 +16989,36 @@ export const useGameStore = create<GameState & GameActions>()(
       });
       return result;
     },
+
+    storyTick: () => {
+      set((state) => {
+        if (!state.player || ['splash', 'welcome', 'create_artist'].includes(state.screen)) return;
+        const ctx = storyCtx(state);
+        if (!state.story) state.story = emptyStory('rapper', ctx.day);
+        const world = storyTickFn(state.story, ctx);
+        applyStoryWorld(state, world);
+      });
+    },
+    storyChoose: (nodeId, choiceId) => {
+      let next: string | undefined;
+      set((state) => {
+        if (!state.story || !state.player) return;
+        const ctx = storyCtx(state);
+        const r = storyChooseFn(state.story, nodeId, choiceId, ctx);
+        next = r.next;
+        applyStoryWorld(state, r.world);
+        // Run the Director straight away so a "schedule … 0 days" lands now.
+        applyStoryWorld(state, storyTickFn(state.story, storyCtx(state)));
+      });
+      return next;
+    },
+    storyDecline: (nodeId) => set((state) => { if (!state.story) return; applyStoryWorld(state, lapseNowFn(state.story, nodeId, storyCtx(state))); applyStoryWorld(state, storyTickFn(state.story, storyCtx(state))); }),
+    storyOpen: (nodeId) => set((state) => { const d = state.story?.inbox.find((x) => x.node === nodeId); if (d && d.status === 'new') d.status = 'open'; }),
+    setStoryPath: (path) => set((state) => {
+      const ctx = storyCtx(state);
+      if (state.story && state.story.log.length > 0) return;
+      state.story = emptyStory(path, ctx.day);
+    }),
 
     setShowAll: (on) => set((state) => { if (state.goals) state.goals.showAll = on; }),
     seeUnlocks: (ids) => set((state) => { if (state.goals) state.goals.seenUnlocks = Array.from(new Set([...state.goals.seenUnlocks, ...ids])); }),

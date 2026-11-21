@@ -168,6 +168,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - *Done when:* a new player gets their first "wow" moment inside 5 minutes and has a reason to return tomorrow.
 
 ## Stage 7 — Choose who you are: the career framework
+**Status: 7a done (story engine + Act I)** — see STORY_BIBLE.md ("Akwaaba Tonight": the whole plot, cast, the Ledger spine, four seats, endings). Built: story engine (calls/texts/encounters/letters, conditions, effects, bonds, 3 reputation axes, flags, delayed consequences, ignorable calls, gameplay tasks with quality tiers), persistent save, StoryHost UI (ring, 📖 inbox, scene player, People, "What you chose"), Rapper Act I (5 chapters, ~35 scenes) and openings for Producer, Manager and Singer. **Next (7b+):** path picker at creation, Act I for all seats, Act II/III, romance (Adwoa, Selasi), Fiifi, the finale and endings; dashboard → walk-to-building hub, studio back buttons, team hiring list, landscape on phones.
 - At creation you pick a **path**, not just a rapper.
   - **Wave 1:** Artist (rap/sing), Producer, Songwriter, Manager, Lawyer.
 - Each path has:

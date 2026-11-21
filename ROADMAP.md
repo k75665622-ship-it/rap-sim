@@ -107,6 +107,7 @@ Producers and engineers are played by **expert AI characters** until real player
 - **Sell beats:** lease or exclusive, with in-game coins now and real money later (M7).
 
 ## M5 — The Academy teaches the tools
+**Status: M5a done** — Academy (Studio home, 🎓 Learn in the booth and STUDIO PRO): 9 lessons in two courses (VOX 4, STUDIO PRO 5), each with a hearable on/off demo using the real beat engine and a 3-question quiz; course exams (5/6 to pass) give VOX Certified (+3 on every take score) and PRO Certified (+4 on every mix grade); a keyword tutor answers from the lessons. **Still to do (M5b):** an AI tutor via the AI bridge, lessons on the beat maker and ear training, advanced modules unlocked by certificates, higher rates for certified players (with M7), and grades that build a visible reputation.
 - Interactive lessons inside VOX and STUDIO PRO, for example "Lesson 3: what a compressor does", taught by an AI tutor.
 - Exams; certificates unlock advanced modules and higher rates; your reputation grows with your grades.
 - Players genuinely learn real mixing and production.

@@ -2651,6 +2651,8 @@ export interface GameState {
   teamChatUnread?: number;
   /** The city: who you've stopped to talk to today (npc id → day serial). */
   cityMet?: Record<string, number>;
+  /** The Academy: lessons passed (best score out of 3) and certificates earned. */
+  academy?: import('../sim/academy').AcademyState;
   /** The city: when you last ate at Mama's Kitchen (absolute game minute). */
   lastMealAt?: number;
   /** The city: day serial of your last open-mic set at The Stage. */

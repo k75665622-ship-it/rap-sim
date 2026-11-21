@@ -14,6 +14,7 @@ import { BeatPlayer, beatSpecFor, STYLE_LABEL, LEAD_LABEL, type BeatSpec } from 
 import { saveTake, loadTake, scoreTake, type TakeScore } from '../../audio/take';
 import { calibrationNudge, setupSeen, type Calibration } from '../../audio/calibrate';
 import { BoothSetup } from './BoothSetup';
+import { Academy } from './Academy';
 import { splice, alignLayer, bake, toWav, LAYER_KINDS, type LayerKind } from '../../audio/takeedit';
 import { stopPreview } from '../../audio/preview';
 import { levelFor, DEFAULT_FX, FX_PRESETS, withPreset, suggestedPreset, playMix, renderSong, downloadBlob, createBus, prepareVocal, type Mix, type Prepared } from '../../audio/vocalfx';
@@ -96,6 +97,8 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const [tuning, setTuning] = useState<number | null>(null);
   const [playBar, setPlayBar] = useState<number | null>(null);
   const [more, setMore] = useState(false);
+  const [learn, setLearn] = useState(false);
+  const voxCert = useGameStore((s) => !!s.academy?.certs?.vox);
   const [engineer, setEngineer] = useState(() => { try { return localStorage.getItem(MODE_KEY) === 'engineer'; } catch { return false; } });
   const [setup, setSetup] = useState(() => fresh && !setupSeen());
   const pickMode = (e: boolean) => { setEngineer(e); try { localStorage.setItem(MODE_KEY, e ? 'engineer' : 'quick'); } catch { /* ignore */ } };
@@ -354,6 +357,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
       }
       const buf = await decode(t.blob);
       const sc = await scoreTake(ctx(), buf, spec.bpm);
+      if (voxCert) sc.score = Math.min(99, sc.score + 3); // VOX Certified
       // How far your words sit from the beat's grid — what an engineer uses to line the vocal up.
       const grid = 60 / spec.bpm / 4;
       let off = (sc.phase + t.lead) % grid; if (off > grid / 2) off -= grid;
@@ -493,10 +497,12 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
         <div className="flex items-center justify-between">
           <div><div className="text-[18px] font-bold text-ink">🎙️ {fresh ? 'New song' : 'Recording booth'}</div><div className="text-[11px] text-ink3">{fresh ? 'Pick a beat, hit record, keep your best take. Writing is optional.' : 'Rap over the beat for real — up to 1:30.'}</div></div>
           <div className="flex items-center gap-2">
+            <button onClick={() => setLearn(true)} className="h-9 px-3 rounded-full border border-line text-ink2 text-[11px]" aria-label="Open the Academy">🎓 Learn</button>
             <button onClick={() => setSetup((v) => !v)} className="h-9 px-3 rounded-full border border-line text-ink2 text-[11px]" aria-label="Headphones and timing setup">🎧 Setup</button>
             <button onClick={close} className="w-9 h-9 rounded-full border border-line text-ink2" aria-label="Close">✕</button>
           </div>
         </div>
+        {learn && <Academy onClose={() => setLearn(false)} openLesson="vox-1" />}
         {setup && <BoothSetup getCtx={ctx} onChange={(c: Calibration | null) => { const n = c && c.ms >= 60 ? -Math.min(300, Math.round(c.ms / 10) * 10) : 0; change({ ...fx, nudgeMs: n }, false); }} onClose={() => setSetup(false)} />}
 
         {fresh ? (

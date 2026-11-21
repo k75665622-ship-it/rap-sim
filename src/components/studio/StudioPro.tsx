@@ -11,6 +11,7 @@ import { loadTake } from '../../audio/take';
 import { stopPreview } from '../../audio/preview';
 import { DEFAULT_FX, playMix, prepareVocal, renderSongBuffer, type Mix, type Prepared } from '../../audio/vocalfx';
 import { mixFit } from '../../sim/engineerMix';
+import { Academy } from './Academy';
 import type { VocalFx } from '../../types/game';
 import { cn } from '@/utils/cn';
 
@@ -69,6 +70,7 @@ export function StudioPro({ songId, onClose }: { songId: string; onClose: () => 
   const [busy, setBusy] = useState<string | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [learn, setLearn] = useState(false);
   const ctxRef = useRef<AudioContext | null>(null);
   const mixRef = useRef<Mix | null>(null);
   const bufRef = useRef<AudioBuffer | null>(null);
@@ -141,8 +143,9 @@ export function StudioPro({ songId, onClose }: { songId: string; onClose: () => 
         <div className="flex items-center justify-between gap-3">
           <div><div className="text-[18px] font-bold text-ink">🎛️ STUDIO PRO <span className="text-[11px] font-normal text-ink3">· "{song.title}" · {spec.bpm} bpm</span></div>
             <div className="text-[11px] text-ink3">The pro desk. Mix it yourself — or send it to an engineer. A bad mix costs the record; a great one lifts it.</div></div>
-          <button onClick={() => { stop(); onClose(); }} className="w-9 h-9 rounded-full border border-line text-ink2" aria-label="Close">✕</button>
+          <div className="flex items-center gap-2"><button onClick={() => setLearn(true)} className="h-9 px-3 rounded-full border border-line text-ink2 text-[11px]" aria-label="Open the Academy">🎓 Learn</button><button onClick={() => { stop(); onClose(); }} className="w-9 h-9 rounded-full border border-line text-ink2" aria-label="Close">✕</button></div>
         </div>
+        {learn && <Academy onClose={() => setLearn(false)} openLesson="pro-1" />}
 
         {take === undefined ? <div className="text-[13px] text-ink3">Loading your vocal…</div> : take === null ? (
           <div className="text-[13px] text-ink2">There's no recorded vocal for this song yet. Record it in the booth first, then bring it here.</div>

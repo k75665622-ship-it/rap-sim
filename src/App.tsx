@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useGameStore } from './store/gameStore';
 import { TurnReportModal } from './components/TurnReportModal';
 import { Sidebar } from './components/layout/Sidebar';
@@ -96,6 +97,8 @@ function Standalone({ children }: { children: React.ReactNode }) {
 
 startNav();
 
+import { startAnalytics, trackScreen } from './analytics';
+
 export default function App() {
   const screen = useGameStore((s) => s.screen);
   const player = useGameStore((s) => s.player);
@@ -103,6 +106,10 @@ export default function App() {
 
   // One interval for the whole app: the world moves whichever page is open.
   useGameClock();
+  const syncGoals = useGameStore((s) => s.syncGoals);
+  const dayKey = useGameStore((s) => s.gameDate && `${s.gameDate.year}-${s.gameDate.month}-${s.gameDate.day}`);
+  useEffect(() => { startAnalytics(); }, []);
+  useEffect(() => { trackScreen(screen); if (player) syncGoals(); }, [screen, dayKey, player?.id, syncGoals]);
   useAIRunner();
 
   const account = useAccount();

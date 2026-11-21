@@ -200,6 +200,7 @@ function Shoot() {
       stopCap();
       stopPreview();
       setDone(true);
+      useGameStore.getState().goalEvent('shoots');
       Promise.all(frames.map((a) => Promise.all(a))).then((all) => {
         const ok = all.map((a) => a.filter((b): b is Blob => !!b));
         (window as unknown as { __shootDbg?: number[] }).__shootDbg = ok.map((a) => a.length);

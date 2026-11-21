@@ -489,3 +489,8 @@ npm start        # optional: the game + online accounts at http://localhost:8080
 - `src/components/studio/DirectorsCut.tsx`: editor (portal). Song.directorCut + `attachDirectorCut`; `directorCutBonus` feeds shootQuality in createMusicVideo and its preview.
 - beat.ts: tone/noiseHit ignore non-finite values (fixes the old AudioParam errors).
 - Known: exported webm has no duration header (some players can't seek); export is real-time; audio not checked by ear.
+
+## Stage 6a — missions, goals, unlocks
+- `src/sim/goals.ts` (metrics derived from state; MISSIONS, DAILY_POOL, WEEKLY_POOL, isUnlocked), store: syncGoals/goalEvent/claimGoal/setShowAll/seeUnlocks, `goals` saved in the payload; App syncs on screen/day change.
+- `GoalsCard` on Dashboard; Sidebar gating + badge; `src/analytics.ts`.
+- goalEvent counters: shoots (Stage Shoot), gigs (performStreetGig), training (trainStat). Existing careers are detected as legacy (nothing hidden).

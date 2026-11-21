@@ -3,6 +3,7 @@
 // diary, how the music and the money are doing, and what happened while you
 // were away.
 
+import { GoalsCard } from '../goals/GoalsCard';
 import { Character } from '../avatar/Character';
 import { dripScore } from '../../sim/drip';
 import { dateToSerial } from '../../sim/gameClock';
@@ -51,6 +52,8 @@ export function Dashboard() {
 
   return (
     <div className="max-w-[1040px] mx-auto space-y-5 pb-10">
+      <GoalsCard />
+
       {/* Hero */}
       <section className="relative rounded-[22px] border border-line overflow-hidden" style={{ background: `radial-gradient(120% 140% at 0% 0%, ${g1}33, rgba(10,11,16,0) 55%), radial-gradient(100% 120% at 100% 100%, ${g2}22, rgba(10,11,16,0) 60%), #14161e` }}>
         <div className="p-5 sm:p-6">

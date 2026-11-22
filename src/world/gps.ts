@@ -1,0 +1,63 @@
+// GPS: where the story wants you, and a road route to get there.
+import { useGameStore } from '../store/gameStore';
+import { NODES } from '../story/engine';
+import { cityLayout, ROAD_CENTRES } from './layout';
+
+export interface Target { x: number; z: number; label: string; placeId: string }
+export type Pt = { x: number; z: number };
+
+const PLACE_FOR: Record<string, string> = { kitchen: 'food', studio: 'studio', shows: 'stage', bank: 'bank' };
+const TASK_PLACE: Record<string, string> = { song: 'studio', mix: 'studio', beat: 'studio', gig: 'stage', release: 'studio' };
+
+/** The place the story is waiting at, if any. */
+export function gpsTarget(): Target | null {
+  const st = useGameStore.getState().story;
+  if (!st) return null;
+  let pid: string | undefined;
+  for (const d of st.inbox) {
+    if (d.status !== 'new' && d.status !== 'open') continue;
+    const n = NODES[d.node];
+    if (n?.channel === 'encounter' && n.where && PLACE_FOR[n.where]) { pid = PLACE_FOR[n.where]; break; }
+  }
+  if (!pid) for (const t of st.tasks) { const p = TASK_PLACE[t.task.kind]; if (p) { pid = p; break; } }
+  if (!pid) return null;
+  const b = cityLayout().buildings.find((x) => x.place?.id === pid && x.door);
+  if (!b || !b.door) return null;
+  return { x: b.door.x + b.door.nx * 3.2, z: b.door.z + b.door.nz * 3.2, label: b.place!.name, placeId: pid };
+}
+
+const near = (v: number) => ROAD_CENTRES.reduce((a, c) => (Math.abs(c - v) < Math.abs(a - v) ? c : a), ROAD_CENTRES[0]);
+
+/** Put a point on the nearest road line; returns it and the intersections its road touches. */
+function snap(p: Pt): { pt: Pt; vertical: boolean } {
+  const rx = near(p.x), rz = near(p.z);
+  return Math.abs(p.x - rx) <= Math.abs(p.z - rz) ? { pt: { x: rx, z: Math.max(-140, Math.min(140, p.z)) }, vertical: true } : { pt: { x: Math.max(-140, Math.min(140, p.x)), z: rz }, vertical: false };
+}
+
+/** A path along the roads: your spot → the road → the grid → the road at the door → the door. */
+export function route(from: Pt, to: Pt): Pt[] {
+  const a = snap(from), b = snap(to);
+  const pts: Pt[] = [from, a.pt];
+  const nodeOf = (s: { pt: Pt; vertical: boolean }) => (s.vertical ? { x: s.pt.x, z: near(s.pt.z) } : { x: near(s.pt.x), z: s.pt.z });
+  const na = nodeOf(a), nb = nodeOf(b);
+  pts.push(na);
+  // Walk the grid: along x first, then along z.
+  if (na.x !== nb.x && na.z !== nb.z) pts.push({ x: nb.x, z: na.z });
+  else if (na.x !== nb.x) pts.push({ x: nb.x, z: na.z });
+  pts.push(nb, b.pt, to);
+  return pts.filter((p, i) => i === 0 || Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) > 0.5);
+}
+
+export const length = (r: Pt[]) => r.reduce((s, p, i) => (i ? s + Math.hypot(p.x - r[i - 1].x, p.z - r[i - 1].z) : 0), 0);
+
+/** Shared with the minimap and the HUD; refreshed by the frame loop. */
+export const gpsState: { target: Target | null; route: Pt[]; dist: number; on: boolean } = { target: null, route: [], dist: 0, on: true };
+
+export function refreshGps(from: Pt): void {
+  if (!gpsState.on) { gpsState.target = null; gpsState.route = []; return; }
+  const t = gpsTarget();
+  gpsState.target = t;
+  if (!t) { gpsState.route = []; gpsState.dist = 0; return; }
+  gpsState.route = route(from, t);
+  gpsState.dist = length(gpsState.route);
+}

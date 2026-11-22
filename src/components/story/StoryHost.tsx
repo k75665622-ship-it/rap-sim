@@ -61,7 +61,7 @@ export function StoryHost() {
       {scene && <Scene nodeId={scene} onClose={() => setScene(null)} />}
       {!scene && calls[0] && <Ringing d={calls[0]} onAnswer={() => { open(calls[0].node); setScene(calls[0].node); }} onDecline={() => decline(calls[0].node)} />}
       {!scene && !calls[0] && (
-        <button onClick={() => setSheet(true)} className="fixed right-3 bottom-20 md:bottom-4 z-[300] h-11 px-3 rounded-full bg-card border border-line shadow-lg text-[13px] font-bold flex items-center gap-1.5" data-testid="story-chip">
+        <button onClick={() => setSheet(true)} className="fixed left-[126px] top-[104px] md:left-auto md:right-3 md:top-auto md:bottom-4 z-[300] h-9 md:h-11 px-3 rounded-full bg-card border border-line shadow-lg text-[13px] font-bold flex items-center gap-1.5" data-testid="story-chip">
           📖{others.length > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-amber text-black text-[11px] flex items-center justify-center" data-testid="story-count">{others.length}</span>}
         </button>
       )}

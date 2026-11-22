@@ -325,3 +325,6 @@ City is the home screen (dashboard is now "☰ Overview"); beat maker and booth 
 
 ### Driving controls (done)
 Phone car pedals (gas/brake/reverse, steer left/right), radio off by default and remembered, landscape prompt/lock in the city.
+
+### Cockpit driving (done)
+First-person cockpit view with hood/dashboard/speedo; steering wheel or arrows, wheel on the right by default, pedals left, D/R toggle; Controls panel (view, steering, side, size, arrange by dragging, reset); radio button.

@@ -422,3 +422,76 @@ export const buildRadio = (bin: Bin) => buildRoom(bin, {
   ],
   lights: [[-3, -1, '#6aa8ff'], [2, 0, '#c18bff'], [0, 2, '#fff1d0']],
 });
+
+// ─── more rooms: the stage, bank, gym, Drip & Ink ──────────────────────────
+export const STAGE_X = 2500, BANK_X = 2600, GYM_X = 2700, DRIP_X = 2800;
+
+export const buildStage = (bin: Bin) => buildRoom(bin, {
+  id: 'stage', name: 'The Stage', x0: STAGE_X, placeId: 'stage', W: 7, D: 5, wall: '#1a1426', floor: '#241c33', rug: [0, -2.6, 8, 3, '#3a2a5a'], sign: 'THE STAGE', signColor: '#b57bff',
+  boxes: [
+    [-6, 6, -4.9, -3.0, 0.7, '#2a2038'],                       // stage
+    [-6.8, -5.6, -4.9, -3.2, 1.8, '#0f0b17'], [5.6, 6.8, -4.9, -3.2, 1.8, '#0f0b17'], // speakers
+    [-0.1, 0.1, -3.9, -3.7, 1.5, '#333', 0.7, false],         // mic stand
+    [-6.8, -4.8, 1.0, 2.4, 0.95, '#3a2a2a'],                   // bar
+    [4.6, 6.8, 1.0, 2.4, 0.95, '#3a2a2a'],
+    [-2.0, 2.0, 3.5, 4.0, 0.6, '#222'],
+  ],
+  npcs: [
+    { id: 'promoter', who: 'Promoter', seed: 'stage-promo', x: -5.3, z: 0.3, rot: 0 },
+    { id: 'bartender', who: 'Bartender', seed: 'stage-bar', female: true, x: 5.8, z: 0.3, rot: 0, work: true },
+  ],
+  visitors: ALL_VISITORS,
+  spots: [
+    { id: 'booking', x: 0, z: -2.4, label: 'Step on stage · shows', reach: 2.0, kind: 'act', act: 'screen:shows' },
+  ],
+  lights: [[-4, -3, '#b57bff'], [4, -3, '#ff4fa0'], [0, 1.5, '#fff1d0']],
+});
+
+export const buildBank = (bin: Bin) => buildRoom(bin, {
+  id: 'bank', name: 'First Capital', x0: BANK_X, placeId: 'bank', W: 5.5, D: 4, wall: '#e4e8e2', floor: '#3b4a3f', rug: [0, 0, 4, 2, '#1f5a3a'], sign: 'FIRST CAPITAL', signColor: '#2ed573',
+  boxes: [
+    [-4.5, 4.5, -3.6, -2.9, 1.0, '#2c3a30'],                   // teller counter
+    [-1.4, 1.4, -2.9, -2.8, 1.7, '#cde8d6', 0.0, false],
+    [3.5, 5.3, 0.6, 2.4, 0.8, '#6a4a2e'],                      // advisor desk
+    [-5.3, -3.9, 1.0, 3.0, 0.45, '#2f2f38'],
+  ],
+  npcs: [
+    { id: 'teller', who: 'Teller', seed: 'bank-teller', female: true, x: -2.5, z: -3.3, rot: 0, work: true },
+    { id: 'advisor', who: 'Advisor', seed: 'bank-adv', x: 4.4, z: 0.2, rot: Math.PI, sit: true },
+  ],
+  visitors: ALL_VISITORS,
+  spots: [{ id: 'invest', x: 0, z: -2.0, label: 'Teller · investments', reach: 1.8, kind: 'act', act: 'screen:investments' }],
+  lights: [[-3, 0, '#fff7e6'], [3, 0, '#fff7e6']],
+});
+
+export const buildGym = (bin: Bin) => buildRoom(bin, {
+  id: 'gym', name: 'Iron House', x0: GYM_X, placeId: 'gym', W: 6, D: 4.5, wall: '#2b2220', floor: '#2a2a2e', rug: [0, 0.5, 5, 3, '#4a1f14'], sign: 'IRON HOUSE', signColor: '#ff7a2f',
+  boxes: [
+    [-5.6, -3.4, -4.3, -3.4, 1.0, '#555'], [-2.6, -0.4, -4.3, -3.4, 1.0, '#555'],  // racks
+    [3.0, 5.6, -4.3, -3.2, 0.9, '#444'],                        // treadmills
+    [-1.2, 1.2, -0.2, 0.4, 0.4, '#8a2a1a'],                     // bench
+    [4.0, 5.8, 1.4, 3.8, 0.1, '#222', 0, false],
+    [-5.8, -5.5, -3, 3, 2.4, '#bcc', 0, false, '#223'],         // mirror strip
+  ],
+  npcs: [{ id: 'coach', who: 'Coach', seed: 'gym-coach', x: 1.5, z: 1.5, rot: Math.PI, hair: 'buzz', skin: 'deep' }],
+  visitors: ALL_VISITORS,
+  spots: [{ id: 'train', x: 0, z: 1.0, label: 'Train · vocal coach', reach: 2.0, kind: 'act', act: 'screen:training' }],
+  lights: [[-3, 0, '#ffd2a0'], [3, 0, '#ffd2a0']],
+});
+
+export const buildDrip = (bin: Bin) => buildRoom(bin, {
+  id: 'drip', name: 'Drip & Ink', x0: DRIP_X, placeId: 'drip', W: 5, D: 4, wall: '#2a1d28', floor: '#3a3036', rug: [0, 0.5, 3, 2, '#7a2a5a'], sign: 'DRIP & INK', signColor: '#ff6fa8',
+  boxes: [
+    [-4.8, -3.0, -3.9, -3.3, 2.0, '#4a2f45'], [-2.6, -0.8, -3.9, -3.3, 2.0, '#4a2f45'], // clothes racks
+    [2.4, 4.8, -3.9, -3.2, 0.9, '#222'],                          // counter
+    [3.2, 4.4, 0.8, 1.8, 0.5, '#8a1a2a'],                         // barber chair
+    [-4.8, -3.8, 1.0, 2.6, 0.5, '#2f2f38'],
+  ],
+  npcs: [
+    { id: 'barber', who: 'Barber', seed: 'drip-barber', x: 2.4, z: 1.3, rot: Math.PI / 2, hair: 'buzz' },
+    { id: 'clerk', who: 'Stylist', seed: 'drip-clerk', female: true, x: 3.6, z: -2.6, rot: 0, work: true },
+  ],
+  visitors: ALL_VISITORS,
+  spots: [{ id: 'style', x: 0, z: -2.4, label: 'Racks · style', reach: 2.0, kind: 'act', act: 'screen:style' }],
+  lights: [[-2.5, -1, '#ff9ad0'], [2.5, 1, '#fff1d0']],
+});

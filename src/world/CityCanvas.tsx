@@ -12,7 +12,7 @@ import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
 import { gpsState, refreshGps } from './gps';
-import { buildKitchen, buildStudio, type Interior } from './interior';
+import { buildKitchen, buildStudio, buildLabel, buildCrib, buildRadio, type Interior } from './interior';
 import { setStudioIntent } from './studioIntent';
 import { indoor } from './sim';
 import { storyBus } from '../story/bus';
@@ -110,10 +110,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     gpsBeacon.add(beaconMesh);
     gpsGroup.add(gpsRibbon, gpsBeacon);
     gpsGroup.visible = false;
-    const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin) };
+    const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
-    scene.add(interiors.kitchen.group, interiors.studio.group, gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
+    scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
@@ -224,7 +224,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
               if (sp.kind === 'exit') exitInterior();
               else if (sp.kind === 'counter') useGameStore.getState().setScreen('kitchen');
               else if (sp.kind === 'act') {
-                if (sp.act === 'video') useGameStore.getState().setScreen('create_video');
+                if (sp.act?.startsWith('screen:')) useGameStore.getState().setScreen(sp.act.slice(7) as never);
+                else if (sp.act === 'video') useGameStore.getState().setScreen('create_video');
                 else { setStudioIntent(sp.act as 'record'); useGameStore.getState().setScreen('studio'); }
               }
               else if (sp.kind === 'radio') { radio.toggle(); hudStore.toast('📻 Radio'); }
@@ -275,7 +276,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
             live.cam.yaw = live.p.rot + Math.PI - 0.75;
             live.cam.pitch = 0.3;
           }
-          if (door.place.id === 'food' || door.place.id === 'studio') enterInterior(door.place.id === 'food' ? 'kitchen' : 'studio', door.door.nx, door.door.nz, door.x, door.z); else enterRef.current(door.place);
+          const room = Object.values(built.interiors).find((i) => i.placeId === door.place.id);
+          if (room) enterInterior(room.id, door.door.nx, door.door.nz, door.x, door.z); else enterRef.current(door.place);
         } else if (person) {
           // They stop and turn to you; you turn to them.
           person.hold = 1e6;

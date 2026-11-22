@@ -12,10 +12,10 @@ export const SX = 2100; // Studio 9's
 export interface Spot { id: string; x: number; z: number; label: string; reach: number; kind: 'exit' | 'counter' | 'radio' | 'act'; act?: string }
 export interface Npc { id: string; who: string; visitor?: boolean; model: PlayerModel; x: number; z: number; rot: number; sit: boolean; work: boolean; baseY: number }
 export interface Interior {
-  id: 'kitchen' | 'studio';
+  id: string;
   name: string;
   x0: number;
-  where: 'kitchen' | 'studio';
+  where: string;
   placeId: string;
   halfW: number;
   halfD: number;
@@ -284,3 +284,141 @@ export function buildStudio(bin: Bin): Interior {
   ];
   return { id: 'studio', name: 'Studio 9', x0: X, where: 'studio', placeId: 'studio', halfW: W, halfD: D, group, lights, solids, bounds: { minX: X - W, maxX: X + W, minZ: -D, maxZ: D }, spawn: { x: X, z: 3.4, rot: Math.PI }, spots, npcs, walls };
 }
+
+// ─── GENERIC ROOMS: the label, your place, the radio station ───────────────
+type B = [number, number, number, number, number, string, number?, boolean?, string?];
+interface RoomSpec {
+  id: string; name: string; x0: number; placeId: string; W: number; D: number;
+  wall: string; floor: string; rug?: [number, number, number, number, string]; sign: string; signColor: string;
+  boxes: B[]; npcs: Array<{ id: string; who: string; seed: string; female?: boolean; x: number; z: number; rot: number; sit?: boolean; work?: boolean; hair?: string; skin?: string }>;
+  visitors: string[]; spots: Array<Omit<Spot, 'x'> & { x: number }>; lights: Array<[number, number, string]>;
+}
+function buildRoom(bin: Bin, r: RoomSpec): Interior {
+  const group = new THREE.Group();
+  const solids: Box[] = [];
+  const X = r.x0, W = r.W, D = r.D, H = 3.3;
+  const mat = (c: string, e?: string) => bin.add(new THREE.MeshLambertMaterial({ color: c, emissive: e ?? '#000000' }));
+  const add = (x0: number, x1: number, z0: number, z1: number, h: number, c: string, y0 = 0, solid = true, e?: string) => {
+    const m = new THREE.Mesh(bin.add(new THREE.BoxGeometry(x1 - x0, h, z1 - z0)), mat(c, e));
+    m.position.set(X + (x0 + x1) / 2, y0 + h / 2, (z0 + z1) / 2); group.add(m);
+    if (solid) solids.push({ minX: X + x0, maxX: X + x1, minZ: z0, maxZ: z1 });
+    return m;
+  };
+  const floor = new THREE.Mesh(bin.add(new THREE.PlaneGeometry(W * 2, D * 2)), mat(r.floor)); floor.rotation.x = -Math.PI / 2; floor.position.set(X, 0.01, 0); group.add(floor);
+  if (r.rug) { const [rx, rz, rw, rd, rc] = r.rug; const rg = new THREE.Mesh(bin.add(new THREE.PlaneGeometry(rw, rd)), mat(rc)); rg.rotation.x = -Math.PI / 2; rg.position.set(X + rx, 0.02, rz); group.add(rg); }
+  const walls: Array<[THREE.Mesh, 'N' | 'S' | 'E' | 'W']> = [];
+  walls.push([add(-W - 0.3, W + 0.3, -D - 0.3, -D, H, r.wall), 'N']);
+  walls.push([add(-W - 0.3, -W, -D, D + 0.3, H, r.wall), 'W']);
+  walls.push([add(W, W + 0.3, -D, D + 0.3, H, r.wall), 'E']);
+  walls.push([add(-W - 0.3, -1, D, D + 0.3, H, r.wall), 'S']);
+  walls.push([add(1, W + 0.3, D, D + 0.3, H, r.wall), 'S']);
+  walls.push([add(-1, 1, D, D + 0.3, 0.9, r.wall, 2.4, false), 'S']);
+  const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d')!;
+  g.fillStyle = '#0d0d12'; g.fillRect(0, 0, 512, 128); g.shadowColor = r.signColor; g.shadowBlur = 16; g.fillStyle = r.signColor; g.font = 'bold 64px system-ui'; g.textAlign = 'center'; g.fillText(r.sign, 256, 88);
+  const tex = bin.add(new THREE.CanvasTexture(c)); tex.colorSpace = THREE.SRGBColorSpace;
+  const sg = new THREE.Mesh(bin.add(new THREE.PlaneGeometry(3.6, 0.9)), bin.add(new THREE.MeshBasicMaterial({ map: tex }))); sg.position.set(X, 2.5, -D + 0.16); group.add(sg);
+  for (const b of r.boxes) add(b[0], b[1], b[2], b[3], b[4], b[5], b[6] ?? 0, b[7] ?? true, b[8]);
+  const lights: THREE.PointLight[] = [];
+  for (const [lx, lz, col] of r.lights) {
+    const pl = new THREE.PointLight(col, 0, 12, 1.6); pl.position.set(X + lx, 2.7, lz); group.add(pl); lights.push(pl);
+    const bulb = new THREE.Mesh(bin.add(new THREE.SphereGeometry(0.11, 10, 8)), bin.add(new THREE.MeshBasicMaterial({ color: col }))); bulb.position.set(X + lx, 3.0, lz); group.add(bulb);
+  }
+  const npcs: Npc[] = [];
+  const put = (id: string, who: string, look: Look, x: number, z: number, rot: number, sit: boolean, work: boolean, visitor: boolean) => {
+    const model = buildPlayer(look, bin);
+    model.group.position.set(X + x, sit ? 0.42 : 0, z); model.group.rotation.y = rot;
+    if (sit) { model.legL.rotation.x = -1.45; model.legR.rotation.x = -1.45; }
+    group.add(model.group);
+    npcs.push({ id, who, model, x: X + x, z, rot, sit, work, baseY: sit ? 0.42 : 0, visitor });
+    if (visitor) model.group.visible = false;
+  };
+  for (const n of r.npcs) {
+    const base = lookFor(n.seed, n.female ? 'female' : 'male');
+    put(n.id, n.who, { ...base, ...(n.hair ? { hair: n.hair as Look['hair'] } : {}), ...(n.skin ? { skin: n.skin as Look['skin'] } : {}) }, n.x, n.z, n.rot, !!n.sit, !!n.work, false);
+  }
+  for (const id of r.visitors) put(id, id, lookFor(`visitor-${id}`, ['adwoa', 'afia', 'efua', 'mimi', 'esi'].includes(id) ? 'female' : 'male'), 1.8, D - 1.2, Math.PI, false, false, true);
+  const spots: Spot[] = r.spots.map((sp) => ({ ...sp, x: X + sp.x }));
+  spots.push({ id: 'exit', x: X, z: D - 0.5, label: 'Leave', reach: 1.5, kind: 'exit' });
+  return { id: r.id, name: r.name, x0: X, where: r.id, placeId: r.placeId, halfW: W, halfD: D, group, lights, solids, bounds: { minX: X - W, maxX: X + W, minZ: -D, maxZ: D }, spawn: { x: X, z: D - 1.1, rot: Math.PI }, spots, npcs, walls };
+}
+
+export const LABEL_X = 2200, CRIB_X = 2300, RADIO_X = 2400;
+const ALL_VISITORS = ['static', 'adwoa', 'selasi', 'efua', 'fiifi', 'kj', 'afia', 'mimi', 'moses', 'radiok', 'esi', 'ankh'];
+
+export const buildLabel = (bin: Bin) => buildRoom(bin, {
+  id: 'label', name: 'Label HQ', x0: LABEL_X, placeId: 'label', W: 6, D: 4.5, wall: '#e9e6df', floor: '#4a4f5c', rug: [0, -0.5, 4.5, 2.6, '#7a1f2b'], sign: 'LABEL HQ', signColor: '#ffd666',
+  boxes: [
+    [-3, 3, -3.6, -2.8, 0.9, '#2b2d38'],                     // reception desk
+    [-1.5, 1.5, -0.2, 1.2, 0.82, '#5b3a22'],                  // boardroom table
+    [-6, -5.6, -4.4, 4.4, 0.05, '#e9e6df', 0, false],
+    [4.2, 5.8, -4.3, -3.2, 2.0, '#1f2128'],                  // trophy cabinet
+    [4.3, 5.7, -4.2, -3.3, 0.06, '#ffd666', 2.0, false, '#aa8a20'],
+    [-5.8, -4.6, -1.5, 0.5, 0.5, '#2f5d8a'],                  // waiting sofa
+    [3.6, 5.8, 1.0, 3.6, 0.04, '#222', 0, false],
+    [-5.6, -3.4, -4.4, -3.8, 2.6, '#cdd0d8', 0, true],        // Efua's glass office wall
+    [-1.2, -0.4, -0.4, 0.2, 0.5, '#2f2f38', 0, false], [0.4, 1.2, -0.4, 0.2, 0.5, '#2f2f38', 0, false],
+    [-0.6, 0.6, 3.0, 3.6, 0.5, '#2e7d4f'],                     // plant box
+  ],
+  npcs: [
+    { id: 'efua', who: 'Efua Mensah-Quartey', seed: 'efua-ceo', female: true, x: -4.5, z: -3.0, rot: 0, hair: 'bun', skin: 'warm' },
+    { id: 'recep', who: 'Receptionist', seed: 'reception-9', female: true, x: 0, z: -3.2, rot: 0, work: true },
+    { id: 'exec', who: 'Exec', seed: 'label-exec', x: 4.8, z: 0.2, rot: -Math.PI / 2 },
+  ],
+  visitors: ALL_VISITORS.filter((v) => v !== 'efua'),
+  spots: [
+    { id: 'rec', x: 0, z: -1.9, label: 'Label desk', reach: 1.8, kind: 'act', act: 'screen:label' },
+    { id: 'board', x: 0, z: 1.9, label: 'Team · board room', reach: 1.7, kind: 'act', act: 'screen:team' },
+    { id: 'trophy', x: 4.2, z: -2.4, label: 'Trophy room', reach: 1.6, kind: 'act', act: 'screen:trophy_room' },
+  ],
+  lights: [[-3, 0, '#fff1d0'], [3, 0, '#fff1d0'], [0, -2.5, '#ffd9a0']],
+});
+
+export const buildCrib = (bin: Bin) => buildRoom(bin, {
+  id: 'crib', name: 'Your place', x0: CRIB_X, placeId: 'crib', W: 5, D: 4, wall: '#cfc7b8', floor: '#8a6a4a', rug: [-1.5, 0.8, 3, 2, '#3a5a7a'], sign: 'HOME', signColor: '#9ad0ff',
+  boxes: [
+    [-4.8, -2.4, -3.9, -2.1, 0.5, '#4a4f9a'],                  // bed
+    [-4.8, -4.3, -3.9, -2.1, 1.1, '#3a3d7a'],
+    [-4.6, -3.0, -3.8, -3.0, 0.15, '#e8e8f0', 0.5, false],
+    [2.4, 4.8, -3.9, -3.2, 2.2, '#6a4a2e'],                    // wardrobe
+    [-1.0, 1.6, -3.9, -3.3, 0.8, '#d8c8a0'],                   // desk
+    [-0.4, 0.6, -3.8, -3.7, 0.5, '#0b0b10', 0.9, false, '#1b4a6e'],
+    [-4.8, -2.4, 1.0, 2.0, 0.55, '#2f2f38'],                   // couch
+    [-4.8, -4.5, 1.0, 2.0, 0.95, '#2f2f38'],
+    [-4.8, -3.8, 2.6, 3.0, 0.6, '#111', 0, true, '#0a1d3a'],   // TV unit (TV)
+    [3.0, 4.8, 0.0, 1.0, 0.9, '#8a8a92'],                      // kitchenette
+    [3.0, 4.8, 1.0, 1.5, 0.05, '#ccc', 0.9, false],
+    [0.8, 1.7, 2.8, 3.6, 0.45, '#8a4b2a'],
+  ],
+  npcs: [],
+  visitors: ALL_VISITORS,
+  spots: [
+    { id: 'bed', x: -2.5, z: -2.2, label: 'Rest · home life', reach: 1.6, kind: 'act', act: 'screen:lifestyle' },
+    { id: 'wardrobe', x: 3.6, z: -2.6, label: 'Wardrobe · style', reach: 1.6, kind: 'act', act: 'screen:style' },
+    { id: 'desk', x: 0.3, z: -2.5, label: 'Laptop · messages', reach: 1.6, kind: 'act', act: 'screen:pingchat' },
+    { id: 'tv', x: -3.6, z: 2.1, label: 'Watch TV · streams', reach: 1.6, kind: 'act', act: 'screen:streams' },
+  ],
+  lights: [[-2.5, -1.5, '#ffe3b0'], [2.5, 1.5, '#fff1d0']],
+});
+
+export const buildRadio = (bin: Bin) => buildRoom(bin, {
+  id: 'radio', name: 'HOT 101.9', x0: RADIO_X, placeId: 'radio', W: 5.5, D: 4, wall: '#1d2b44', floor: '#2a2a33', rug: [0, 0.5, 3.4, 2, '#162036'], sign: 'HOT 101.9', signColor: '#4da3ff',
+  boxes: [
+    [-2.2, 2.2, -3.0, -1.6, 0.85, '#15161c'],                  // broadcast desk
+    [-0.4, 0.4, -3.0, -2.9, 0.6, '#0b0b10', 1.1, false, '#1b4a6e'],
+    [-5.3, -3.0, -3.9, -3.0, 2.2, '#0f1016', 0, true],           // record shelves
+    [3.2, 5.3, -3.9, -3.0, 2.0, '#2a2c35'],                      // gear rack
+    [-5.3, -3.2, 0.5, 1.5, 0.5, '#6a2a2a'],                      // guest sofa
+    [-0.3, 0.3, 1.0, 1.6, 0.35, '#8a5a30'],
+    [2.0, 2.5, 2.5, 3.0, 0.1, '#ff3b30', 2.3, false, '#ff3b30'], // ON AIR light
+  ],
+  npcs: [
+    { id: 'radiok', who: 'Radio K', seed: 'radio-k', x: 0, z: -1.2, rot: 0, hair: 'buzz', skin: 'deep' },
+    { id: 'prod', who: 'Producer', seed: 'radio-prod', female: true, x: 3.5, z: -2.2, rot: Math.PI, sit: true },
+  ],
+  visitors: ALL_VISITORS.filter((v) => v !== 'radiok'),
+  spots: [
+    { id: 'mic', x: 0, z: -0.4, label: 'On air · interviews', reach: 1.8, kind: 'act', act: 'screen:interviews' },
+    { id: 'records', x: -4.1, z: -2.3, label: 'The charts', reach: 1.7, kind: 'act', act: 'screen:charts' },
+  ],
+  lights: [[-3, -1, '#6aa8ff'], [2, 0, '#c18bff'], [0, 2, '#fff1d0']],
+});

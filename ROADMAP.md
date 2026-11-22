@@ -334,3 +334,6 @@ HUD scales to short landscape screens; GPS ribbon on the road, door beacon, mini
 
 ### Overhaul slice 1 — walkable Mama's Kitchen (done)
 Door → ENTER → real interior (counter, stove, tables, customers, Mama cooking, Static at his table); walls cut away from the camera; walk up to Mama/Static to start their story scenes; order food at the counter; leave by the door. Studio 9 interior next, then the map expansion.
+
+### Overhaul slice 2 — walkable Studio 9 (done)
+Studio 9 is a real room: lounge, recording booth with mic, mixing desk, beat pads and keys, producer workstation, camera tripod, Ankh at the desk. Walk to the mic to record, desk to mix, pads for beats, computer for lyrics and projects, tripod to shoot a video; the tools open as overlays and recording returns you to the room. Story scenes with Ankh and visitors start when you walk up to them.

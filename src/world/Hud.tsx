@@ -42,7 +42,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
           onClick={onExit}
           className="pointer-events-auto h-9 px-3 rounded-full bg-black/55 backdrop-blur border border-white/10 text-[13px] font-semibold hover:bg-black/70"
         >
-          ← Menu
+          ☰ Overview
         </button>
         <button
           onClick={() => (phoneOut ? phone.close() : phone.open())}

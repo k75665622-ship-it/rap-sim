@@ -44,10 +44,10 @@ export function CareersScreen({ standalone = false }: { standalone?: boolean } =
 
   function handleOpen(slot: SaveSlotMeta) {
     if (slot.id === activeSlotId) {
-      setScreen('dashboard');
+      setScreen('city');
       return;
     }
-    if (loadSlot(slot.id)) setScreen('dashboard');
+    if (loadSlot(slot.id)) setScreen('city');
     else {
       // The payload vanished between the list being drawn and the click.
       refresh();

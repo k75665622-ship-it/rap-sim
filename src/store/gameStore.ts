@@ -1041,7 +1041,7 @@ if (typeof window !== 'undefined') {
 
 /** Load a slot's payload into state. Shared by `loadGame` and `loadSlot`. */
 function applySlotPayload(state: GameState, saved: Partial<GameState>): void {
-  Object.assign(state, { ...getInitialState(), ...saved, screen: 'dashboard' });
+  Object.assign(state, { ...getInitialState(), ...saved, screen: 'city' });
 
   // The roster is regenerated deterministically rather than saved — it is
   // far too large for localStorage. Re-apply only the relationships and
@@ -10437,7 +10437,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
         state.gameDate = gameDate;
         state.initialized = true;
-        state.screen = 'dashboard';
+        state.screen = 'city';
         state.cityFame[`${data.country}:${data.city}`] = career.localFame;
         // The football season is already under way: play it up to today.
         ensureFixtures(state);

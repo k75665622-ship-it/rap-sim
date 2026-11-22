@@ -13,7 +13,7 @@ let goingBack = false;
 let started = false;
 let version = 0;
 
-const HOME: GameScreen[] = ['dashboard', 'splash', 'welcome', 'create_artist'];
+const HOME: GameScreen[] = ['city', 'splash', 'welcome', 'create_artist'];
 
 function notify() { version++; listeners.forEach((l) => l()); }
 
@@ -22,7 +22,7 @@ function popTo(): void {
   let to = stack.pop();
   while (to && to === st.screen) to = stack.pop();
   goingBack = true;
-  st.setScreen(to ?? (st.player ? 'dashboard' : 'splash'));
+  st.setScreen(to ?? (st.player ? 'city' : 'splash'));
   goingBack = false;
   notify();
 }

@@ -167,7 +167,8 @@ export function BeatMaker({ beatId, onClose, onUse }: { beatId?: string; onClose
   return createPortal(
     <div className="studio-cinematic fixed inset-0 z-[85] flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label="Beat maker">
       <div className="absolute inset-0 bg-black/80" onClick={() => { stop(); onClose(); }} />
-      <div className="studio-booth-panel relative w-full sm:max-w-[980px] max-h-[94vh] rounded-t-[24px] sm:rounded-[24px] p-5 space-y-3">
+      <div className="studio-booth-panel relative w-full sm:max-w-[980px] max-h-[94vh] overflow-y-auto rounded-t-[24px] sm:rounded-[24px] p-5 space-y-3">
+        <button onClick={() => { stop(); onClose(); }} className="sticky top-0 z-20 h-10 px-4 rounded-full bg-black/70 backdrop-blur border border-white/15 text-[13px] font-semibold text-ink">← Back to studio</button>
         <div className="flex items-start justify-between gap-3">
           <div><div className="text-[18px] font-bold text-ink">🎹 Beat maker</div><div className="text-[11px] text-ink3">Real drum hits and instruments. Build it, hear it, rap on it. Making a beat costs ⚡12 and teaches you production.</div></div>
           <button onClick={() => { stop(); onClose(); }} className="w-9 h-9 rounded-full border border-line text-ink2" aria-label="Close">✕</button>

@@ -308,3 +308,6 @@ Producers and engineers are played by **expert AI characters** until real player
 - **Fairness:** server-side checks once things go online; no pay-to-win.
 - **AI cost control:** on-device or cached AI for characters, with the bring-your-own-key option as an extra rather than a requirement.
 - **Name check:** once you can be a lawyer, judge or producer, "RAP LIFE" may feel narrow. Consider a broader name (or "RAP LIFE: Music Nation") before the store launch.
+
+### Stage 7b — Personal Story Layer (done)
+KJ arc (5 chapters), family arc, whispers (billboard, radio, unknown number), humor, Director and DJ seats, seat picker at character creation. Bible sections 12–17.

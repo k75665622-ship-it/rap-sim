@@ -9274,11 +9274,11 @@ function passTime(minutes: number): void {
 // ─── THE JOURNAL ───────────────────────────────────────────────────────────
 
 /** Write a line in the career's journal. */
-function storyCtx(state: GameState): StoryCtx {
+export function storyCtx(state: GameState): StoryCtx {
   const m = metricsOf(state, state.goals);
   const mine = state.songs.filter((x) => !x.ownerId && !x.archivedAt);
   return {
-    day: dateToSerial(state.gameDate), hour: Math.floor((state.clockMinute ?? 0) / 60), money: state.player?.career.money ?? 0,
+    day: dateToSerial(state.gameDate), hour: Math.floor((state.clockMinute ?? 0) / 60), money: state.player?.career.money ?? 0, fame: state.player?.career.localFame ?? 0, fans: state.player?.career.fanbase ?? 0,
     metrics: { song: m.songs, release: m.released, gig: m.gigs, shoot: m.shoots, mix: m.mixes, beat: m.beats, cut: m.cuts },
     quality: { song: mine.length ? mine[mine.length - 1].quality : 0, mix: Math.max(0, ...mine.map((x) => x.proMix?.grade ?? 0)) },
   };

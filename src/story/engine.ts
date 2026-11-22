@@ -15,12 +15,14 @@ export interface Ctx {
   day: number;
   hour: number;
   money: number;
+  fame: number;
+  fans: number;
   metrics: Record<TaskKind, number>;
   /** Best quality of the newest thing made, for task tiers. */
   quality: { song: number; mix: number };
 }
 
-export function check(c: Cond | undefined, st: StoryState, x: Pick<Ctx, 'day' | 'hour' | 'money'>): boolean {
+export function check(c: Cond | undefined, st: StoryState, x: Pick<Ctx, 'day' | 'hour' | 'money' | 'fame' | 'fans' | 'metrics'>): boolean {
   if (!c) return true;
   switch (c.k) {
     case 'flag': return (st.flags[c.id] !== undefined && st.flags[c.id] !== false) === (c.v ?? true);
@@ -32,6 +34,7 @@ export function check(c: Cond | undefined, st: StoryState, x: Pick<Ctx, 'day' | 
     case 'done': return st.done[c.node] !== undefined && (c.choice === undefined || st.done[c.node] === c.choice);
     case 'ended': { const a = st.arcs[c.arc]; return !!a && a.status === 'ended' && (c.outcome === undefined || a.outcome === c.outcome); }
     case 'money': return x.money >= c.min;
+    case 'stat': { const v = c.id === 'fame' ? x.fame : c.id === 'fans' ? x.fans : c.id === 'money' ? x.money : c.id === 'songs' ? x.metrics.song : x.metrics.release; return (c.min === undefined || v >= c.min) && (c.max === undefined || v <= c.max); }
     case 'not': return !check(c.c, st, x);
     case 'any': return c.of.some((y) => check(y, st, x));
     case 'all': return c.of.every((y) => check(y, st, x));

@@ -34,6 +34,15 @@ const STEPS = [
   { title: 'Where you start', sub: 'Every story starts somewhere' },
 ];
 
+const SEATS = [
+  { id: 'rapper', emoji: '🎤', label: 'Rapper', sub: 'Two rooms, one voice' },
+  { id: 'producer', emoji: '🎹', label: 'Producer', sub: 'You hear what others miss' },
+  { id: 'manager', emoji: '📋', label: 'Manager', sub: 'You hold the paper' },
+  { id: 'singer', emoji: '🎶', label: 'Singer', sub: 'Someone knows your key' },
+  { id: 'director', emoji: '🎬', label: 'Director', sub: 'The footage remembers' },
+  { id: 'dj', emoji: '🎧', label: 'DJ', sub: 'You read the room' },
+] as const;
+
 type LookTab = 'body' | 'face' | 'hair' | 'fit' | 'ink';
 
 const field = 'w-full bg-card border border-line rounded-[12px] px-4 py-3 text-ink placeholder:text-ink3 focus:outline-none focus:border-amber transition-colors';
@@ -52,6 +61,7 @@ export function CreateArtistScreen() {
   const [country, setCountry] = useState('Ghana');
   const [city, setCity] = useState('Accra');
   const [background, setBackground] = useState<Background>('broke_hustler');
+  const [seat, setSeat] = useState<'rapper' | 'producer' | 'manager' | 'singer' | 'director' | 'dj'>('rapper');
   const [look, setLook] = useState<Look>(() => defaultLook('masc'));
   const [lookTouched, setLookTouched] = useState(false);
 
@@ -82,6 +92,7 @@ export function CreateArtistScreen() {
   function handleSubmit() {
     if (!artistName.trim()) return;
     createPlayer({ artistName: artistName.trim(), realName: realName.trim(), dateOfBirth, gender, genre, continent, country, city, background, look });
+    useGameStore.getState().setStoryPath(seat);
   }
 
   const selectedBG = BACKGROUNDS.find((b) => b.id === background);
@@ -171,6 +182,19 @@ export function CreateArtistScreen() {
                 </div>
               </button>
             ))}
+
+            <div className="pt-2">
+              <label className={label}>Your seat in the story</label>
+              <div className="grid grid-cols-2 gap-2">
+                {SEATS.map((o) => (
+                  <button key={o.id} onClick={() => setSeat(o.id)} className={cn('p-3 rounded-[12px] text-left transition-all', seat === o.id ? 'bg-amber text-black' : 'bg-card border border-line text-ink2 hover:border-white/20')}>
+                    <div className="text-[13px] font-bold">{o.emoji} {o.label}</div>
+                    <div className={cn('text-[11px]', seat === o.id ? 'text-black/70' : 'text-ink3')}>{o.sub}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink3 mt-2">Same city, same mystery, a different view of it. You can switch later.</p>
+            </div>
 
             {selectedBG && (
               <div className="bg-card border border-line rounded-[16px] p-4 mt-4 flex gap-4 items-center">

@@ -132,7 +132,7 @@ Most players find truth 1 first. **Truth 3 is the one that breaks people's moral
 
 ---
 
-## 7. The four seats
+## 7. The four core seats
 
 Each path has **its own first hours, its own daily work, its own moral dilemmas, and its own ending** — but all four share the cast and the Ledger, so *the same events look different from each seat*.
 
@@ -232,10 +232,75 @@ Beyond the finale, the world keeps going. The consequences are **permanent** —
 
 No scene is "release a song". A song is how you *answer* something: a verse to repair a friendship, a hook to save a studio, a beat to lie convincingly, a mix to tell the truth. The booth, the beat maker, the mixing desk, the shoot and Director's Cut are the **instruments of the story**, not the point of it.
 
-## 12. Production plan
+## 12. The Personal Layer (people who knew you before the music)
 
-- **S7a (this build):** the story engine (calls, texts, encounters, letters; conditions, effects, memory, bonds, reputation, delayed consequences), the story host UI, a persistent save, and **playable Act I for the Rapper** (Friday Cypher → Say Something → The Hook We Can't Clear) plus the opening scenes of the other three seats.
-- **S7b:** Act I complete for all four seats; path chosen at character creation; each path's own daily work.
-- **S7c:** Act II for each seat, the midpoint betrayals, romance arcs (Adwoa, Selasi), Fiifi's thread.
-- **S7d:** Act III, the finale and all endings, and a "story recap" book so the player can re-read their choices.
-- **After:** side-arcs (Mimi, Radio K, Big Moses, Lady Zee) as their own multi-chapter stories, and a new-game-plus that lets you play the same night from another seat.
+The mystery is the *plot*. This layer is the *life*. It runs under every seat.
+
+### 12.1 KJ — the childhood friend and the shortcut (5 chapters, all seats)
+KJ grew up two streets from you. He is funny, loyal, and always one idea away from trouble. The arc is a slow question: **what do you owe the person who knew you when you had nothing?**
+
+1. **Broke** (encounter, city): KJ needs money, now. Take his $2,500 "investment", part-fund him with a small loan, or refuse.
+2. **The Bag** (call): he asks you to hold a bag for a night. Take it, peek, ask, or stay out.
+3. **The Favour** (call): he needs an alibi. Peeking pays off here: the bag held 1999 ticket stubs stamped *M. APPIAH PRODUCTIONS*. KJ is tangled with Big Moses without knowing what he holds. This is where the mystery touches your own street.
+4. **What You Owe** (encounter, kitchen): the debt comes due. Pay, negotiate, help, betray him, or refuse.
+5. **Where He Lands** (encounter, shows): he ends **inside** your circle, **away** from it, **cut off**, or as a **partner**. Every ending is livable; none is free.
+
+KJ remembers every answer. Money you lent, calls you ignored, what you said about him when he wasn't there.
+
+### 12.2 Family — Mum, and the person you were at home
+Small, quiet scenes triggered by fame, days and money, not by missions: Mum's hobby, the poster she hung of you, the house, a low night, the day she hears you on the radio. They carry **no reward**. They exist so success costs something and feels like something. Mum also hears, in time, whichever of the Ledger's truths reaches the radio first.
+
+### 12.3 The Whispers (the mystery arriving in the open world)
+Delivered without a mission card, and **ignorable**:
+- A billboard that is wrong: a face painted over with a date.
+- The radio: Ankh walks past and turns it off mid-song.
+- **UNKNOWN NUMBER**: "Stop asking about that song."
+- If you ignore all of it, the world **moves on** without you. Static and Efua close a door you could have opened. You can play a full career and never solve it, and that is a real ending, not a failure.
+
+### 12.4 Humor
+Not every scene is heavy. KJ's borrowed car. A reviewer who writes "you rhymed money with money". The industry is funny. The sad scenes only work because the funny ones are true.
+
+### 12.5 No-reward emotional moments
+Some scenes give nothing: no money, no bond, no flag. A phone call to Mum. A quiet bus ride. Nothing pops up. They are there so the player stops optimising for a moment.
+
+## 13. Seats added: Director and DJ
+
+**Director — "Frame".** You see what the camera sees. A second-unit job turns into a set that keeps going wrong, and your *footage* reveals what nobody else noticed: the Akwaaba video shows the star lip-syncing "Naa Kai", and a woman singing from the wings. Your truth is **visual**: you can prove things no one else can, but you cannot say what they mean.
+
+**DJ — "The Room".** You read crowds. A club call becomes a set, and a crate of old tape contains the archive reel where the announcer says "Esi, on the hook!" Your truth is **aural and historical**: you know the song that never charted and who was in the room.
+
+### Information asymmetry (each seat holds a different piece)
+| Seat | You uniquely know | You can't know |
+|---|---|---|
+| Rapper | The verse was changed | Who signed it away |
+| Producer | The tape, the stems | The money |
+| Manager | The contract | The voice |
+| Singer | The key and the melody | The paper trail |
+| Director | The footage | The studio session |
+| DJ | The room, the reel | The contract |
+
+## 14. Careers connect (and hybrids)
+- Your seat is not a cage. A Rapper who starts producing his own beats picks up the Producer's scenes. A Manager who films a video gets the Director's.
+- **Connected careers**: every seat has at least one scene where another seat's person appears as *your* contact (the Producer who made your beat, the Manager who ran your show).
+- **Hybrids** are the long term goal: a rapper-producer, a singer-manager. The engine keeps one **bond and flag set**, so switching seats carries your history with it.
+
+## 15. What kind of person are you becoming (endings)
+Endings are not good/bad. They are portraits, written from your three reputation axes and your five or six biggest choices:
+- **The Keeper**: high integrity; you carried the truth even when it cost you.
+- **The Closer**: high hustle; you won, and the people behind you know how.
+- **The Heart**: high heart; you rebuilt what the label broke.
+- **The Ghost**: you ignored the mystery; the story walked on without you.
+- **The Mirror**: your reputation is mixed; both sides tell different stories of you.
+
+**No game over.** Broke, cancelled, or ignored, the world keeps going. A bad year is a chapter.
+
+## 16. The gala is a convergence, not the end
+Everything lands on the Night of Akwaaba: KJ in the crowd, Mum on the phone, the bag's tickets in somebody's hand. After it, the game continues: the *after-gala* months open new arcs (the label rebuilt, the song relicensed, Mama's Kitchen reopened or sold) and a **new-game-plus** lets you play the same night from another seat. The world remembers across playthroughs: a character you betrayed once greets you differently the second time.
+
+## 17. Production plan
+
+- **S7a (shipped):** engine, story host UI, persistent save, Rapper Act I, openers for Producer / Manager / Singer.
+- **S7b (this build):** Personal Layer: KJ arc (5 chapters), family, whispers, humor, Director and DJ openers, seat picker at character creation.
+- **S7c:** Act II for each seat, midpoint betrayals, romance (Adwoa, Selasi), Fiifi's thread, hybrid careers.
+- **S7d:** Act III, the gala, all endings, a recap book, new-game-plus and cross-playthrough memory.
+- **After:** side-arcs (Mimi, Radio K, Big Moses, Lady Zee) as their own multi-chapter stories.

@@ -391,6 +391,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
   const busy = mode !== 'idle';
   const live = mode === 'rec' || mode === 'count';
   const close = () => { stopAll(); onClose(); };
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }); // eslint-disable-line react-hooks/exhaustive-deps
   const savedLead = song?.boothTake?.lead ?? barOf(spec);
   const stripBars = Math.min(60, Math.ceil(Math.max(song?.boothTake?.seconds ?? 0, ...takes.map((t) => t.seconds), 8) / barOf(spec)));
   const songName = (fresh ? title.trim() || picked?.name : song?.title) || 'My song';
@@ -494,6 +495,7 @@ export function RecordingBooth({ onClose, songId: initial, fresh, beatId: initia
     <div className="studio-cinematic fixed inset-0 z-[80] flex items-end sm:items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/80" onClick={close} />
       <div className={cn('studio-booth-panel relative w-full max-h-[94vh] overflow-y-auto rounded-t-[24px] sm:rounded-[24px] border border-line p-5 space-y-4', fresh ? 'sm:max-w-[920px]' : 'sm:max-w-[860px]')} style={{ background: 'radial-gradient(120% 80% at 50% 0%, rgba(255,72,72,0.22), rgba(10,11,16,0) 60%), #0c0d12' }}>
+        <button onClick={close} className="sticky top-0 z-20 -mt-1 h-10 px-4 rounded-full bg-black/70 backdrop-blur border border-white/15 text-[13px] font-semibold text-ink">← Back to studio</button>
         <div className="flex items-center justify-between">
           <div><div className="text-[18px] font-bold text-ink">🎙️ {fresh ? 'New song' : 'Recording booth'}</div><div className="text-[11px] text-ink3">{fresh ? 'Pick a beat, hit record, keep your best take. Writing is optional.' : 'Rap over the beat for real — up to 1:30.'}</div></div>
           <div className="flex items-center gap-2">

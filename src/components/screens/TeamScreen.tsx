@@ -242,6 +242,11 @@ export function TeamScreen() {
         Team &amp; Management
       </PageTitle>
 
+      <div className="sticky top-0 z-20 -mx-1 px-1 py-2 bg-[#0A0B10]/90 backdrop-blur flex gap-2">
+        <button onClick={() => document.getElementById('team-mine')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="flex-1 h-10 rounded-[10px] border border-line bg-card text-[13px] font-semibold text-ink">👥 Your team ({crew.length})</button>
+        <button onClick={() => document.getElementById('team-hire')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="flex-1 h-10 rounded-[10px] border border-amber/60 bg-amber/10 text-[13px] font-semibold text-amber">➕ People to hire ({shortlist.length})</button>
+      </div>
+
       <ManagerDesk />
 
       {(openTeam.length > 0 || pastTeam.length > 0) && (
@@ -494,7 +499,7 @@ export function TeamScreen() {
       </section>
 
       {/* ── THE PAYROLL ────────────────────────────────────────────────── */}
-      <section>
+      <section id="team-mine">
         <SectionTitle>The payroll</SectionTitle>
 
         {crew.length === 0 ? (
@@ -610,7 +615,7 @@ export function TeamScreen() {
       </section>
 
       {/* ── HIRING ─────────────────────────────────────────────────────── */}
-      <section>
+      <section id="team-hire">
         <SectionTitle>Hire</SectionTitle>
         <Panel className="p-4">
           <div className="flex flex-wrap gap-2 mb-3">

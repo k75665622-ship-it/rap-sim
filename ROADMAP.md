@@ -311,3 +311,6 @@ Producers and engineers are played by **expert AI characters** until real player
 
 ### Stage 7b — Personal Story Layer (done)
 KJ arc (5 chapters), family arc, whispers (billboard, radio, unknown number), humor, Director and DJ seats, seat picker at character creation. Bible sections 12–17.
+
+### UI pass 1 (done)
+City is the home screen (dashboard is now "☰ Overview"); beat maker and booth have "← Back to studio" (booth also closes on Esc); studio tabs show "← Studio home"; Team has a sticky Your team / People to hire jump bar.

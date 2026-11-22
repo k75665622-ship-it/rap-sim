@@ -941,6 +941,7 @@ export function StudioScreen() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="min-w-0">
+          {mode !== 'home' && <button onClick={() => setMode('home')} className="mb-1 h-8 px-3 rounded-full border border-line text-[12px] font-semibold text-ink2 hover:text-ink">← Studio home</button>}
           <h1 className="text-[28px] font-bold text-ink leading-tight">Studio</h1>
           <div className="text-[13px] text-ink2 mt-0.5 flex items-center gap-2 flex-wrap">
             <span>{tierNow.emoji} {tierNow.name}</span>

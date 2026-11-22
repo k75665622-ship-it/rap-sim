@@ -59,7 +59,8 @@ const held = (...codes: string[]) => codes.some((c) => keys.has(c));
 export function moveAxis(): { x: number; y: number } {
   let x = input.stick.x;
   let y = input.stick.y;
-  x += input.touchSteer;
+  // Finer control near the middle of the wheel, full lock at the ends.
+  x += Math.sign(input.touchSteer) * Math.pow(Math.abs(input.touchSteer), 1.35);
   if (input.touchGas) y += 1;
   if (input.touchReverse) y -= 1;
   if (held('KeyW', 'ArrowUp')) y += 1;
@@ -72,7 +73,9 @@ export function moveAxis(): { x: number; y: number } {
 }
 
 export const sprinting = () => input.touchSprint || held('ShiftLeft', 'ShiftRight');
-export const handbrake = () => input.touchBrake || held('Space');
+/** Keyboard handbrake (drift). The on-screen brake pedal is `footBrake`. */
+export const handbrake = () => held('Space');
+export const footBrake = () => input.touchBrake;
 
 export function takeAction(): boolean { const a = input.actionQueued; input.actionQueued = false; return a; }
 export function takeJump(): boolean { const j = input.jumpQueued; input.jumpQueued = false; return j; }
@@ -98,9 +101,11 @@ export interface HudState {
   nearStage: boolean;
   gig: boolean;
   shooting: boolean;
+  /** The full-screen map is open (other floating chips tuck away). */
+  mapOpen: boolean;
 }
 
-let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null, talk: null, nearStage: false, gig: false, shooting: false };
+let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null, talk: null, nearStage: false, gig: false, shooting: false, mapOpen: false };
 const hudListeners = new Set<() => void>();
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 

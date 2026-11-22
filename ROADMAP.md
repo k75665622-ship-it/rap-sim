@@ -328,3 +328,6 @@ Phone car pedals (gas/brake/reverse, steer left/right), radio off by default and
 
 ### Cockpit driving (done)
 First-person cockpit view with hood/dashboard/speedo; steering wheel or arrows, wheel on the right by default, pedals left, D/R toggle; Controls panel (view, steering, side, size, arrange by dragging, reset); radio button.
+
+### Layout + GPS (done)
+HUD scales to short landscape screens; GPS ribbon on the road, door beacon, minimap route and distance pill for story encounters/tasks.

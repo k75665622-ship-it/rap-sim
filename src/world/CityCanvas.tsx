@@ -12,11 +12,15 @@ import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
 import { gpsState, refreshGps } from './gps';
+import { buildKitchen, KX } from './interior';
+import { indoor } from './sim';
+import { storyBus } from '../story/bus';
+import { NODES } from '../story/engine';
 import { daylightAt, minuteDelta } from './daylight';
 import { phone } from './phone';
 import { useGameStore } from '../store/gameStore';
 import { cityLayout, type Place } from './layout';
-import { handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
+import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
 
@@ -105,12 +109,14 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     gpsBeacon.add(beaconMesh);
     gpsGroup.add(gpsRibbon, gpsBeacon);
     gpsGroup.visible = false;
+    const kitchen = buildKitchen(bin);
+    if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
-    scene.add(gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
+    scene.add(kitchen.group, gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
+    return { kitchen, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => {
@@ -133,7 +139,26 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     talking: null as Resident | null,
     lastScare: -10,
     lastGps: -10,
+    fired: new Set<string>(),
+    hummed: false,
   }), []);
+
+  const enterInterior = (nx: number, nz: number, dx: number, dz: number) => {
+    const K = built.kitchen;
+    indoor.on = true; indoor.id = K.id; indoor.solids = K.solids; indoor.bounds = K.bounds;
+    indoor.exitAt = { x: dx, z: dz, rot: Math.atan2(nx, nz) };
+    live.p.x = K.spawn.x; live.p.z = K.spawn.z; live.p.rot = K.spawn.rot; live.p.speed = 0; live.p.y = 0;
+    live.cam.yaw = K.spawn.rot + Math.PI; live.cam.pitch = 0.85; live.cam.manualAt = -10;
+    tmp.first = true; tmp.hummed = false; tmp.fired.clear();
+    hudStore.set({ inside: K.id });
+  };
+  const exitInterior = () => {
+    indoor.on = false;
+    live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; live.p.speed = 0; live.p.y = 0.15;
+    live.cam.yaw = live.p.rot + Math.PI - 0.75; live.cam.pitch = 0.3;
+    tmp.first = true;
+    hudStore.set({ inside: null });
+  };
 
   useFrame((state, rawDt) => {
     // On a slow phone, take a couple of small steps rather than going into
@@ -165,7 +190,50 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     let prompt: string | null = null;
     const { residents } = built;
 
-    if (live.mode === 'foot') {
+    if (indoor.on && live.mode === 'foot') {
+      const K = built.kitchen;
+      const st = useGameStore.getState().story;
+      // Who the story has waiting for you in this room.
+      const waiting: Array<{ node: string; from: string }> = [];
+      for (const d of st?.inbox ?? []) {
+        if (d.status !== 'new' && d.status !== 'open') continue;
+        const n = NODES[d.node];
+        if (n?.channel === 'encounter' && n.where === 'kitchen') waiting.push({ node: d.node, from: n.from });
+      }
+      // The visitors you're expecting appear; the rest stay out.
+      for (const n of K.npcs) if (n.who === n.id && n.id.length > 0 && !['esi', 'static'].includes(n.id) && !n.id.startsWith('cust')) n.model.group.visible = waiting.some((w) => w.from === n.id);
+      K.npcs.find((n) => n.id === 'static')!.model.group.visible = true;
+      let best = 1e9;
+      let target: { label: string; run: () => void; auto?: string } | null = null;
+      for (const w of waiting) {
+        const npc = K.npcs.find((n) => n.id === w.from);
+        if (!npc) continue;
+        const d = Math.hypot(npc.x - live.p.x, npc.z - live.p.z);
+        if (d < 2.3 && d < best) {
+          best = d;
+          const who = npc.id === 'esi' ? 'Mama' : npc.id === 'static' ? 'Static' : npc.id;
+          target = { label: `Talk to ${who}`, auto: d < 1.55 ? w.node : undefined, run: () => { live.p.rot = Math.atan2(npc.x - live.p.x, npc.z - live.p.z); live.p.speed = 0; storyBus.request(w.node); } };
+        }
+      }
+      if (!target) {
+        for (const sp of K.spots) {
+          const d = Math.hypot(sp.x - live.p.x, sp.z - live.p.z);
+          if (d < sp.reach && d < best) {
+            best = d;
+            target = { label: sp.label, run: () => {
+              if (sp.kind === 'exit') exitInterior();
+              else if (sp.kind === 'counter') useGameStore.getState().setScreen('kitchen');
+              else if (sp.kind === 'radio') { radio.toggle(); hudStore.toast('📻 Radio'); }
+            } };
+          }
+        }
+      }
+      prompt = target?.label ?? null;
+      if (target?.auto && !busy && !tmp.fired.has(target.auto)) { tmp.fired.add(target.auto); target.run(); }
+      else if (action && target) target.run();
+      if (!tmp.hummed && Math.hypot(K.npcs[0].x - live.p.x, K.npcs[0].z - live.p.z) < 3.4) { tmp.hummed = true; hudStore.toast('♪ Mama is humming. Three notes, and a little crack in the middle.', 5200); }
+      for (let i = 0; i < steps; i++) stepPlayer(dt, move, sprinting(), false);
+    } else if (live.mode === 'foot') {
       let door: (typeof doors)[number] | null = null;
       let best = DOOR_REACH;
       for (const d of doors) {
@@ -203,7 +271,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
             live.cam.yaw = live.p.rot + Math.PI - 0.75;
             live.cam.pitch = 0.3;
           }
-          enterRef.current(door.place);
+          if (door.place.id === 'food') enterInterior(door.door.nx, door.door.nz, door.x, door.z); else enterRef.current(door.place);
         } else if (person) {
           // They stop and turn to you; you turn to them.
           person.hold = 1e6;
@@ -240,7 +308,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       else {
         prompt = live.exitQueued ? 'Stopping…' : Math.abs(live.car.v) < EXIT_SPEED ? 'Get out' : null;
         const stop = live.exitQueued || phoneOut;
-        for (let i = 0; i < steps; i++) stepCar(dt, stop ? null : move, stop || handbrake());
+        for (let i = 0; i < steps; i++) stepCar(dt, stop ? null : move, !stop && handbrake(), stop || footBrake());
       }
     }
 
@@ -269,6 +337,28 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       pose.arms = r.startle > 0 ? 2.7 : 0;
     });
     built.crowd.update(built.poses);
+
+    // ── indoors: hide the street, light the room, move its people ──────
+    built.city.root.visible = !indoor.on;
+    built.crowd.group.visible = !indoor.on;
+    for (const l of built.kitchen.lights) l.intensity = indoor.on ? 9 : 0;
+    // Cut-away: a wall between the camera and the room steps aside.
+    for (const [m, side] of built.kitchen.walls) {
+      const cx = camera.position.x, cz = camera.position.z;
+      m.visible = !indoor.on || !((side === 'S' && cz > 4) || (side === 'N' && cz < -4) || (side === 'W' && cx < KX - 5) || (side === 'E' && cx > KX + 5));
+    }
+    if (indoor.on) {
+      for (const n of built.kitchen.npcs) {
+        if (!n.model.group.visible) continue;
+        const m = n.model;
+        if (n.work) { m.armR.rotation.x = -0.95 + Math.sin(t * 3.2) * 0.3; m.armL.rotation.x = -0.4; m.body.rotation.z = Math.sin(t * 1.6) * 0.03; }
+        else if (n.sit) { m.armR.rotation.x = -0.7 + Math.sin(t * 1.3 + n.x) * 0.25; }
+        else { m.body.scale.y = 0.92 * (1 + Math.sin(t * 2.2 + n.x) * 0.008); }
+        // Face you when you're close.
+        const dx = live.p.x - n.x, dz = live.p.z - n.z;
+        if (!n.sit && Math.hypot(dx, dz) < 3) m.group.rotation.y = Math.atan2(dx, dz);
+      }
+    }
 
     // ── pose the player ─────────────────────────────────────────────────
     const p = live.p;
@@ -368,7 +458,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     if (t - tmp.lastGps > 0.4) {
       tmp.lastGps = t;
       const me = live.mode === 'car' ? live.car : live.p;
-      refreshGps({ x: me.x, z: me.z });
+      if (indoor.on) { gpsState.target = null; gpsState.route = []; } else refreshGps({ x: me.x, z: me.z });
       const r = gpsState.route;
       built.gpsGroup.visible = r.length > 1;
       if (r.length > 1) {
@@ -410,7 +500,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const cam = camera as THREE.PerspectiveCamera;
     const fov = portrait ? 72 : 62;
     if (cam.fov !== fov) { cam.fov = fov; cam.updateProjectionMatrix(); }
-    let dist = (driving ? 8.2 + Math.min(4, Math.abs(c.v) * 0.09) : 5.2) * (portrait ? 1.3 : 1);
+    let dist = (driving ? 8.2 + Math.min(4, Math.abs(c.v) * 0.09) : indoor.on ? 4.6 : 5.2) * (portrait ? 1.3 : 1);
+    if (indoor.on) live.cam.pitch = Math.max(0.6, live.cam.pitch);
     if (live.shoot.on) {
       // Director's camera: four angles, three seconds each (see shootcam.ts).
       const sc = shootCam(live.shoot.t, p, portrait);
@@ -431,7 +522,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     tmp.dir.set(Math.sin(live.cam.yaw) * cp, Math.sin(live.cam.pitch), Math.cos(live.cam.yaw) * cp).normalize();
     ray.set(tmp.target, tmp.dir);
     ray.far = dist + 0.5;
-    const hit = ray.intersectObjects(city.occluders, false)[0];
+    const hit = indoor.on ? undefined : ray.intersectObjects(city.occluders, false)[0];
     if (hit) dist = Math.max(1.1, hit.distance - 0.45);
     tmp.want.copy(tmp.target).addScaledVector(tmp.dir, dist);
     tmp.want.y = Math.max(tmp.want.y, 0.4);

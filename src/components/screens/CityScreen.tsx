@@ -18,10 +18,11 @@ import type { Place } from '../../world/layout';
 import { live } from '../../world/sim';
 import { radio } from '../../world/radio';
 import { cast } from '../../world/people';
+import { cityLayout } from '../../world/layout';
 
 // Dev hook, like the store's: lets the console or a test script see where the
 // player and the car are.
-(window as unknown as { __rapCity?: unknown }).__rapCity = { live, hud: hudStore.get, phone, people: cast, radio, input };
+(window as unknown as { __rapCity?: unknown }).__rapCity = { layout: cityLayout, live, hud: hudStore.get, phone, people: cast, radio, input };
 
 export function CityScreen({ app }: { app: ReactNode | null }) {
   const setScreen = useGameStore((s) => s.setScreen);

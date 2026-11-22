@@ -331,3 +331,6 @@ First-person cockpit view with hood/dashboard/speedo; steering wheel or arrows, 
 
 ### Layout + GPS (done)
 HUD scales to short landscape screens; GPS ribbon on the road, door beacon, minimap route and distance pill for story encounters/tasks.
+
+### Overhaul slice 1 — walkable Mama's Kitchen (done)
+Door → ENTER → real interior (counter, stove, tables, customers, Mama cooking, Static at his table); walls cut away from the camera; walk up to Mama/Static to start their story scenes; order food at the counter; leave by the door. Studio 9 interior next, then the map expansion.

@@ -319,3 +319,6 @@ City is the home screen (dashboard is now "☰ Overview"); beat maker and booth 
 
 ### Stage 7d — The Night of Akwaaba (done)
 8 gala scenes for every seat, 5 endings, portrait, after-gala.
+
+### Stage 7e — Act II for every seat (done)
+15 scenes across Producer, Manager, Singer, Director, DJ.

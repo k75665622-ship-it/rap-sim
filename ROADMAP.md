@@ -316,3 +316,6 @@ KJ arc (5 chapters), family arc, whispers (billboard, radio, unknown number), hu
 City is the home screen (dashboard is now "☰ Overview"); beat maker and booth have "← Back to studio" (booth also closes on Esc); studio tabs show "← Studio home"; Team has a sticky Your team / People to hire jump bar.
 ### Stage 7c — Rapper Act II, Adwoa, Fiifi (done)
 7 Act II scenes with the midpoint betrayal and Reel 9, 4 Adwoa romance scenes, 3 Fiifi scenes. Other seats' Act II and Selasi to follow.
+
+### Stage 7d — The Night of Akwaaba (done)
+8 gala scenes for every seat, 5 endings, portrait, after-gala.

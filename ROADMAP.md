@@ -311,3 +311,6 @@ Producers and engineers are played by **expert AI characters** until real player
 
 ### Stage 7b — Personal Story Layer (done)
 KJ arc (5 chapters), family arc, whispers (billboard, radio, unknown number), humor, Director and DJ seats, seat picker at character creation. Bible sections 12–17.
+
+### Stage 7c — Rapper Act II, Adwoa, Fiifi (done)
+7 Act II scenes with the midpoint betrayal and Reel 9, 4 Adwoa romance scenes, 3 Fiifi scenes. Other seats' Act II and Selasi to follow.

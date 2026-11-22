@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { Bin, blobTexture, buildCar, buildCity, buildCrowd, buildPlayer, buildSky, type CrowdPose } from './build';
 import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
+import { drivePrefs } from './drivePrefs';
 import { daylightAt, minuteDelta } from './daylight';
 import { phone } from './phone';
 import { useGameStore } from '../store/gameStore';
@@ -352,6 +353,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
 
     // ── camera ──────────────────────────────────────────────────────────
     const driving = live.mode === 'car';
+    const cockpit = driving && drivePrefs.get().view === 'cockpit' && !live.shoot.on;
+    car.group.visible = !cockpit;
     if (driving) {
       tmp.target.set(c.x, c.y + 1.5, c.z);
       // Swing round behind the car unless the player is looking about.
@@ -375,6 +378,14 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       camera.position.set(sc.px, sc.py, sc.pz);
       camera.lookAt(sc.lx, sc.ly, sc.lz);
       dist = -1;
+    }
+    if (cockpit) {
+      // Eyes at the windscreen, looking where the car points (drag to glance about).
+      const look = live.cam.manualAt > 0 && t - live.cam.manualAt < 1.2 ? live.cam.yaw - (c.heading + Math.PI) : 0;
+      const hd = c.heading + look;
+      camera.position.set(c.x + Math.sin(c.heading) * 0.25, c.y + 1.22, c.z + Math.cos(c.heading) * 0.25);
+      camera.lookAt(camera.position.x + Math.sin(hd) * 10, c.y + 1.0, camera.position.z + Math.cos(hd) * 10);
+      dist = -1; tmp.first = false;
     }
     if (dist > 0) {
     const cp = Math.cos(live.cam.pitch);

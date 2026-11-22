@@ -17,6 +17,8 @@ import { useUnread } from './Phone';
 import { TalkCard } from './TalkCard';
 import { StageOverlays } from './Stage';
 import { radio, STATION, useRadio } from './radio';
+import { CarControls, Dashboard } from './CarControls';
+import { useDrivePrefs } from './drivePrefs';
 
 const coarse = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 const HELP_KEY = 'rl_city_help_v4';
@@ -26,6 +28,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
   const cash = useGameStore((s) => s.player?.career.money ?? 0);
   const [touch] = useState(coarse);
   const phoneOut = usePhoneOpen();
+  const cockpit = useDrivePrefs().view === 'cockpit';
   const unread = useUnread();
   const [help, setHelp] = useState(() => {
     try { return !localStorage.getItem(HELP_KEY); } catch { return true; }
@@ -85,7 +88,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {/* Speedometer */}
-      {hud.mode === 'car' && !phoneOut ? (
+      {hud.mode === 'car' && !phoneOut && !cockpit ? (
         <div className={`absolute ${touch ? 'right-4 bottom-48' : 'right-5 bottom-6'} text-right`}>
           <div className="rounded-[14px] bg-black/55 backdrop-blur border border-white/10 px-3 py-1.5">
             <div className="text-[40px] leading-none font-black num">{hud.speedKmh}</div>
@@ -95,8 +98,10 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {touch && !phoneOut && !hud.talk ? <TouchButtons mode={hud.mode} /> : null}
+      {hud.mode === 'car' && !phoneOut && cockpit ? <Dashboard kmh={hud.speedKmh} /> : null}
+      {hud.mode === 'car' && !phoneOut && !hud.talk ? <CarControls /> : null}
 
-      {hud.mode === 'car' && !phoneOut ? <RadioPill touch={touch} /> : null}
+      {hud.mode === 'car' && !phoneOut && !touch ? <RadioPill touch={touch} /> : null}
 
       {/* Open mic and video shoot, on foot. */}
       {hud.mode === 'foot' && !phoneOut && !hud.talk && !hud.gig && !hud.shooting ? (
@@ -241,7 +246,7 @@ function TouchButtons({ mode }: { mode: 'foot' | 'car' }) {
     onPointerLeave: () => set(false),
   });
   return (
-    <div className="absolute right-4 bottom-8 w-[176px] h-[150px]">
+    <div className={mode === 'car' ? 'absolute left-1/2 -translate-x-1/2 bottom-[104px] w-16 h-16' : 'absolute right-4 bottom-8 w-[176px] h-[150px]'}>
       <button
         aria-label="Interact"
         className={`${btn} absolute right-0 top-0 w-16 h-16 bg-amber text-black border-amber text-[22px]`}
@@ -266,18 +271,6 @@ function TouchButtons({ mode }: { mode: 'foot' | 'car' }) {
             RUN
           </button>
         </>
-      ) : (
-        <>
-          <button aria-label="Brake" className={`${btn} absolute right-[92px] bottom-0 w-[76px] h-[76px] bg-fall/80 border-fall text-[13px]`} {...hold((v) => { input.touchBrake = v; })}>BRAKE</button>
-          <button aria-label="Gas" className={`${btn} absolute right-0 bottom-0 w-[84px] h-[78px] bg-rise/80 border-rise text-black text-[15px]`} {...hold((v) => { input.touchGas = v; })}>GAS</button>
-          <button aria-label="Reverse" className={`${btn} absolute right-[92px] bottom-[84px] w-11 h-11 bg-black/50 border-white/20 text-[11px]`} {...hold((v) => { input.touchReverse = v; })}>REV</button>
-        </>
-      )}
-      {mode === 'car' ? (
-        <div className="fixed left-5 bottom-8 flex gap-3">
-          <button aria-label="Steer left" className={`${btn} w-[88px] h-[88px] bg-black/50 border-white/25 text-[34px]`} {...hold((v) => { input.touchSteer = v ? -1 : (input.touchSteer < 0 ? 0 : input.touchSteer); })}>◀</button>
-          <button aria-label="Steer right" className={`${btn} w-[88px] h-[88px] bg-black/50 border-white/25 text-[34px]`} {...hold((v) => { input.touchSteer = v ? 1 : (input.touchSteer > 0 ? 0 : input.touchSteer); })}>▶</button>
-        </div>
       ) : null}
     </div>
   );

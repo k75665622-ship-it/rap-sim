@@ -322,3 +322,6 @@ City is the home screen (dashboard is now "☰ Overview"); beat maker and booth 
 
 ### Stage 7e — Act II for every seat (done)
 15 scenes across Producer, Manager, Singer, Director, DJ.
+
+### Driving controls (done)
+Phone car pedals (gas/brake/reverse, steer left/right), radio off by default and remembered, landscape prompt/lock in the city.

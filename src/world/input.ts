@@ -12,6 +12,10 @@ export const input = {
   /** Held buttons from the phone controls. */
   touchSprint: false,
   touchBrake: false,
+  /** Car pedals and wheel on a phone. */
+  touchGas: false,
+  touchReverse: false,
+  touchSteer: 0,
   /** Camera drag since the last frame, in pixels. */
   lookDX: 0,
   lookDY: 0,
@@ -35,7 +39,7 @@ function down(e: KeyboardEvent) {
   keys.add(e.code);
 }
 function up(e: KeyboardEvent) { keys.delete(e.code); }
-function blur() { keys.clear(); input.stick.x = 0; input.stick.y = 0; input.touchSprint = false; input.touchBrake = false; }
+function blur() { keys.clear(); input.stick.x = 0; input.stick.y = 0; input.touchSprint = false; input.touchBrake = false; input.touchGas = false; input.touchReverse = false; input.touchSteer = 0; }
 
 export function attachInput(): () => void {
   window.addEventListener('keydown', down);
@@ -55,6 +59,9 @@ const held = (...codes: string[]) => codes.some((c) => keys.has(c));
 export function moveAxis(): { x: number; y: number } {
   let x = input.stick.x;
   let y = input.stick.y;
+  x += input.touchSteer;
+  if (input.touchGas) y += 1;
+  if (input.touchReverse) y -= 1;
   if (held('KeyW', 'ArrowUp')) y += 1;
   if (held('KeyS', 'ArrowDown')) y -= 1;
   if (held('KeyD', 'ArrowRight')) x += 1;

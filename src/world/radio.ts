@@ -14,7 +14,9 @@ export interface RadioState { on: boolean; songId: string | null; title: string;
 
 let state: RadioState = { on: false, songId: null, title: '', artist: '' };
 /** The player switched it off: stays off until they switch it back on. */
-let wanted = true;
+const RK = 'rl-radio-wanted';
+let wanted = (() => { try { return localStorage.getItem(RK) === '1'; } catch { return false; } })();
+const keep = () => { try { localStorage.setItem(RK, wanted ? '1' : '0'); } catch { /* private mode */ } };
 let queue: string[] = [];
 let history: string[] = [];
 const subs = new Set<() => void>();
@@ -66,9 +68,9 @@ export const radio = {
     if (state.on && state.songId && nowPlaying() === songKey(state.songId)) stopPreview();
     setState({ on: false });
   },
-  next() { wanted = true; void playNext(); },
+  next() { wanted = true; keep(); void playNext(); },
   toggle() {
-    if (state.on) { wanted = false; radio.pause(); } else { wanted = true; void playNext(); }
+    if (state.on) { wanted = false; keep(); radio.pause(); } else { wanted = true; keep(); void playNext(); }
   },
 };
 

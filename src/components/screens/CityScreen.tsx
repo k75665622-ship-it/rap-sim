@@ -7,7 +7,7 @@
 // Your phone comes out with P (or the phone button): chats, mail, socials and
 // the rest open inside it while the city carries on behind.
 
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { CityCanvas } from '../../world/CityCanvas';
 import { Hud } from '../../world/Hud';
@@ -32,6 +32,17 @@ export function CityScreen({ app }: { app: ReactNode | null }) {
   const coarse = window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 
   useEffect(() => attachInput(), []);
+  // Phones play the city sideways: lock it where the browser allows, and ask
+  // for a turn where it doesn't.
+  const [portrait, setPortrait] = useState(() => coarse && window.innerHeight > window.innerWidth);
+  useEffect(() => {
+    if (!coarse) return;
+    const upd = () => setPortrait(window.innerHeight > window.innerWidth);
+    window.addEventListener('resize', upd);
+    const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    try { o?.lock?.('landscape').catch(() => {}); } catch { /* not allowed outside fullscreen */ }
+    return () => { window.removeEventListener('resize', upd); try { o?.unlock?.(); } catch { /* ignore */ } };
+  }, [coarse]);
   // Leaving the city puts the phone away.
   useEffect(() => () => phone.reset(), []);
 
@@ -65,6 +76,13 @@ export function CityScreen({ app }: { app: ReactNode | null }) {
       <CityCanvas look={look} onEnter={onEnter} paused={phoneOut && coarse && window.innerWidth < 640} />
       <Hud onExit={() => { phone.reset(); setScreen('dashboard'); }} />
       <Phone app={app} />
+      {portrait ? (
+        <div className="absolute inset-0 z-[90] bg-[#0A0B10]/95 flex flex-col items-center justify-center gap-4 text-center px-8" onClick={() => { try { void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {}); } catch { /* ignore */ } }}>
+          <div className="text-[56px] rl-fade" style={{ transform: 'rotate(90deg)' }}>📱</div>
+          <div className="text-[20px] font-black text-ink">Turn your phone sideways</div>
+          <div className="text-[13px] text-ink2">RAP LIFE plays in landscape, so the pedals and the wheel sit under your thumbs. Tap here to go full screen.</div>
+        </div>
+      ) : null}
     </div>
   );
 }

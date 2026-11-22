@@ -337,3 +337,6 @@ Door → ENTER → real interior (counter, stove, tables, customers, Mama cookin
 
 ### Overhaul slice 2 — walkable Studio 9 (done)
 Studio 9 is a real room: lounge, recording booth with mic, mixing desk, beat pads and keys, producer workstation, camera tripod, Ankh at the desk. Walk to the mic to record, desk to mix, pads for beats, computer for lyrics and projects, tripod to shoot a video; the tools open as overlays and recording returns you to the room. Story scenes with Ankh and visitors start when you walk up to them.
+
+### Overhaul slice 3 — more walkable interiors
+Label HQ (Efua, board room, trophy room), your place (bed/wardrobe/laptop/TV) and Hot 101.9 radio station are now walkable rooms built with a generic `buildRoom` spec; their old menu screens open as in-room spots. Next: club backstage, bank, gym, Drip & Ink, GCS office via the same spec.

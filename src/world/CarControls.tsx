@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type PointerEvent as RPE } from 'react';
 import { input } from './input';
 import { drivePrefs, useDrivePrefs, type DrivePrefs } from './drivePrefs';
 import { radio, useRadio } from './radio';
+import { useUi } from './ui';
 
 const hold = (set: (v: boolean) => void) => ({
   onPointerDown: (e: RPE) => { e.stopPropagation(); (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); set(true); },
@@ -12,11 +13,11 @@ const hold = (set: (v: boolean) => void) => ({
 });
 
 /** Drag handle used in "arrange" mode. */
-function useDrag(off: { x: number; y: number }, commit: (o: { x: number; y: number }) => void, on: boolean) {
+function useDrag(u: number, off: { x: number; y: number }, commit: (o: { x: number; y: number }) => void, on: boolean) {
   const st = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
   return on ? {
     onPointerDown: (e: RPE) => { e.stopPropagation(); (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); st.current = { sx: e.clientX, sy: e.clientY, ox: off.x, oy: off.y }; },
-    onPointerMove: (e: RPE) => { const s = st.current; if (s) commit({ x: s.ox + e.clientX - s.sx, y: s.oy + e.clientY - s.sy }); },
+    onPointerMove: (e: RPE) => { const s = st.current; if (s) commit({ x: s.ox + (e.clientX - s.sx) / u, y: s.oy + (e.clientY - s.sy) / u }); },
     onPointerUp: () => { st.current = null; },
   } : {};
 }
@@ -77,13 +78,14 @@ export function CarControls() {
   const [panel, setPanel] = useState(false);
   const [arrange, setArrange] = useState(false);
   const rad = useRadio();
+  const u = useUi();
   const base = 'pointer-events-auto rounded-xl flex items-center justify-center font-black select-none touch-none border';
   const wheelSize = 150 * p.scale;
   const steerSide = p.side === 'right' ? { right: 18 - p.steerOff.x } : { left: 18 + p.steerOff.x };
   const pedalSide = p.side === 'right' ? { left: 18 + p.pedalOff.x } : { right: 18 - p.pedalOff.x };
   const outline = arrange ? 'outline outline-2 outline-dashed outline-amber' : '';
-  const dragSteer = useDrag(p.steerOff, (o) => drivePrefs.set({ steerOff: p.side === 'right' ? { x: -o.x, y: o.y } : o }), arrange);
-  const dragPedal = useDrag(p.pedalOff, (o) => drivePrefs.set({ pedalOff: p.side === 'right' ? o : { x: -o.x, y: o.y } }), arrange);
+  const dragSteer = useDrag(u, p.steerOff, (o) => drivePrefs.set({ steerOff: p.side === 'right' ? { x: -o.x, y: o.y } : o }), arrange);
+  const dragPedal = useDrag(u, p.pedalOff, (o) => drivePrefs.set({ pedalOff: p.side === 'right' ? o : { x: -o.x, y: o.y } }), arrange);
   // Dragging right moves a right-anchored group left, so flip the sign for it.
   return (
     <>

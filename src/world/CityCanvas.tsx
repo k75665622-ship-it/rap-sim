@@ -11,6 +11,7 @@ import { Bin, blobTexture, buildCar, buildCity, buildCrowd, buildPlayer, buildSk
 import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
+import { gpsState, refreshGps } from './gps';
 import { daylightAt, minuteDelta } from './daylight';
 import { phone } from './phone';
 import { useGameStore } from '../store/gameStore';
@@ -94,12 +95,22 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const residents = cast();
     const crowd = buildCrowd(residents, bin);
     const poses: CrowdPose[] = residents.map(() => ({ visible: false, x: 0, y: 0, z: 0, rot: 0, phase: 0, moving: false }));
+    // The GPS line and the beacon over the door you're being sent to.
+    const gpsGroup = new THREE.Group();
+    const gpsRibbon = new THREE.Mesh(new THREE.BufferGeometry(), bin.add(new THREE.MeshBasicMaterial({ color: '#ffc21a', transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide })));
+    gpsRibbon.frustumCulled = false;
+    const gpsBeacon = new THREE.Group();
+    const beaconMesh = new THREE.Mesh(bin.add(new THREE.CylinderGeometry(1.6, 1.6, 40, 16, 1, true)), bin.add(new THREE.MeshBasicMaterial({ color: '#ffc21a', transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide })));
+    beaconMesh.position.y = 20;
+    gpsBeacon.add(beaconMesh);
+    gpsGroup.add(gpsRibbon, gpsBeacon);
+    gpsGroup.visible = false;
     const scene = new THREE.Group();
-    scene.add(city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
+    scene.add(gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
+    return { gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => {
@@ -121,6 +132,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     mode: live.mode as typeof live.mode,
     talking: null as Resident | null,
     lastScare: -10,
+    lastGps: -10,
   }), []);
 
   useFrame((state, rawDt) => {
@@ -352,6 +364,33 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     (sky.sun.material as THREE.SpriteMaterial).opacity = Math.min(1, Math.max(0, Math.sin(ang) + 0.15) * 3);
 
     // ── camera ──────────────────────────────────────────────────────────
+    // ── GPS: the line to where the story wants you ──────────────────────
+    if (t - tmp.lastGps > 0.4) {
+      tmp.lastGps = t;
+      const me = live.mode === 'car' ? live.car : live.p;
+      refreshGps({ x: me.x, z: me.z });
+      const r = gpsState.route;
+      built.gpsGroup.visible = r.length > 1;
+      if (r.length > 1) {
+        const pos: number[] = []; const idx: number[] = [];
+        let k = 0;
+        for (let i = 1; i < r.length; i++) {
+          const a = r[i - 1], b = r[i];
+          const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+          const nx = -dz / len * 0.7, nz = dx / len * 0.7;
+          pos.push(a.x + nx, 0.3, a.z + nz, a.x - nx, 0.3, a.z - nz, b.x + nx, 0.3, b.z + nz, b.x - nx, 0.3, b.z - nz);
+          idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); k += 4;
+        }
+        built.gpsRibbon.geometry.dispose();
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setIndex(idx);
+        built.gpsRibbon.geometry = g;
+        const tg = gpsState.target!;
+        built.gpsBeacon.position.set(tg.x, 0, tg.z);
+      }
+    }
+    built.gpsBeacon.rotation.y = t;
     const driving = live.mode === 'car';
     const cockpit = driving && drivePrefs.get().view === 'cockpit' && !live.shoot.on;
     car.group.visible = !cockpit;

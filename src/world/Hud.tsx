@@ -19,6 +19,8 @@ import { StageOverlays } from './Stage';
 import { radio, STATION, useRadio } from './radio';
 import { CarControls, Dashboard } from './CarControls';
 import { useDrivePrefs } from './drivePrefs';
+import { gpsState } from './gps';
+import { useUi } from './ui';
 
 const coarse = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 const HELP_KEY = 'rl_city_help_v4';
@@ -29,6 +31,10 @@ export function Hud({ onExit }: { onExit: () => void }) {
   const [touch] = useState(coarse);
   const phoneOut = usePhoneOpen();
   const cockpit = useDrivePrefs().view === 'cockpit';
+  const u = useUi();
+  const [, tick] = useState(0);
+  useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 600); return () => clearInterval(i); }, []);
+  const gps = gpsState.target && gpsState.route.length > 1 ? gpsState : null;
   const unread = useUnread();
   const [help, setHelp] = useState(() => {
     try { return !localStorage.getItem(HELP_KEY); } catch { return true; }
@@ -38,6 +44,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
   return (
     <div className="absolute inset-0 pointer-events-none select-none text-ink">
       <TouchLayer touch={touch} mode={hud.mode} />
+      <div className="absolute inset-0" style={{ zoom: u }}>
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 p-2.5 sm:p-3 flex items-start gap-2">
@@ -72,6 +79,13 @@ export function Hud({ onExit }: { onExit: () => void }) {
 
       <Minimap />
 
+      {gps ? (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 h-9 px-3.5 rounded-full bg-black/65 backdrop-blur border border-amber/50 flex items-center gap-2 text-[12px] font-semibold rl-fade">
+          <span>📍</span><span className="max-w-[150px] truncate">{gps.target!.label}</span>
+          <span className="text-amber num">{gps.dist < 1000 ? `${Math.round(gps.dist / 5) * 5} m` : `${(gps.dist / 1000).toFixed(1)} km`}</span>
+        </div>
+      ) : null}
+
       {/* Toast */}
       {hud.toast ? (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[min(92vw,420px)] rounded-[14px] bg-black/75 backdrop-blur border border-white/10 px-4 py-3 text-[13px] leading-snug rl-fade">
@@ -105,7 +119,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
 
       {/* Open mic and video shoot, on foot. */}
       {hud.mode === 'foot' && !phoneOut && !hud.talk && !hud.gig && !hud.shooting ? (
-        <div className={`absolute ${touch ? 'left-3 bottom-48' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
+        <div className={`absolute ${touch ? 'left-[126px] top-14' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
           {hud.nearStage ? (
             <button onClick={() => hudStore.set({ gig: true })} className="pointer-events-auto h-10 px-4 rounded-full bg-re text-white text-[13px] font-bold shadow-lg">🎤 Open mic{touch ? '' : ' · G'}</button>
           ) : null}
@@ -146,6 +160,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -334,6 +349,17 @@ function Minimap() {
           g.textBaseline = 'middle';
           g.fillText(b.place.glyph, X((b.minX + b.maxX) / 2), Z((b.minZ + b.maxZ) / 2));
         }
+      }
+      // The GPS line and the place it ends.
+      if (gpsState.route.length > 1) {
+        g.strokeStyle = '#ffc21a'; g.lineWidth = 3; g.lineJoin = 'round';
+        g.beginPath();
+        gpsState.route.forEach((q, i) => (i ? g.lineTo(X(q.x), Z(q.z)) : g.moveTo(X(q.x), Z(q.z))));
+        g.stroke();
+        const tg = gpsState.target!;
+        const tx = Math.max(8, Math.min(size - 8, X(tg.x))), tz = Math.max(8, Math.min(size - 8, Z(tg.z)));
+        g.fillStyle = '#ffc21a'; g.strokeStyle = '#000'; g.lineWidth = 1.5;
+        g.beginPath(); g.arc(tx, tz, 6, 0, Math.PI * 2); g.fill(); g.stroke();
       }
       // Your car, when you're not in it.
       if (!driving) {

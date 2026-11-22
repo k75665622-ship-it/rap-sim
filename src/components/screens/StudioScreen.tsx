@@ -1,3 +1,4 @@
+import { takeStudioIntent } from '../../world/studioIntent';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   useGameStore,
@@ -501,7 +502,8 @@ function RoomPanel({
 
 export function StudioScreen() {
   const [booth, setBooth] = useState(false);
-  const [mic, setMic] = useState<{ beatId?: string } | null>(null);
+  const [worldIntent] = useState(() => takeStudioIntent());
+  const [mic, setMic] = useState<{ beatId?: string } | null>(() => (worldIntent === 'record' ? {} : null));
   const player = useGameStore(s => s.player);
   const songs = useGameStore(s => s.songs);
   const npcs = useGameStore(s => s.npcs);
@@ -529,7 +531,7 @@ export function StudioScreen() {
   // Three jobs live in this room: cutting a single, assembling a body of work
   // out of the singles you already have, and going back to something you
   // recorded and never put out.
-  const [mode, setMode] = useState<'home' | 'single' | 'beats' | 'album' | 'room' | 'vault' | 'remix' | 'guest'>(() => (useGameStore.getState().consumeStudioMode() as 'guest' | null) ?? 'home');
+  const [mode, setMode] = useState<'home' | 'single' | 'beats' | 'album' | 'room' | 'vault' | 'remix' | 'guest'>(() => (useGameStore.getState().consumeStudioMode() as 'guest' | null) ?? (worldIntent === 'mix' ? 'vault' : worldIntent === 'beats' ? 'beats' : worldIntent === 'write' ? 'single' : 'home'));
   const featureDue = useGameStore((s) => s.inboundRequests.filter((r) => r.status === 'agreed').length + s.featureRequests.filter((r) => r.status === 'verse_ready').length);
   const [beatsView, setBeatsView] = useState<'library' | 'store' | 'order'>('library');
   /** A beat from the player's own library, when the session is cut over one. */
@@ -991,7 +993,7 @@ export function StudioScreen() {
         <RecordingBooth
           fresh
           beatId={mic.beatId}
-          onClose={() => setMic(null)}
+          onClose={() => { setMic(null); if (worldIntent === 'record') setScreen('city'); }}
           onDone={(id) => { setMic(null); setVaultFocus(id); setMode('vault'); }}
           onWrite={(id) => {
             setMic(null);

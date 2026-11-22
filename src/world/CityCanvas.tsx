@@ -12,7 +12,8 @@ import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
 import { gpsState, refreshGps } from './gps';
-import { buildKitchen, KX } from './interior';
+import { buildKitchen, buildStudio, type Interior } from './interior';
+import { setStudioIntent } from './studioIntent';
 import { indoor } from './sim';
 import { storyBus } from '../story/bus';
 import { NODES } from '../story/engine';
@@ -109,14 +110,14 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     gpsBeacon.add(beaconMesh);
     gpsGroup.add(gpsRibbon, gpsBeacon);
     gpsGroup.visible = false;
-    const kitchen = buildKitchen(bin);
+    const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
-    scene.add(kitchen.group, gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
+    scene.add(interiors.kitchen.group, interiors.studio.group, gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { kitchen, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
+    return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => {
@@ -143,8 +144,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     hummed: false,
   }), []);
 
-  const enterInterior = (nx: number, nz: number, dx: number, dz: number) => {
-    const K = built.kitchen;
+  const enterInterior = (id: string, nx: number, nz: number, dx: number, dz: number) => {
+    const K = built.interiors[id];
     indoor.on = true; indoor.id = K.id; indoor.solids = K.solids; indoor.bounds = K.bounds;
     indoor.exitAt = { x: dx, z: dz, rot: Math.atan2(nx, nz) };
     live.p.x = K.spawn.x; live.p.z = K.spawn.z; live.p.rot = K.spawn.rot; live.p.speed = 0; live.p.y = 0;
@@ -191,18 +192,17 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const { residents } = built;
 
     if (indoor.on && live.mode === 'foot') {
-      const K = built.kitchen;
+      const K = built.interiors[indoor.id ?? 'kitchen'];
       const st = useGameStore.getState().story;
       // Who the story has waiting for you in this room.
       const waiting: Array<{ node: string; from: string }> = [];
       for (const d of st?.inbox ?? []) {
         if (d.status !== 'new' && d.status !== 'open') continue;
         const n = NODES[d.node];
-        if (n?.channel === 'encounter' && n.where === 'kitchen') waiting.push({ node: d.node, from: n.from });
+        if (n?.channel === 'encounter' && n.where === K.where) waiting.push({ node: d.node, from: n.from });
       }
       // The visitors you're expecting appear; the rest stay out.
-      for (const n of K.npcs) if (n.who === n.id && n.id.length > 0 && !['esi', 'static'].includes(n.id) && !n.id.startsWith('cust')) n.model.group.visible = waiting.some((w) => w.from === n.id);
-      K.npcs.find((n) => n.id === 'static')!.model.group.visible = true;
+      for (const n of K.npcs) if (n.visitor) n.model.group.visible = waiting.some((w) => w.from === n.id);
       let best = 1e9;
       let target: { label: string; run: () => void; auto?: string } | null = null;
       for (const w of waiting) {
@@ -211,7 +211,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
         const d = Math.hypot(npc.x - live.p.x, npc.z - live.p.z);
         if (d < 2.3 && d < best) {
           best = d;
-          const who = npc.id === 'esi' ? 'Mama' : npc.id === 'static' ? 'Static' : npc.id;
+          const who = npc.id === 'esi' ? 'Mama' : npc.id === 'ankh' ? 'Ankh' : npc.id.charAt(0).toUpperCase() + npc.id.slice(1);
           target = { label: `Talk to ${who}`, auto: d < 1.55 ? w.node : undefined, run: () => { live.p.rot = Math.atan2(npc.x - live.p.x, npc.z - live.p.z); live.p.speed = 0; storyBus.request(w.node); } };
         }
       }
@@ -223,6 +223,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
             target = { label: sp.label, run: () => {
               if (sp.kind === 'exit') exitInterior();
               else if (sp.kind === 'counter') useGameStore.getState().setScreen('kitchen');
+              else if (sp.kind === 'act') {
+                if (sp.act === 'video') useGameStore.getState().setScreen('create_video');
+                else { setStudioIntent(sp.act as 'record'); useGameStore.getState().setScreen('studio'); }
+              }
               else if (sp.kind === 'radio') { radio.toggle(); hudStore.toast('📻 Radio'); }
             } };
           }
@@ -231,7 +235,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       prompt = target?.label ?? null;
       if (target?.auto && !busy && !tmp.fired.has(target.auto)) { tmp.fired.add(target.auto); target.run(); }
       else if (action && target) target.run();
-      if (!tmp.hummed && Math.hypot(K.npcs[0].x - live.p.x, K.npcs[0].z - live.p.z) < 3.4) { tmp.hummed = true; hudStore.toast('♪ Mama is humming. Three notes, and a little crack in the middle.', 5200); }
+      if (!tmp.hummed && K.id === 'kitchen' && Math.hypot(K.npcs[0].x - live.p.x, K.npcs[0].z - live.p.z) < 3.4) { tmp.hummed = true; hudStore.toast('♪ Mama is humming. Three notes, and a little crack in the middle.', 5200); }
       for (let i = 0; i < steps; i++) stepPlayer(dt, move, sprinting(), false);
     } else if (live.mode === 'foot') {
       let door: (typeof doors)[number] | null = null;
@@ -271,7 +275,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
             live.cam.yaw = live.p.rot + Math.PI - 0.75;
             live.cam.pitch = 0.3;
           }
-          if (door.place.id === 'food') enterInterior(door.door.nx, door.door.nz, door.x, door.z); else enterRef.current(door.place);
+          if (door.place.id === 'food' || door.place.id === 'studio') enterInterior(door.place.id === 'food' ? 'kitchen' : 'studio', door.door.nx, door.door.nz, door.x, door.z); else enterRef.current(door.place);
         } else if (person) {
           // They stop and turn to you; you turn to them.
           person.hold = 1e6;
@@ -341,14 +345,17 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     // ── indoors: hide the street, light the room, move its people ──────
     built.city.root.visible = !indoor.on;
     built.crowd.group.visible = !indoor.on;
-    for (const l of built.kitchen.lights) l.intensity = indoor.on ? 9 : 0;
+    for (const K of Object.values(built.interiors)) for (const l of K.lights) l.intensity = indoor.on && indoor.id === K.id ? 9 : 0;
     // Cut-away: a wall between the camera and the room steps aside.
-    for (const [m, side] of built.kitchen.walls) {
-      const cx = camera.position.x, cz = camera.position.z;
-      m.visible = !indoor.on || !((side === 'S' && cz > 4) || (side === 'N' && cz < -4) || (side === 'W' && cx < KX - 5) || (side === 'E' && cx > KX + 5));
+    for (const K of Object.values(built.interiors)) {
+      const here = indoor.on && indoor.id === K.id;
+      for (const [m, side] of K.walls) {
+        const cx = camera.position.x - K.x0, cz = camera.position.z;
+        m.visible = !here || !((side === 'S' && cz > K.halfD) || (side === 'N' && cz < -K.halfD) || (side === 'W' && cx < -K.halfW) || (side === 'E' && cx > K.halfW));
+      }
     }
     if (indoor.on) {
-      for (const n of built.kitchen.npcs) {
+      for (const n of built.interiors[indoor.id ?? 'kitchen'].npcs) {
         if (!n.model.group.visible) continue;
         const m = n.model;
         if (n.work) { m.armR.rotation.x = -0.95 + Math.sin(t * 3.2) * 0.3; m.armL.rotation.x = -0.4; m.body.rotation.z = Math.sin(t * 1.6) * 0.03; }

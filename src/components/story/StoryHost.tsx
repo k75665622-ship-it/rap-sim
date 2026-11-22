@@ -57,7 +57,7 @@ export function StoryHost() {
     if (scene) return;
     for (const d of pending) {
       const n = NODES[d.node];
-      if (n?.channel === 'encounter' && n.where && n.where !== 'kitchen' && PLACE[n.where].screen === screen && autoDone.current !== `${d.id}|${screen}`) {
+      if (n?.channel === 'encounter' && n.where && n.where !== 'kitchen' && n.where !== 'studio' && PLACE[n.where].screen === screen && autoDone.current !== `${d.id}|${screen}`) {
         autoDone.current = `${d.id}|${screen}`;
         open(d.node); setScene(d.node); return;
       }

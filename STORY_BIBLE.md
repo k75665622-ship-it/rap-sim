@@ -304,5 +304,6 @@ Everything lands on the Night of Akwaaba: KJ in the crowd, Mum on the phone, the
 - **S7c (shipped):** Rapper Act II "The Price" (Static's remix, Efua's street team, Mama's cough, the statement favour, Reel 9, Static confronts you, Afia's letter), the Adwoa romance (4 scenes: together / friends / apart), Fiifi's thread (3 scenes: own voice / copy / cautionary).
 - **S7c-2:** Act II for Producer, Manager, Singer, Director, DJ; Selasi's romance; hybrid careers.
 - **S7d (shipped):** the gala for every seat (invitation, the night before with Mama, backstage, who speaks first, what the room does, the verdict), five endings (Voice of the People, Rival Kings, The Quiet Legend, the loss, the unresolved morning), the "what kind of person" portrait (Keeper / Closer / Heart / Mirror / Ghost), and the after-gala Monday call. The "What you chose" tab is the recap.
-- **S7e:** new-game-plus and cross-playthrough memory; Act II for the other seats.
+- **S7e (shipped):** Act II for the other five seats (3 scenes each): Producer "The Sleeve", Manager "Three Clients", Singer "The Understudy", Director "Final Cut", DJ "The Last Record". Each ends with the seat's own endings and opens the gala.
+- **S7f:** new-game-plus and cross-playthrough memory, Selasi's romance, hybrid careers.
 - **After:** side-arcs (Mimi, Radio K, Big Moses, Lady Zee) as their own multi-chapter stories.

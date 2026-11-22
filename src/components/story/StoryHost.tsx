@@ -3,6 +3,7 @@
 // place, a letter. Plus the scene player and the "people & choices" book.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { storyBus } from '../../story/bus';
 import { useGameStore, storyCtx } from '../../store/gameStore';
 import { NODES, arcTitle, check } from '../../story/engine';
 import { CAST, BOND_CAST } from '../../story/cast';
@@ -43,12 +44,18 @@ export function StoryHost() {
   const calls = pending.filter((d) => NODES[d.node]?.channel === 'call');
   const others = pending.filter((d) => NODES[d.node]?.channel !== 'call');
 
+  // Walking up to someone in the world opens their scene.
+  useEffect(() => {
+    storyBus.handler = (id) => { open(id); setScene(id); };
+    return () => { storyBus.handler = null; };
+  }, [open]);
+
   // Someone is waiting where you just walked in.
   useEffect(() => {
     if (scene) return;
     for (const d of pending) {
       const n = NODES[d.node];
-      if (n?.channel === 'encounter' && n.where && PLACE[n.where].screen === screen && autoDone.current !== `${d.id}|${screen}`) {
+      if (n?.channel === 'encounter' && n.where && n.where !== 'kitchen' && PLACE[n.where].screen === screen && autoDone.current !== `${d.id}|${screen}`) {
         autoDone.current = `${d.id}|${screen}`;
         open(d.node); setScene(d.node); return;
       }

@@ -62,7 +62,7 @@ export function ensureSpawned(): void {
   live.ready = true;
 }
 
-export const groundAt = (x: number, z: number) => (onRoad(x, z) ? 0 : KERB_H);
+export const groundAt = (x: number, z: number) => (indoor.on ? 0 : onRoad(x, z) ? 0 : KERB_H);
 
 // ─── collision ─────────────────────────────────────────────────────────────
 
@@ -89,6 +89,19 @@ function pushOut(x: number, z: number, r: number, b: Box): { dx: number; dz: num
 
 /** Circle against every solid (and, optionally, the player's own car). */
 export function resolveCircle(x: number, z: number, r: number, withCar: boolean): { x: number; z: number; hit: boolean } {
+  if (indoor.on && indoor.bounds) {
+    let hit = false;
+    for (let pass = 0; pass < 2; pass++) {
+      for (const b of indoor.solids) {
+        if (x + r < b.minX || x - r > b.maxX || z + r < b.minZ || z - r > b.maxZ) continue;
+        const pu = pushOut(x, z, r, b);
+        if (pu) { x += pu.dx; z += pu.dz; hit = true; }
+      }
+    }
+    const B = indoor.bounds;
+    const cx = Math.max(B.minX + r, Math.min(B.maxX - r, x)), cz = Math.max(B.minZ + r, Math.min(B.maxZ - r, z));
+    return { x: cx, z: cz, hit: hit || cx !== x || cz !== z };
+  }
   const solids = cityLayout().solids;
   let hit = false;
   for (let pass = 0; pass < 2; pass++) {
@@ -271,3 +284,10 @@ export function lerpAngle(a: number, b: number, t: number): number {
   while (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
 }
+
+// ─── indoors ───────────────────────────────────────────────────────────────
+// Stepping through a door moves you into a room built far off the map. While
+// you're in it, collision uses the room's own walls and furniture.
+export const indoor: { on: boolean; id: string | null; solids: Box[]; bounds: Box | null; exitAt: { x: number; z: number; rot: number } } = {
+  on: false, id: null, solids: [], bounds: null, exitAt: { x: 0, z: 0, rot: 0 },
+};

@@ -77,7 +77,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
         </div>
       </div>
 
-      <Minimap />
+      {hud.inside ? null : <Minimap />}
 
       {gps ? (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 h-9 px-3.5 rounded-full bg-black/65 backdrop-blur border border-amber/50 flex items-center gap-2 text-[12px] font-semibold rl-fade">
@@ -118,7 +118,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       {hud.mode === 'car' && !phoneOut && !touch ? <RadioPill touch={touch} /> : null}
 
       {/* Open mic and video shoot, on foot. */}
-      {hud.mode === 'foot' && !phoneOut && !hud.talk && !hud.gig && !hud.shooting ? (
+      {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.gig && !hud.shooting ? (
         <div className={`absolute ${touch ? 'left-[126px] top-14' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
           {hud.nearStage ? (
             <button onClick={() => hudStore.set({ gig: true })} className="pointer-events-auto h-10 px-4 rounded-full bg-re text-white text-[13px] font-bold shadow-lg">🎤 Open mic{touch ? '' : ' · G'}</button>

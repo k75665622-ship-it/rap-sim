@@ -98,9 +98,11 @@ export interface HudState {
   nearStage: boolean;
   gig: boolean;
   shooting: boolean;
+  /** Which building you're standing inside, if any. */
+  inside: string | null;
 }
 
-let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null, talk: null, nearStage: false, gig: false, shooting: false };
+let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null, talk: null, nearStage: false, gig: false, shooting: false, inside: null };
 const hudListeners = new Set<() => void>();
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 

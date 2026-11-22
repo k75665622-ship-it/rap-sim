@@ -3,11 +3,10 @@
 // place, a letter. Plus the scene player and the "people & choices" book.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, storyCtx } from '../../store/gameStore';
 import { NODES, arcTitle, check } from '../../story/engine';
 import { CAST, BOND_CAST } from '../../story/cast';
 import type { Channel, Delivery, Place, StoryNode, Path } from '../../story/types';
-import { dateToSerial } from '../../sim/gameClock';
 import { cn } from '@/utils/cn';
 import type { GameScreen } from '../../types/game';
 
@@ -20,6 +19,8 @@ const PATHS: { id: Path; label: string; blurb: string }[] = [
   { id: 'producer', label: '🎛️ Producer — Reel 9', blurb: "Ankh needs hands. Nobody tells you what's in the tape room." },
   { id: 'manager', label: '📋 Manager — Hands', blurb: 'You hold their contracts and their secrets.' },
   { id: 'singer', label: '🎶 Singer-songwriter — The Key', blurb: 'Your best hook is on someone else\'s record.' },
+  { id: 'director', label: '🎬 Director — Frame', blurb: 'Turn music into images people remember.' },
+  { id: 'dj', label: '🎧 DJ — The Room', blurb: 'Control the room. Hear everything first.' },
 ];
 
 function useTokens() {
@@ -135,13 +136,10 @@ function Scene({ nodeId: first, onClose }: { nodeId: string; onClose: () => void
   const [shown, setShown] = useState(1);
   const story = useGameStore((s) => s.story)!;
   const choose = useGameStore((s) => s.storyChoose);
-  const money = useGameStore((s) => s.player?.career.money ?? 0);
-  const gameDate = useGameStore((s) => s.gameDate);
-  const clock = useGameStore((s) => s.clockMinute ?? 0);
   const tok = useTokens();
   const bottom = useRef<HTMLDivElement>(null);
   const n: StoryNode | undefined = NODES[nodeId];
-  const x = { day: dateToSerial(gameDate), hour: Math.floor(clock / 60), money };
+  const x = storyCtx(useGameStore.getState());
   const lines = useMemo(() => (n ? n.lines.filter((l) => check(l.if, story, x)) : []), [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const choices = n ? n.choices.filter((c) => check(c.if, story, x)) : [];
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [shown, nodeId]);

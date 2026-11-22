@@ -4,7 +4,7 @@
 // dialogue and choices. Choices change bonds, reputation and flags, and can
 // schedule more story days or weeks later. See STORY_BIBLE.md.
 
-export type Path = 'rapper' | 'producer' | 'manager' | 'singer';
+export type Path = 'rapper' | 'producer' | 'manager' | 'singer' | 'director' | 'dj';
 export type Channel = 'call' | 'text' | 'encounter' | 'letter' | 'scene';
 export type Axis = 'integrity' | 'hustle' | 'heart';
 /** Where an encounter lives: a screen id the player enters (kitchen, studio, shows, bank…). */
@@ -21,6 +21,8 @@ export type Cond =
   | { k: 'done'; node: string; choice?: string }
   | { k: 'ended'; arc: string; outcome?: string }
   | { k: 'money'; min: number }
+  /** A number from the world: fame, fans, songs recorded, songs released, money. */
+  | { k: 'stat'; id: 'fame' | 'fans' | 'songs' | 'released' | 'money'; min?: number; max?: number }
   | { k: 'not'; c: Cond }
   | { k: 'any'; of: Cond[] }
   | { k: 'all'; of: Cond[] };

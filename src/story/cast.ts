@@ -12,7 +12,10 @@ export const CAST: Record<string, CastMember> = {
   afia: { id: 'afia', name: 'Afia Boakye', role: 'Music lawyer', emoji: '⚖️', color: '#c084fc' },
   fiifi: { id: 'fiifi', name: 'Fiifi', role: 'From the block', emoji: '🧢', color: '#4ade80' },
   zee: { id: 'zee', name: 'Lady Zee', role: 'Pop star', emoji: '✨', color: '#f472b6' },
+  kj: { id: 'kj', name: 'KJ', role: 'Childhood friend', emoji: '😎', color: '#f97316' },
+  mum: { id: 'mum', name: 'Mum', role: 'Family', emoji: '👩🏾', color: '#fda4af' },
+  unknown: { id: 'unknown', name: 'Unknown number', role: '', emoji: '❓', color: '#64748b' },
   you: { id: 'you', name: 'You', role: '', emoji: '🙂', color: '#e5e7eb' },
   narr: { id: 'narr', name: '', role: '', emoji: '', color: '#9ca3af' },
 };
-export const BOND_CAST = ['esi', 'static', 'ankh', 'efua', 'mimi', 'adwoa', 'selasi', 'radiok', 'moses', 'afia', 'fiifi'];
+export const BOND_CAST = ['esi', 'static', 'ankh', 'efua', 'mimi', 'adwoa', 'selasi', 'radiok', 'moses', 'afia', 'fiifi', 'kj', 'mum'];

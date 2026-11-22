@@ -34,7 +34,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="absolute inset-0 pointer-events-none select-none text-ink">
-      <TouchLayer touch={touch} />
+      <TouchLayer touch={touch} mode={hud.mode} />
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 p-2.5 sm:p-3 flex items-start gap-2">
@@ -121,7 +121,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
                 <li><b className="text-ink">Left thumb</b> — walk, or drive when you're in the car</li>
                 <li><b className="text-ink">Drag on the right</b> — look around</li>
                 <li><b className="text-ink">✋</b> — go into a building, get in or out of the car</li>
-                <li><b className="text-ink">Run / Jump</b> on foot, <b className="text-ink">Brake</b> in the car</li>
+                <li><b className="text-ink">Run / Jump</b> on foot. In the car: <b className="text-ink">◀ ▶</b> steer, <b className="text-ink">Gas</b>, <b className="text-ink">Brake</b>, <b className="text-ink">Rev</b>; radio is off until you switch it on</li>
                 <li><b className="text-ink">Phone</b> (top) — chats, mail, socials, streams</li>
                 <li><b className="text-ink">✋</b> near someone — talk to them</li>
               </ul>
@@ -169,14 +169,14 @@ function RadioPill({ touch }: { touch: boolean }) {
 
 // ─── drag to look / thumb stick ────────────────────────────────────────────
 
-function TouchLayer({ touch }: { touch: boolean }) {
+function TouchLayer({ touch, mode }: { touch: boolean; mode: 'foot' | 'car' }) {
   const roles = useRef(new Map<number, { role: 'stick' | 'look'; ox: number; oy: number; lx: number; ly: number }>());
   const [stick, setStick] = useState<{ ox: number; oy: number; kx: number; ky: number } | null>(null);
   const R = 56;
 
   const down = (e: RPointerEvent<HTMLDivElement>) => {
     const isTouch = e.pointerType !== 'mouse';
-    const role = isTouch && e.clientX < window.innerWidth * 0.45 ? 'stick' : 'look';
+    const role = isTouch && mode === 'foot' && e.clientX < window.innerWidth * 0.45 ? 'stick' : 'look';
     if (role === 'stick' && [...roles.current.values()].some((r) => r.role === 'stick')) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     roles.current.set(e.pointerId, { role, ox: e.clientX, oy: e.clientY, lx: e.clientX, ly: e.clientY });
@@ -216,7 +216,7 @@ function TouchLayer({ touch }: { touch: boolean }) {
       onPointerCancel={up}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {touch ? (
+      {touch && mode === 'foot' ? (
         stick ? (
           <div className="absolute pointer-events-none" style={{ left: stick.ox - R, top: stick.oy - R, width: R * 2, height: R * 2 }}>
             <div className="absolute inset-0 rounded-full border-2 border-white/25 bg-black/20" />
@@ -267,14 +267,18 @@ function TouchButtons({ mode }: { mode: 'foot' | 'car' }) {
           </button>
         </>
       ) : (
-        <button
-          aria-label="Brake"
-          className={`${btn} absolute right-0 bottom-0 w-[84px] h-[84px] bg-fall/80 border-fall text-[13px]`}
-          {...hold((v) => { input.touchBrake = v; })}
-        >
-          BRAKE
-        </button>
+        <>
+          <button aria-label="Brake" className={`${btn} absolute right-[92px] bottom-0 w-[76px] h-[76px] bg-fall/80 border-fall text-[13px]`} {...hold((v) => { input.touchBrake = v; })}>BRAKE</button>
+          <button aria-label="Gas" className={`${btn} absolute right-0 bottom-0 w-[84px] h-[78px] bg-rise/80 border-rise text-black text-[15px]`} {...hold((v) => { input.touchGas = v; })}>GAS</button>
+          <button aria-label="Reverse" className={`${btn} absolute right-[92px] bottom-[84px] w-11 h-11 bg-black/50 border-white/20 text-[11px]`} {...hold((v) => { input.touchReverse = v; })}>REV</button>
+        </>
       )}
+      {mode === 'car' ? (
+        <div className="fixed left-5 bottom-8 flex gap-3">
+          <button aria-label="Steer left" className={`${btn} w-[88px] h-[88px] bg-black/50 border-white/25 text-[34px]`} {...hold((v) => { input.touchSteer = v ? -1 : (input.touchSteer < 0 ? 0 : input.touchSteer); })}>◀</button>
+          <button aria-label="Steer right" className={`${btn} w-[88px] h-[88px] bg-black/50 border-white/25 text-[34px]`} {...hold((v) => { input.touchSteer = v ? 1 : (input.touchSteer > 0 ? 0 : input.touchSteer); })}>▶</button>
+        </div>
+      ) : null}
     </div>
   );
 }

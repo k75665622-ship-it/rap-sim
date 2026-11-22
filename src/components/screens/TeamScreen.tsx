@@ -1,5 +1,6 @@
 import { MomentCard } from '../moments/MomentCard';
 import { takeTeamFocus } from '../teamFocus';
+import { roleMatches } from '../../sim/roleSearch';
 import { ManagerDesk } from '../moments/ManagerDesk';
 // ─── TEAM & MANAGEMENT ─────────────────────────────────────────────────────
 //
@@ -116,7 +117,7 @@ export function TeamScreen() {
       if (!roleSpec(n.role).hireable) return false;
       if (hiredIds.has(n.id)) return false;
       if (roleFilter !== 'all' && n.role !== roleFilter) return false;
-      if (q && !n.name.toLowerCase().includes(q)) return false;
+      if (q && !n.name.toLowerCase().includes(q) && !roleMatches(n.role, q)) return false;
       return true;
     });
 
@@ -619,7 +620,7 @@ export function TeamScreen() {
         <SectionTitle>Hire</SectionTitle>
         <Panel className="p-4">
           <div className="flex flex-wrap gap-2 mb-3">
-            <SearchInput value={query} onChange={setQuery} placeholder="Search by name…" className="flex-1 min-w-[200px]" />
+            <SearchInput value={query} onChange={setQuery} placeholder="Search a name or a job: financial manager, lawyer…" className="flex-1 min-w-[200px]" />
             <div className="flex flex-wrap gap-1.5">
               <button
                 onClick={() => setRoleFilter('all')}

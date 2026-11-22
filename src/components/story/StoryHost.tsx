@@ -1,7 +1,7 @@
 // ─── STORY HOST ────────────────────────────────────────────────────────────
 // Where the story reaches you: an incoming call, a text, someone waiting at a
 // place, a letter. Plus the scene player and the "people & choices" book.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { storyBus } from '../../story/bus';
 import { useGameStore, storyCtx } from '../../store/gameStore';
@@ -9,6 +9,7 @@ import { NODES, arcTitle, check } from '../../story/engine';
 import { CAST, BOND_CAST } from '../../story/cast';
 import type { Channel, Delivery, Place, StoryNode, Path } from '../../story/types';
 import { cn } from '@/utils/cn';
+import { hudStore } from '../../world/input';
 import type { GameScreen } from '../../types/game';
 
 const PLACE: Record<Place, { screen: GameScreen; name: string }> = {
@@ -33,6 +34,7 @@ function useTokens() {
 export function StoryHost() {
   const story = useGameStore((s) => s.story);
   const screen = useGameStore((s) => s.screen);
+  const mapOpen = useSyncExternalStore(hudStore.subscribe, () => hudStore.get().mapOpen);
   const setScreen = useGameStore((s) => s.setScreen);
   const open = useGameStore((s) => s.storyOpen);
   const decline = useGameStore((s) => s.storyDecline);
@@ -67,8 +69,8 @@ export function StoryHost() {
     <>
       {scene && <Scene nodeId={scene} onClose={() => setScene(null)} />}
       {!scene && calls[0] && <Ringing d={calls[0]} onAnswer={() => { open(calls[0].node); setScene(calls[0].node); }} onDecline={() => decline(calls[0].node)} />}
-      {!scene && !calls[0] && (
-        <button onClick={() => setSheet(true)} className={`fixed z-[300] px-3 rounded-full ${screen === 'city' ? 'left-[126px] top-[104px] h-9' : 'right-3 bottom-20 md:bottom-4 h-11'} bg-card border border-line shadow-lg text-[13px] font-bold flex items-center gap-1.5`} data-testid="story-chip">
+      {!scene && !calls[0] && !mapOpen && (
+        <button onClick={() => setSheet(true)} className={`fixed z-[300] px-3 rounded-full ${screen === 'city' ? 'left-2.5 top-[148px] sm:left-[108px] sm:top-2.5 h-9' : 'right-3 bottom-20 md:bottom-4 h-11'} bg-card border border-line shadow-lg text-[13px] font-bold flex items-center gap-1.5`} data-testid="story-chip">
           📖{others.length > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-amber text-black text-[11px] flex items-center justify-center" data-testid="story-count">{others.length}</span>}
         </button>
       )}

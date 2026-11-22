@@ -102,7 +102,7 @@ export function MixReview({ songId, onClose }: { songId: string; onClose: () => 
     <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/80" onClick={close} />
       <div className="relative w-full sm:max-w-[540px] max-h-[94vh] overflow-y-auto rounded-t-[24px] sm:rounded-[24px] border border-line p-5 space-y-4" style={{ background: 'radial-gradient(120% 80% at 50% 0%, rgba(245,179,1,0.16), rgba(10,11,16,0) 60%), #0c0d12' }}>
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 sticky top-0 z-10 -mx-5 -mt-5 px-5 pt-5 pb-3 bg-[#0c0d12]/95 backdrop-blur border-b border-line/60">
           <div>
             <div className="text-[18px] font-bold text-ink">🎚️ {first}'s mix of “{song.title}”</div>
             <div className="text-[11px] text-ink3">{m.role === 'engineer' ? 'Engineer' : 'Producer'} · {engineerTier(m.skill).emoji} {engineerTier(m.skill).name} · skill {m.skill} — {skillWord(m.skill)} · knows {STYLE_NAME[specialtyOf(m.npcId)]} · version {m.round}</div>

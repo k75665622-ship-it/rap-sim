@@ -20,7 +20,7 @@ import { daylightAt, minuteDelta } from './daylight';
 import { phone } from './phone';
 import { useGameStore } from '../store/gameStore';
 import { cityLayout, type Place } from './layout';
-import { handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
+import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
 
@@ -308,7 +308,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       else {
         prompt = live.exitQueued ? 'Stopping…' : Math.abs(live.car.v) < EXIT_SPEED ? 'Get out' : null;
         const stop = live.exitQueued || phoneOut;
-        for (let i = 0; i < steps; i++) stepCar(dt, stop ? null : move, stop || handbrake());
+        for (let i = 0; i < steps; i++) stepCar(dt, stop ? null : move, !stop && handbrake(), stop || footBrake());
       }
     }
 

@@ -9,8 +9,23 @@ export type Pt = { x: number; z: number };
 const PLACE_FOR: Record<string, string> = { kitchen: 'food', studio: 'studio', shows: 'stage', bank: 'bank' };
 const TASK_PLACE: Record<string, string> = { song: 'studio', mix: 'studio', beat: 'studio', gig: 'stage', release: 'studio' };
 
-/** The place the story is waiting at, if any. */
+/** A place the player chose on the map. Beats the story's target until they get there. */
+let manual: string | null = null;
+export const gpsManualPlace = (): string | null => manual;
+export function setGpsPlace(id: string | null): void {
+  manual = id;
+  if (id) gpsState.on = true;
+}
+
+function doorTarget(pid: string): Target | null {
+  const b = cityLayout().buildings.find((x) => x.place?.id === pid && x.door);
+  if (!b || !b.door) return null;
+  return { x: b.door.x + b.door.nx * 3.2, z: b.door.z + b.door.nz * 3.2, label: b.place!.name, placeId: pid };
+}
+
+/** The place the player picked, else the one the story is waiting at, if any. */
 export function gpsTarget(): Target | null {
+  if (manual) { const t = doorTarget(manual); if (t) return t; manual = null; }
   const st = useGameStore.getState().story;
   if (!st) return null;
   let pid: string | undefined;
@@ -21,9 +36,7 @@ export function gpsTarget(): Target | null {
   }
   if (!pid) for (const t of st.tasks) { const p = TASK_PLACE[t.task.kind]; if (p) { pid = p; break; } }
   if (!pid) return null;
-  const b = cityLayout().buildings.find((x) => x.place?.id === pid && x.door);
-  if (!b || !b.door) return null;
-  return { x: b.door.x + b.door.nx * 3.2, z: b.door.z + b.door.nz * 3.2, label: b.place!.name, placeId: pid };
+  return doorTarget(pid);
 }
 
 const near = (v: number) => ROAD_CENTRES.reduce((a, c) => (Math.abs(c - v) < Math.abs(a - v) ? c : a), ROAD_CENTRES[0]);
@@ -55,7 +68,9 @@ export const gpsState: { target: Target | null; route: Pt[]; dist: number; on: b
 
 export function refreshGps(from: Pt): void {
   if (!gpsState.on) { gpsState.target = null; gpsState.route = []; return; }
-  const t = gpsTarget();
+  let t = gpsTarget();
+  // Arrived at the place they picked: the line goes away, and the story's target (if any) returns.
+  if (manual && t && Math.hypot(from.x - t.x, from.z - t.z) < 6) { manual = null; t = gpsTarget(); }
   gpsState.target = t;
   if (!t) { gpsState.route = []; gpsState.dist = 0; return; }
   gpsState.route = route(from, t);

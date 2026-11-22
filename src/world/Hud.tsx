@@ -9,9 +9,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as
 import { useGameStore } from '../store/gameStore';
 import { GameClock } from '../components/layout/GameClock';
 import { money } from '@/utils/format';
-import { cityLayout, ROAD_CENTRES, ROAD_HALF, WORLD_HALF } from './layout';
 import { hudStore, input } from './input';
-import { live } from './sim';
 import { phone, usePhoneOpen } from './phone';
 import { useUnread } from './Phone';
 import { TalkCard } from './TalkCard';
@@ -21,6 +19,7 @@ import { CarControls, Dashboard } from './CarControls';
 import { useDrivePrefs } from './drivePrefs';
 import { gpsState } from './gps';
 import { useUi } from './ui';
+import { MapOverlay, Minimap } from './MapView';
 
 const coarse = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 const HELP_KEY = 'rl_city_help_v4';
@@ -32,6 +31,9 @@ export function Hud({ onExit }: { onExit: () => void }) {
   const phoneOut = usePhoneOpen();
   const cockpit = useDrivePrefs().view === 'cockpit';
   const u = useUi();
+  const [mapOpen, setMapOpenState] = useState(false);
+  const setMapOpen = (v: boolean) => { setMapOpenState(v); hudStore.set({ mapOpen: v }); };
+  useEffect(() => () => hudStore.set({ mapOpen: false }), []);
   const [, tick] = useState(0);
   useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 600); return () => clearInterval(i); }, []);
   const gps = gpsState.target && gpsState.route.length > 1 ? gpsState : null;
@@ -52,7 +54,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
           onClick={onExit}
           className="pointer-events-auto h-9 px-3 rounded-full bg-black/55 backdrop-blur border border-white/10 text-[13px] font-semibold hover:bg-black/70"
         >
-          ☰ Overview
+          {touch ? '☰' : '☰ Overview'}
         </button>
         <button
           onClick={() => (phoneOut ? phone.close() : phone.open())}
@@ -60,7 +62,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
           className="pointer-events-auto relative h-9 pl-2.5 pr-3 rounded-full bg-black/55 backdrop-blur border border-white/10 text-[13px] font-semibold hover:bg-black/70 flex items-center gap-1.5"
         >
           <svg width="14" height="18" viewBox="0 0 14 18" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="1" y="1" width="12" height="16" rx="2.5" /><path d="M5.5 14h3" strokeLinecap="round" /></svg>
-          Phone{touch ? '' : <span className="text-ink3 font-normal"> · P</span>}
+          {touch ? null : <>Phone<span className="text-ink3 font-normal"> · P</span></>}
           {unread.total > 0 ? (
             <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-fall text-white text-[10px] font-bold flex items-center justify-center num">
               {unread.total > 9 ? '9+' : unread.total}
@@ -77,7 +79,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
         </div>
       </div>
 
-      {hud.inside ? null : <Minimap />}
+      {hud.inside ? null : <Minimap onOpen={() => setMapOpen(true)} />}
 
       {gps ? (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 h-9 px-3.5 rounded-full bg-black/65 backdrop-blur border border-amber/50 flex items-center gap-2 text-[12px] font-semibold rl-fade">
@@ -111,15 +113,15 @@ export function Hud({ onExit }: { onExit: () => void }) {
         </div>
       ) : null}
 
-      {touch && !phoneOut && !hud.talk ? <TouchButtons mode={hud.mode} /> : null}
       {hud.mode === 'car' && !phoneOut && cockpit ? <Dashboard kmh={hud.speedKmh} /> : null}
+      {touch && !phoneOut && !hud.talk ? <TouchButtons mode={hud.mode} cockpit={cockpit} /> : null}
       {hud.mode === 'car' && !phoneOut && !hud.talk ? <CarControls /> : null}
 
       {hud.mode === 'car' && !phoneOut && !touch ? <RadioPill touch={touch} /> : null}
 
       {/* Open mic and video shoot, on foot. */}
       {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.gig && !hud.shooting ? (
-        <div className={`absolute ${touch ? 'left-[126px] top-14' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
+        <div className={`absolute ${touch ? 'left-[104px] top-14' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
           {hud.nearStage ? (
             <button onClick={() => hudStore.set({ gig: true })} className="pointer-events-auto h-10 px-4 rounded-full bg-re text-white text-[13px] font-bold shadow-lg">🎤 Open mic{touch ? '' : ' · G'}</button>
           ) : null}
@@ -161,6 +163,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
         </div>
       ) : null}
       </div>
+      {mapOpen ? <MapOverlay onClose={() => setMapOpen(false)} /> : null}
     </div>
   );
 }
@@ -171,7 +174,7 @@ function RadioPill({ touch }: { touch: boolean }) {
   const r = useRadio();
   const b = 'pointer-events-auto w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 text-[14px]';
   return (
-    <div className="absolute top-14 left-[122px] right-2.5 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:top-3 sm:max-w-[460px] h-10 pl-3 pr-1 rounded-full bg-black/60 backdrop-blur border border-white/10 flex items-center gap-2 text-[12px] rl-fade">
+    <div className="absolute top-14 left-[104px] right-2.5 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:top-3 sm:max-w-[460px] h-10 pl-3 pr-1 rounded-full bg-black/60 backdrop-blur border border-white/10 flex items-center gap-2 text-[12px] rl-fade">
       <span className="text-[15px]">📻</span>
       <span className="font-black tracking-wide text-amber shrink-0">{STATION}</span>
       {r.live ? (
@@ -252,7 +255,7 @@ function TouchLayer({ touch, mode }: { touch: boolean; mode: 'foot' | 'car' }) {
   );
 }
 
-function TouchButtons({ mode }: { mode: 'foot' | 'car' }) {
+function TouchButtons({ mode, cockpit }: { mode: 'foot' | 'car'; cockpit: boolean }) {
   const btn = 'pointer-events-auto rounded-full flex items-center justify-center font-bold select-none active:scale-95 transition-transform border';
   const hold = (set: (v: boolean) => void) => ({
     onPointerDown: (e: RPointerEvent) => { e.stopPropagation(); set(true); },
@@ -261,10 +264,10 @@ function TouchButtons({ mode }: { mode: 'foot' | 'car' }) {
     onPointerLeave: () => set(false),
   });
   return (
-    <div className={mode === 'car' ? 'absolute left-1/2 -translate-x-1/2 bottom-[104px] w-16 h-16' : 'absolute right-4 bottom-8 w-[176px] h-[150px]'}>
+    <div className={mode === 'car' ? (cockpit ? 'absolute left-1/2 ml-[58px] bottom-3 w-14 h-14' : 'absolute left-1/2 -translate-x-1/2 bottom-[104px] w-16 h-16') : 'absolute right-4 bottom-8 w-[176px] h-[150px]'}>
       <button
         aria-label="Interact"
-        className={`${btn} absolute right-0 top-0 w-16 h-16 bg-amber text-black border-amber text-[22px]`}
+        className={`${btn} absolute right-0 top-0 ${mode === 'car' && cockpit ? 'w-14 h-14' : 'w-16 h-16'} bg-amber text-black border-amber text-[22px]`}
         onPointerDown={(e) => { e.stopPropagation(); input.actionQueued = true; }}
       >
         ✋
@@ -288,117 +291,5 @@ function TouchButtons({ mode }: { mode: 'foot' | 'car' }) {
         </>
       ) : null}
     </div>
-  );
-}
-
-// ─── minimap ───────────────────────────────────────────────────────────────
-
-function Minimap() {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const cv = ref.current;
-    if (!cv) return;
-    const size = window.innerWidth < 640 ? 108 : 132;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = size * dpr;
-    cv.height = size * dpr;
-    const g = cv.getContext('2d')!;
-    const L = cityLayout();
-    const span = 120; // metres across
-    const s = size / span;
-    let raf = 0;
-    let last = 0;
-
-    const draw = (now: number) => {
-      raf = requestAnimationFrame(draw);
-      if (now - last < 66) return; // ~15 fps is plenty
-      last = now;
-      const driving = live.mode === 'car';
-      const fx = driving ? live.car.x : live.p.x;
-      const fz = driving ? live.car.z : live.p.z;
-      const X = (x: number) => size / 2 + (x - fx) * s;
-      const Z = (z: number) => size / 2 + (z - fz) * s;
-
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.fillStyle = '#5c616e';
-      g.fillRect(0, 0, size, size);
-      // Out of town.
-      g.fillStyle = '#16181f';
-      if (X(-WORLD_HALF) > 0) g.fillRect(0, 0, X(-WORLD_HALF), size);
-      if (X(WORLD_HALF) < size) g.fillRect(X(WORLD_HALF), 0, size, size);
-      if (Z(-WORLD_HALF) > 0) g.fillRect(0, 0, size, Z(-WORLD_HALF));
-      if (Z(WORLD_HALF) < size) g.fillRect(0, Z(WORLD_HALF), size, size);
-      // Roads.
-      g.fillStyle = '#2a2d36';
-      for (const c of ROAD_CENTRES) {
-        g.fillRect(X(c - ROAD_HALF), Z(-WORLD_HALF), ROAD_HALF * 2 * s, WORLD_HALF * 2 * s);
-        g.fillRect(X(-WORLD_HALF), Z(c - ROAD_HALF), WORLD_HALF * 2 * s, ROAD_HALF * 2 * s);
-      }
-      // Park.
-      for (const b of L.blocks) if (b.park) { g.fillStyle = '#4c7a3b'; g.fillRect(X(b.minX), Z(b.minZ), (b.maxX - b.minX) * s, (b.maxZ - b.minZ) * s); }
-      // Buildings.
-      for (const b of L.buildings) {
-        g.fillStyle = b.place ? b.place.accent : '#3b3f4b';
-        g.globalAlpha = b.place ? 0.9 : 1;
-        g.fillRect(X(b.minX), Z(b.minZ), (b.maxX - b.minX) * s, (b.maxZ - b.minZ) * s);
-        g.globalAlpha = 1;
-        if (b.place) {
-          g.fillStyle = '#000';
-          g.font = 'bold 10px system-ui, sans-serif';
-          g.textAlign = 'center';
-          g.textBaseline = 'middle';
-          g.fillText(b.place.glyph, X((b.minX + b.maxX) / 2), Z((b.minZ + b.maxZ) / 2));
-        }
-      }
-      // The GPS line and the place it ends.
-      if (gpsState.route.length > 1) {
-        g.strokeStyle = '#ffc21a'; g.lineWidth = 3; g.lineJoin = 'round';
-        g.beginPath();
-        gpsState.route.forEach((q, i) => (i ? g.lineTo(X(q.x), Z(q.z)) : g.moveTo(X(q.x), Z(q.z))));
-        g.stroke();
-        const tg = gpsState.target!;
-        const tx = Math.max(8, Math.min(size - 8, X(tg.x))), tz = Math.max(8, Math.min(size - 8, Z(tg.z)));
-        g.fillStyle = '#ffc21a'; g.strokeStyle = '#000'; g.lineWidth = 1.5;
-        g.beginPath(); g.arc(tx, tz, 6, 0, Math.PI * 2); g.fill(); g.stroke();
-      }
-      // Your car, when you're not in it.
-      if (!driving) {
-        g.save();
-        g.translate(X(live.car.x), Z(live.car.z));
-        g.rotate(-live.car.heading);
-        g.fillStyle = '#ffb800';
-        g.strokeStyle = '#000';
-        g.lineWidth = 1;
-        g.fillRect(-2.2, -4, 4.4, 8);
-        g.strokeRect(-2.2, -4, 4.4, 8);
-        g.restore();
-      }
-      // You.
-      const rot = driving ? live.car.heading : live.p.rot;
-      g.save();
-      g.translate(size / 2, size / 2);
-      g.rotate(-rot);
-      g.fillStyle = '#ffffff';
-      g.strokeStyle = '#000';
-      g.lineWidth = 1.5;
-      g.beginPath();
-      g.moveTo(0, 7);
-      g.lineTo(5, -5);
-      g.lineTo(0, -2.5);
-      g.lineTo(-5, -5);
-      g.closePath();
-      g.fill();
-      g.stroke();
-      g.restore();
-    };
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  return (
-    <canvas
-      ref={ref}
-      className="absolute left-2.5 sm:left-3 top-14 rounded-[14px] border-2 border-black/40 shadow-lg w-[108px] h-[108px] sm:w-[132px] sm:h-[132px]"
-    />
   );
 }

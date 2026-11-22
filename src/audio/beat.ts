@@ -174,7 +174,7 @@ export class BeatPlayer {
     this.next = when;
     this.step = 0;
     this.spec.sig.tag.forEach((n, i) => this.tone(when + i * 0.07, midi(n), 0.08, 'sine', 0.1));
-    const tick = () => { while (this.next < this.ctx.currentTime + 0.12) { this.play(this.step, this.next); this.step++; this.next += this.stepDur; } };
+    const tick = () => { while (this.next < this.ctx.currentTime + 0.12) { this.safePlay(this.step, this.next); this.step++; this.next += this.stepDur; } };
     tick();
     this.timer = window.setInterval(tick, 25);
   }
@@ -184,8 +184,14 @@ export class BeatPlayer {
     this.next = when;
     this.step = 0;
     this.spec.sig.tag.forEach((n, i) => this.tone(when + i * 0.07, midi(n), 0.08, 'sine', 0.1));
-    while (this.next < when + seconds) { this.play(this.step, this.next); this.step++; this.next += this.stepDur; }
+    while (this.next < when + seconds) { this.safePlay(this.step, this.next); this.step++; this.next += this.stepDur; }
     this.out.gain.setTargetAtTime(0, when + seconds, 0.4);
+  }
+
+  /** A single bad note (a NaN reaching an AudioParam throws) must never stall the scheduler. */
+  private warned = false;
+  private safePlay(step: number, t0: number) {
+    try { this.play(step, t0); } catch (e) { if (!this.warned) { this.warned = true; console.warn('[beat] skipped a note:', e); } }
   }
 
   private play(step: number, t0: number) {
@@ -226,7 +232,7 @@ export class BeatPlayer {
       const i = this.motif[(s / 2 + (bar % 2) * 8) % 16];
       this.lead(t, midi(60 + sp.root + scale[i] + (sp.prog[bar] > 6 ? -12 : 0) + (sp.prog[bar] % 12 > 0 && i < 3 ? sp.prog[bar] % 5 : 0)), this.stepDur * (sp.lead === 'pad' || sp.lead === 'choir' ? 3 : 1.7));
     }
-    if (second && q >= 0.7 && s % 4 === 2 && !intro) this.tone(t, midi(72 + sp.root + scale[this.counter[(s / 4 + bar) % 8]]), this.stepDur * 1.2, 'sine', 0.035);
+    if (second && q >= 0.7 && s % 4 === 2 && !intro) this.tone(t, midi(72 + sp.root + scale[this.counter[(Math.floor(s / 4) + bar * 2) % 8]]), this.stepDur * 1.2, 'sine', 0.035);
   }
   /** One step of a beat you made. */
   private playCustom(step: number, t0: number) {

@@ -301,6 +301,7 @@ Everything lands on the Night of Akwaaba: KJ in the crowd, Mum on the phone, the
 
 - **S7a (shipped):** engine, story host UI, persistent save, Rapper Act I, openers for Producer / Manager / Singer.
 - **S7b (this build):** Personal Layer: KJ arc (5 chapters), family, whispers, humor, Director and DJ openers, seat picker at character creation.
-- **S7c:** Act II for each seat, midpoint betrayals, romance (Adwoa, Selasi), Fiifi's thread, hybrid careers.
+- **S7c (shipped):** Rapper Act II "The Price" (Static's remix, Efua's street team, Mama's cough, the statement favour, Reel 9, Static confronts you, Afia's letter), the Adwoa romance (4 scenes: together / friends / apart), Fiifi's thread (3 scenes: own voice / copy / cautionary).
+- **S7c-2:** Act II for Producer, Manager, Singer, Director, DJ; Selasi's romance; hybrid careers.
 - **S7d:** Act III, the gala, all endings, a recap book, new-game-plus and cross-playthrough memory.
 - **After:** side-arcs (Mimi, Radio K, Big Moses, Lady Zee) as their own multi-chapter stories.

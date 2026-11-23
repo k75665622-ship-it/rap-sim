@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent } from 'react';
 import { useGameStore } from '../store/gameStore';
+import { dateToSerial } from '../sim/gameClock';
 import { GameClock } from '../components/layout/GameClock';
 import { money } from '@/utils/format';
 import { hudStore, input } from './input';
@@ -17,7 +18,7 @@ import { StageOverlays } from './Stage';
 import { radio, STATION, useRadio } from './radio';
 import { CarControls, Dashboard } from './CarControls';
 import { useDrivePrefs } from './drivePrefs';
-import { gpsState } from './gps';
+import { gpsState, waitingFor } from './gps';
 import { useUi } from './ui';
 import { MapOverlay, Minimap } from './MapView';
 
@@ -87,6 +88,20 @@ export function Hud({ onExit }: { onExit: () => void }) {
           <span className="text-amber num">{gps.dist < 1000 ? `${Math.round(gps.dist / 5) * 5} m` : `${(gps.dist / 1000).toFixed(1)} km`}</span>
         </div>
       ) : null}
+
+      {(() => {
+        if (hud.inside) return null;
+        const day = dateToSerial(useGameStore.getState().gameDate);
+        const w = waitingFor(day)[0];
+        if (!w) return null;
+        const urgent = w.daysLeft !== null && w.daysLeft <= 1;
+        return (
+          <div className={`absolute top-[52px] left-1/2 -translate-x-1/2 h-7 px-3 rounded-full bg-black/65 backdrop-blur border flex items-center gap-1.5 text-[11px] font-semibold ${urgent ? 'border-red-400/70 text-red-200' : 'border-white/15'}`}>
+            <span>{w.emoji}</span><span className="max-w-[210px] truncate">{w.name} is waiting · {w.place}</span>
+            {w.daysLeft !== null ? <span className={urgent ? 'text-red-300' : 'text-amber'}>{w.daysLeft <= 0 ? 'today' : `${w.daysLeft}d`}</span> : null}
+          </div>
+        );
+      })()}
 
       {/* Toast */}
       {hud.toast ? (

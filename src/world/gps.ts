@@ -1,12 +1,13 @@
 // GPS: where the story wants you, and a road route to get there.
 import { useGameStore } from '../store/gameStore';
 import { NODES } from '../story/engine';
+import { CAST } from '../story/cast';
 import { cityLayout, ROAD_CENTRES } from './layout';
 
 export interface Target { x: number; z: number; label: string; placeId: string }
 export type Pt = { x: number; z: number };
 
-const PLACE_FOR: Record<string, string> = { kitchen: 'food', studio: 'studio', shows: 'stage', bank: 'bank' };
+export const PLACE_FOR: Record<string, string> = { kitchen: 'food', studio: 'studio', shows: 'stage', bank: 'bank' };
 const TASK_PLACE: Record<string, string> = { song: 'studio', mix: 'studio', beat: 'studio', gig: 'stage', release: 'studio' };
 
 /** A place the player chose on the map. Beats the story's target until they get there. */
@@ -75,4 +76,20 @@ export function refreshGps(from: Pt): void {
   if (!t) { gpsState.route = []; gpsState.dist = 0; return; }
   gpsState.route = route(from, t);
   gpsState.dist = length(gpsState.route);
+}
+
+export interface Waiting { from: string; name: string; emoji: string; place: string; daysLeft: number | null }
+/** Who the story has waiting for you out in the world, and how long they'll wait. */
+export function waitingFor(day: number): Waiting[] {
+  const st = useGameStore.getState().story;
+  const out: Waiting[] = [];
+  for (const d of st?.inbox ?? []) {
+    if (d.status !== 'new' && d.status !== 'open') continue;
+    const n = NODES[d.node];
+    if (n?.channel !== 'encounter' || !n.where || !PLACE_FOR[n.where]) continue;
+    const c = CAST[n.from];
+    const b = cityLayout().buildings.find((x) => x.place?.id === PLACE_FOR[n.where!]);
+    out.push({ from: n.from, name: c?.name.split(' ')[0] ?? n.from, emoji: c?.emoji ?? '👤', place: b?.place?.name ?? n.where, daysLeft: d.due !== undefined ? d.due - day : null });
+  }
+  return out;
 }

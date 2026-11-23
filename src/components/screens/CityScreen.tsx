@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useGameStore } from '../../store/gameStore';
+import { setWorldCountry } from '../../world/layout';
 import { CityCanvas } from '../../world/CityCanvas';
 import { Hud } from '../../world/Hud';
 import { Phone } from '../../world/Phone';
@@ -27,6 +28,8 @@ import { cityLayout } from '../../world/layout';
 export function CityScreen({ app }: { app: ReactNode | null }) {
   const setScreen = useGameStore((s) => s.setScreen);
   const look = useGameStore((s) => s.player?.look);
+  const country = useGameStore((s) => ((s.story?.flags['abroad'] as string) || s.player?.country || 'Ghana'));
+  setWorldCountry(country);
   // On a phone the phone covers the whole screen: stop drawing the city
   // behind it to save battery.
   const phoneOut = usePhoneOpen();
@@ -74,7 +77,7 @@ export function CityScreen({ app }: { app: ReactNode | null }) {
 
   return (
     <div className="fixed inset-0 bg-[#9cc3e6] overflow-hidden select-none" style={{ touchAction: 'none' }}>
-      <CityCanvas look={look} onEnter={onEnter} paused={phoneOut && coarse && window.innerWidth < 640} />
+      <CityCanvas key={country} look={look} onEnter={onEnter} paused={phoneOut && coarse && window.innerWidth < 640} />
       <Hud onExit={() => { phone.reset(); setScreen('dashboard'); }} />
       <Phone app={app} />
       {portrait ? (

@@ -7,6 +7,7 @@
 // Axes: x east, z south, y up. One unit is one metre.
 
 import type { GameScreen } from '../types/game';
+import { getCountry } from '../data/locations';
 
 // The world is a 3×3 grid of 300 m districts. Downtown is the middle of the
 // top-left one; everything else grows out from it along the same road grid.
@@ -151,10 +152,26 @@ export interface CityLayout {
 }
 
 let cached: CityLayout | null = null;
+let worldCountry = 'Ghana';
+export const currentCountry = (): string => worldCountry;
+/** Which country's city the world is built as. Ghana is the original; every other country gets its own streets and palette. */
+export function setWorldCountry(c: string): void {
+  if (c && c !== worldCountry) { worldCountry = c; cached = null; }
+}
+const seedFor = (c: string) => (c === 'Ghana' ? 1919 : [...c].reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 7) || 1);
+const THEMES: Record<string, string[]> = {
+  Africa: ['#e3c9a0', '#d3a77a', '#c98f66', '#ecd9b5', '#b9a27f', '#f0e0c0'],
+  Europe: ['#b8b2aa', '#a39a8f', '#c4a38a', '#8f8a86', '#d3cdc4', '#9a8f86'],
+  Asia: ['#d8dce6', '#c9d4e0', '#e6d6dc', '#bcc9d6', '#dde4d6', '#cfc9e0'],
+  'North America': ['#c9ced6', '#b7a590', '#9fb0c4', '#d8d0c0', '#8e9bab', '#c4b8a8'],
+  'South America': ['#f0b88a', '#e8d27a', '#9fd3c0', '#f0a0a0', '#c9b0e0', '#f4e0b0'],
+  Oceania: ['#e8e4da', '#b5d0e0', '#d9c8a8', '#c0d8c4', '#f0e4d0', '#a8c4d8'],
+};
+const wallsForWorld = (): string[] => (worldCountry === 'Ghana' ? WALLS : THEMES[getCountry(worldCountry)?.continent ?? ''] ?? WALLS);
 
 export function cityLayout(): CityLayout {
   if (cached) return cached;
-  const r = rng(1919);
+  const r = rng(seedFor(worldCountry));
   const B = bands();
   const blocks: Block[] = [];
   const buildings: Building[] = [];
@@ -226,7 +243,7 @@ export function cityLayout(): CityLayout {
     const height = zn === 'downtown'
       ? (place ? 11 + r() * 5 : edge ? 26 + r() * 40 : 12 + r() * 30)
       : place ? Math.max(sty.h[0], Math.min(sty.h[1], 14 + r() * 4)) : sty.h[0] + r() * (sty.h[1] - sty.h[0]);
-    const palette = sty.walls.length ? sty.walls : WALLS;
+    const palette = sty.walls.length ? sty.walls : wallsForWorld();
     const b: Building = { ...bx, height, color: palette[Math.floor(r() * palette.length)], place, rooftop: [] };
 
     if (place) {

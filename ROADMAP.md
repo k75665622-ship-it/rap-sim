@@ -355,3 +355,6 @@ Gold Coast Airport is walkable (check-in desks, departures board). Check-in open
 
 ### Overhaul slice 9 — venues
 National Stadium (pitch, stands), Iron Ring Arena (ring), Gold Coast Studios (soundstage with sets: shoot a video / newsroom interviews) and Market Square (stalls: style, food) are walkable. Football, wrestling and TV gameplay hook onto these rooms later.
+
+### Overhaul slice 10 — country worlds (foundation)
+`setWorldCountry()` rebuilds the whole 900 m world per country: Ghana keeps the original streets; every other country gets its own seeded street/building layout and a continent palette (Africa terracotta, Europe stone, Asia pastel, Americas, Oceania). The world follows `abroad || player.country`, so a Nigerian start already begins in a Nigerian-built city. Flights land you at that country's airport door. District toasts show the country's first city. Next: story branching by start country, per-country place names/NPCs/currency, abroad-aware shows & missions, ports/ferries.

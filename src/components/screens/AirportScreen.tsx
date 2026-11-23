@@ -7,6 +7,9 @@ import { useMemo, useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { getCountry } from '../../data/locations';
 import { SHOW_COUNTRIES } from '../../sim/shows';
+import { setWorldCountry } from '../../world/layout';
+import { arriveAt } from '../../world/sim';
+import { hudStore } from '../../world/input';
 import { money } from '@/utils/format';
 
 export function fare(from: string, to: string) {
@@ -30,6 +33,9 @@ export function AirportScreen() {
     const r = book(to, f.price, f.hours);
     if (!r.ok) { setErr(r.message); return; }
     setErr('');
+    setWorldCountry(to);
+    arriveAt('airport');
+    hudStore.set({ inside: null });
     setFlight({ from: where, to, msg: r.message });
     setTimeout(() => setFlight(null), 4200);
   };

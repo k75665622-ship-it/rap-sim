@@ -67,6 +67,25 @@ export function ensureSpawned(): void {
   live.ready = true;
 }
 
+/** Land at a place's front door in whichever city is now built (a flight, say). */
+export function arriveAt(placeId: string): void {
+  const L = cityLayout();
+  const b = L.buildings.find((x) => x.place?.id === placeId && x.door);
+  indoor.on = false;
+  live.mode = 'foot';
+  if (!b?.door) { live.ready = false; ensureSpawned(); return; }
+  const d = b.door;
+  live.p.x = d.x + d.nx * 2.2; live.p.z = d.z + d.nz * 2.2; live.p.rot = Math.atan2(d.nx, d.nz); live.p.y = KERB_H; live.p.speed = 0;
+  const toLane = 0.6 + 3 + 1.3;
+  live.car.x = d.nx !== 0 ? d.x + d.nx * toLane : d.x - 6;
+  live.car.z = d.nx !== 0 ? d.z - 6 : d.z + d.nz * toLane;
+  live.car.heading = d.nx !== 0 ? (d.nx > 0 ? 0 : Math.PI) : (d.nz > 0 ? -Math.PI / 2 : Math.PI / 2);
+  live.car.v = 0; live.car.vx = 0; live.car.vz = 0;
+  live.cam.yaw = live.p.rot + Math.PI - 0.75;
+  live.cam.pitch = 0.32; live.cam.manualAt = -10;
+  live.ready = true;
+}
+
 export const groundAt = (x: number, z: number) => (indoor.on ? 0 : onRoad(x, z) ? 0 : KERB_H);
 
 // ─── collision ─────────────────────────────────────────────────────────────

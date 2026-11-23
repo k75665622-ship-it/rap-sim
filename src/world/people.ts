@@ -40,10 +40,12 @@ interface Net {
 }
 
 let net: Net | null = null;
+let netLayout: unknown = null;
 
 function network(): Net {
-  if (net) return net;
   const L = cityLayout();
+  if (net && netLayout === L) return net;
+  netLayout = L;
   const nodes: PathNode[] = [];
   const lanes = ROAD_CENTRES.flatMap((c) => [c - LANE, c + LANE]);
   // Nodes along each footpath line, keyed by the line, then sorted.

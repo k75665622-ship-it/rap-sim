@@ -268,7 +268,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       // The Stage's open mic runs in the evening.
       const hr = (useGameStore.getState().clockMinute ?? 0) / 60;
       hudStore.set({ nearStage: door?.place.id === 'stage' && (hr >= 19 || hr < 3) });
-      if (door) prompt = door.place.screen ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
+      if (door) prompt = door.place.screen || Object.values(built.interiors).some((i) => i.placeId === door.place.id) ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
       else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
 

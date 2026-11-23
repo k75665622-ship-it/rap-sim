@@ -498,6 +498,28 @@ export const buildDrip = (bin: Bin) => buildRoom(bin, {
 });
 
 // ─── apartments: the lobby and a flat ──────────────────────────────────────
+export const AIR_X = 3100;
+export const buildAirport = (bin: Bin) => buildRoom(bin, {
+  id: 'airport', name: 'Gold Coast Airport', x0: AIR_X, placeId: 'airport', W: 7, D: 5, wall: '#dfe6ee', floor: '#8a95a5', rug: [0, 0.5, 6, 3, '#2f4a6e'], sign: 'DEPARTURES', signColor: '#e599f7',
+  boxes: [
+    [-6.5, -2.5, -4.6, -3.7, 1.0, '#2c3a52'], [-1.5, 2.5, -4.6, -3.7, 1.0, '#2c3a52'],     // check-in desks
+    [3.5, 6.6, -4.9, -4.7, 2.4, '#0b0b10', 0.4, false, '#1b4a6e'],                       // departures board
+    [-6.5, -4.5, 1.2, 3.8, 0.45, '#2f5d8a'], [4.5, 6.5, 1.2, 3.8, 0.45, '#2f5d8a'],       // seating
+    [-0.6, 0.6, 3.0, 3.6, 0.5, '#2e7d4f'],
+  ],
+  npcs: [
+    { id: 'agent1', who: 'Check-in', seed: 'air-1', female: true, x: -4.5, z: -4.1, rot: 0, work: true },
+    { id: 'agent2', who: 'Check-in', seed: 'air-2', x: 0.5, z: -4.1, rot: 0, work: true },
+    { id: 'guard', who: 'Security', seed: 'air-3', x: 5.0, z: 0.2, rot: -Math.PI / 2 },
+  ],
+  visitors: [],
+  spots: [
+    { id: 'fly', x: 0.5, z: -2.8, label: 'Check-in · book a flight', reach: 2.0, kind: 'act', act: 'screen:airport' },
+    { id: 'board', x: 5.0, z: -3.5, label: 'Departures board', reach: 1.8, kind: 'act', act: 'screen:airport' },
+  ],
+  lights: [[-3.5, 0, '#fff7e6'], [3.5, 0, '#fff7e6']],
+});
+
 export const APTS_X = 2900, FLAT_X = 3000;
 
 export const buildApts = (bin: Bin) => buildRoom(bin, {

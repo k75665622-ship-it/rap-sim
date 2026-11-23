@@ -2306,6 +2306,7 @@ export type GameScreen =
   | 'dashboard'
   | 'city'
   | 'kitchen'
+  | 'airport'
   | 'studio'
   | 'social_chirp'
   | 'social_snapgram'

@@ -19,6 +19,8 @@ import { radio, STATION, useRadio } from './radio';
 import { CarControls, Dashboard } from './CarControls';
 import { useDrivePrefs } from './drivePrefs';
 import { gpsState, waitingFor } from './gps';
+import { zoneAt, ZONES } from './layout';
+import { live } from './sim';
 import { useUi } from './ui';
 import { MapOverlay, Minimap } from './MapView';
 
@@ -36,7 +38,18 @@ export function Hud({ onExit }: { onExit: () => void }) {
   const setMapOpen = (v: boolean) => { setMapOpenState(v); hudStore.set({ mapOpen: v }); };
   useEffect(() => () => hudStore.set({ mapOpen: false }), []);
   const [, tick] = useState(0);
-  useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 600); return () => clearInterval(i); }, []);
+  const zoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    const i = setInterval(() => {
+      tick((n) => n + 1);
+      const me = live.mode === 'car' ? live.car : live.p;
+      if (hudStore.get().inside) return;
+      const z = zoneAt(me.x, me.z);
+      if (zoneRef.current !== null && zoneRef.current !== z) hudStore.toast(`📍 ${ZONES[z].name}`, 2400);
+      zoneRef.current = z;
+    }, 600);
+    return () => clearInterval(i);
+  }, []);
   const gps = gpsState.target && gpsState.route.length > 1 ? gpsState : null;
   const unread = useUnread();
   const [help, setHelp] = useState(() => {

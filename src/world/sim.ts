@@ -6,7 +6,7 @@
 // `live` sits at module level on purpose: walk into the studio, come back out,
 // and you are standing at the studio door with your car where you left it.
 
-import { cityLayout, KERB_H, onRoad, WORLD_HALF, type Box } from './layout';
+import { cityLayout, KERB_H, onRoad, WORLD, type Box } from './layout';
 
 export type Mode = 'foot' | 'car';
 
@@ -131,10 +131,9 @@ export function resolveCircle(x: number, z: number, r: number, withCar: boolean)
       }
     }
   }
-  const lim = WORLD_HALF - r;
-  if (x < -lim || x > lim || z < -lim || z > lim) hit = true;
-  x = Math.max(-lim, Math.min(lim, x));
-  z = Math.max(-lim, Math.min(lim, z));
+  if (x < WORLD.x0 + r || x > WORLD.x1 - r || z < WORLD.z0 + r || z > WORLD.z1 - r) hit = true;
+  x = Math.max(WORLD.x0 + r, Math.min(WORLD.x1 - r, x));
+  z = Math.max(WORLD.z0 + r, Math.min(WORLD.z1 - r, z));
   return { x, z, hit };
 }
 

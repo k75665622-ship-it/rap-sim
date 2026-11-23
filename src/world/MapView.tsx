@@ -5,7 +5,7 @@
 // map you can tap a place (or pick it from the list) to send the GPS there.
 
 import { useEffect, useRef, useState } from 'react';
-import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, WORLD_HALF } from './layout';
+import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, WORLD, WORLD_CENTRE } from './layout';
 import { live } from './sim';
 import { gpsState, setGpsPlace } from './gps';
 import { hudStore } from './input';
@@ -26,11 +26,11 @@ function paint(g: CanvasRenderingContext2D, w: number, h: number, o: PaintOpts) 
   g.fillStyle = '#16181f';
   g.fillRect(0, 0, w, h);
   g.fillStyle = '#5c616e';
-  g.fillRect(X(-WORLD_HALF), Z(-WORLD_HALF), WORLD_HALF * 2 * s, WORLD_HALF * 2 * s);
+  g.fillRect(X(WORLD.x0), Z(WORLD.z0), (WORLD.x1 - WORLD.x0) * s, (WORLD.z1 - WORLD.z0) * s);
   g.fillStyle = '#2a2d36';
   for (const c of ROAD_CENTRES) {
-    g.fillRect(X(c - ROAD_HALF), Z(-WORLD_HALF), ROAD_HALF * 2 * s, WORLD_HALF * 2 * s);
-    g.fillRect(X(-WORLD_HALF), Z(c - ROAD_HALF), WORLD_HALF * 2 * s, ROAD_HALF * 2 * s);
+    g.fillRect(X(c - ROAD_HALF), Z(WORLD.z0), ROAD_HALF * 2 * s, (WORLD.z1 - WORLD.z0) * s);
+    g.fillRect(X(WORLD.x0), Z(c - ROAD_HALF), (WORLD.x1 - WORLD.x0) * s, ROAD_HALF * 2 * s);
   }
   for (const b of L.blocks) if (b.park) { g.fillStyle = '#4c7a3b'; g.fillRect(X(b.minX), Z(b.minZ), (b.maxX - b.minX) * s, (b.maxZ - b.minZ) * s); }
   for (const b of L.buildings) {
@@ -135,7 +135,7 @@ export function MapOverlay({ onClose }: { onClose: () => void }) {
   }, []);
   const portrait = vp.w < vp.h;
   const side = Math.floor(portrait ? Math.min(vp.w - 24, vp.h * 0.5) : Math.min(vp.h - 24, vp.w * 0.58));
-  const ref = useCanvas((g, w, h) => paint(g, w, h, { labels: true, focus: { x: 0, z: 0 }, scale: Math.min(w, h) / (WORLD_HALF * 2 + 8) }), side, side, 10);
+  const ref = useCanvas((g, w, h) => paint(g, w, h, { labels: true, focus: WORLD_CENTRE, scale: Math.min(w, h) / (WORLD.x1 - WORLD.x0 + 8) }), side, side, 10);
   const [, bump] = useState(0);
 
   const go = (id: string | null, name?: string) => {
@@ -146,14 +146,14 @@ export function MapOverlay({ onClose }: { onClose: () => void }) {
   };
   const tap = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const s = Math.min(side, side) / (WORLD_HALF * 2 + 8);
-    const wx = ((e.clientX - r.left) / r.width * side - side / 2) / s;
-    const wz = ((e.clientY - r.top) / r.height * side - side / 2) / s;
+    const s = Math.min(side, side) / (WORLD.x1 - WORLD.x0 + 8);
+    const wx = ((e.clientX - r.left) / r.width * side - side / 2) / s + WORLD_CENTRE.x;
+    const wz = ((e.clientY - r.top) / r.height * side - side / 2) / s + WORLD_CENTRE.z;
     let best: { id: string; name: string; d: number } | null = null;
     for (const b of cityLayout().buildings) {
       if (!b.place) continue;
       const d = Math.hypot((b.minX + b.maxX) / 2 - wx, (b.minZ + b.maxZ) / 2 - wz);
-      if (d < 16 && (!best || d < best.d)) best = { id: b.place.id, name: b.place.name, d };
+      if (d < 26 && (!best || d < best.d)) best = { id: b.place.id, name: b.place.name, d };
     }
     if (best) go(best.id, best.name);
   };

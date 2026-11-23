@@ -2,7 +2,7 @@
 import { useGameStore } from '../store/gameStore';
 import { NODES } from '../story/engine';
 import { CAST } from '../story/cast';
-import { cityLayout, ROAD_CENTRES } from './layout';
+import { cityLayout, ROAD_CENTRES, WORLD } from './layout';
 
 export interface Target { x: number; z: number; label: string; placeId: string }
 export type Pt = { x: number; z: number };
@@ -45,7 +45,7 @@ const near = (v: number) => ROAD_CENTRES.reduce((a, c) => (Math.abs(c - v) < Mat
 /** Put a point on the nearest road line; returns it and the intersections its road touches. */
 function snap(p: Pt): { pt: Pt; vertical: boolean } {
   const rx = near(p.x), rz = near(p.z);
-  return Math.abs(p.x - rx) <= Math.abs(p.z - rz) ? { pt: { x: rx, z: Math.max(-140, Math.min(140, p.z)) }, vertical: true } : { pt: { x: Math.max(-140, Math.min(140, p.x)), z: rz }, vertical: false };
+  return Math.abs(p.x - rx) <= Math.abs(p.z - rz) ? { pt: { x: rx, z: Math.max(WORLD.z0 + 10, Math.min(WORLD.z1 - 10, p.z)) }, vertical: true } : { pt: { x: Math.max(WORLD.x0 + 10, Math.min(WORLD.x1 - 10, p.x)), z: rz }, vertical: false };
 }
 
 /** A path along the roads: your spot → the road → the grid → the road at the door → the door. */

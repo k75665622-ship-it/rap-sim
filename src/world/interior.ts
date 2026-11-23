@@ -561,3 +561,90 @@ export const buildFlat = (bin: Bin) => buildRoom(bin, {
   ],
   lights: [[-2.5, -1.5, '#ffe3b0'], [2.5, 1.5, '#fff1d0']],
 });
+
+// ─── big venues: stadium, arena, studio lot, market square ─────────────────
+export const VEN_X = 3200;
+
+export const buildStadium = (bin: Bin) => buildRoom(bin, {
+  id: 'stadium', name: 'National Stadium', x0: VEN_X, placeId: 'stadium', W: 9, D: 6.5, wall: '#cfd8c8', floor: '#3f7a3a', rug: [0, -0.5, 10, 6, '#4f9a45'], sign: 'NATIONAL STADIUM', signColor: '#7bd34d',
+  boxes: [
+    [-8.8, 8.8, -6.4, -5.2, 1.6, '#8a8f98'], [-8.8, 8.8, -5.2, -4.6, 2.4, '#7b808a'],     // north stand
+    [-8.8, -7.4, -4.6, 4.8, 1.2, '#8a8f98'], [7.4, 8.8, -4.6, 4.8, 1.2, '#8a8f98'],        // side stands
+    [-0.15, 0.15, -3.6, 2.4, 0.03, '#ffffff', 0.02, false],                                // halfway line
+    [-1.0, 1.0, -3.6, -3.4, 0.03, '#ffffff', 0.02, false],
+    [-1.5, 1.5, -3.2, -3.0, 2.3, '#e8e8e8', 0, false],                                     // goal frame (north)
+    [-1.5, 1.5, 2.2, 2.4, 2.3, '#e8e8e8', 0, false],
+    [-8, -7.6, 5.0, 6.2, 0.8, '#222'], [7.6, 8, 5.0, 6.2, 0.8, '#222'],
+  ],
+  npcs: [
+    { id: 'groundsman', who: 'Groundsman', seed: 'stad-g', x: -4.5, z: 3.2, rot: 0.6, work: true },
+    { id: 'steward', who: 'Steward', seed: 'stad-s', x: 5.5, z: 5.2, rot: Math.PI },
+  ],
+  visitors: [],
+  spots: [
+    { id: 'pitch', x: 0, z: -0.5, label: 'Centre circle · book the stadium', reach: 2.2, kind: 'act', act: 'screen:shows' },
+  ],
+  lights: [[-5, -2, '#ffffff'], [5, -2, '#ffffff'], [0, 3, '#fff7e6']],
+});
+
+export const buildArena = (bin: Bin) => buildRoom(bin, {
+  id: 'arena', name: 'Iron Ring Arena', x0: VEN_X + 100, placeId: 'arena', W: 7, D: 5.5, wall: '#241a1a', floor: '#2b2222', rug: [0, -0.5, 8, 6, '#3a1c1c'], sign: 'IRON RING', signColor: '#ff6b6b',
+  boxes: [
+    [-2.2, 2.2, -2.6, 1.6, 0.9, '#1a1a1e'],                                    // ring apron
+    [-2.0, 2.0, -2.4, 1.4, 0.25, '#e8e8f0', 0.9, false],                       // canvas
+    [-2.1, -1.95, -2.5, 1.5, 1.2, '#c0392b', 1.15, false], [1.95, 2.1, -2.5, 1.5, 1.2, '#c0392b', 1.15, false],  // ropes
+    [-6.8, -4.6, -5.3, -3.0, 0.6, '#3a3a44'], [4.6, 6.8, -5.3, -3.0, 0.6, '#3a3a44'],                           // bleachers
+    [-6.8, -4.6, 2.6, 5.2, 0.6, '#3a3a44'], [4.6, 6.8, 2.6, 5.2, 0.6, '#3a3a44'],
+  ],
+  npcs: [{ id: 'ref', who: 'Referee', seed: 'arena-ref', x: 3.2, z: 0.2, rot: -Math.PI / 2 }],
+  visitors: [],
+  spots: [{ id: 'ring', x: 0, z: 2.6, label: 'Ringside · book a night', reach: 2.0, kind: 'act', act: 'screen:shows' }],
+  lights: [[0, -0.5, '#ffffff'], [-5, 0, '#ff6b6b'], [5, 0, '#6bb0ff']],
+});
+
+export const buildLot = (bin: Bin) => buildRoom(bin, {
+  id: 'lots', name: 'Gold Coast Studios', x0: VEN_X + 200, placeId: 'lots', W: 8, D: 6, wall: '#2a2c34', floor: '#3a3d46', rug: [0, 0.5, 6, 4, '#1c2a44'], sign: 'GOLD COAST STUDIOS', signColor: '#ff5d8f',
+  boxes: [
+    [-7.8, -3.4, -5.8, -3.0, 2.8, '#6a4a3a', 0, true],                          // set: a living-room wall
+    [-7.0, -4.2, -5.6, -5.4, 1.6, '#d8c8a0', 0.8, false],
+    [3.4, 7.8, -5.8, -3.0, 2.8, '#3a5a7a', 0, true],                             // set: newsroom
+    [4.4, 6.8, -4.6, -3.6, 0.9, '#222'],
+    [-1.0, 1.0, 1.0, 1.5, 1.4, '#111', 0, true],                                 // camera on a dolly
+    [-0.3, 0.3, 0.6, 1.0, 0.3, '#444', 1.4, false],
+    [6.0, 7.8, 2.0, 5.0, 0.6, '#555'],                                           // crew table
+    [-7.8, -6.4, 2.0, 5.0, 0.6, '#555'],
+    [-7.8, -7.5, -2.5, 1.0, 2.4, '#0e0e14', 0, false, '#a02050'],                // ON AIR light strip
+  ],
+  npcs: [
+    { id: 'director', who: 'Director', seed: 'lot-dir', x: 1.8, z: 1.5, rot: Math.PI, hair: 'buzz' },
+    { id: 'actor', who: 'Actor', seed: 'lot-act', female: true, x: -5.0, z: -2.0, rot: 0 },
+    { id: 'crew', who: 'Crew', seed: 'lot-crew', x: 6.6, z: 3.0, rot: -Math.PI / 2, sit: true },
+  ],
+  visitors: [],
+  spots: [
+    { id: 'set', x: -1.0, z: -1.5, label: 'Soundstage · shoot a video', reach: 2.2, kind: 'act', act: 'video' },
+    { id: 'tv', x: 5.5, z: -1.5, label: 'Newsroom set · interviews', reach: 2.0, kind: 'act', act: 'screen:interviews' },
+  ],
+  lights: [[-4, -2, '#ffd9a0'], [5, -2, '#b9dcff'], [0, 3, '#ffffff']],
+});
+
+export const buildMall = (bin: Bin) => buildRoom(bin, {
+  id: 'mall', name: 'Market Square', x0: VEN_X + 300, placeId: 'mall', W: 8, D: 5, wall: '#f0e8dc', floor: '#c9c2b4', rug: [0, 0, 10, 2, '#a5d8cc'], sign: 'MARKET SQUARE', signColor: '#4dd4ac',
+  boxes: [
+    [-7.6, -4.2, -4.8, -3.6, 1.0, '#e7b98f'], [-3.4, 0.0, -4.8, -3.6, 1.0, '#d9e0a5'],   // stalls
+    [0.8, 4.2, -4.8, -3.6, 1.0, '#f0c4c4'], [5.0, 7.6, -4.8, -3.6, 1.0, '#c9c2e8'],
+    [-7.6, -5.2, 2.6, 4.8, 0.9, '#8a5a2a'], [5.2, 7.6, 2.6, 4.8, 0.9, '#8a5a2a'],           // food court tables
+    [-0.6, 0.6, 0.2, 1.0, 0.5, '#2e7d4f'],
+  ],
+  npcs: [
+    { id: 'vendor1', who: 'Vendor', seed: 'mall-1', female: true, x: -5.8, z: -4.2, rot: 0, work: true },
+    { id: 'vendor2', who: 'Vendor', seed: 'mall-2', x: 2.5, z: -4.2, rot: 0, work: true },
+    { id: 'shopper', who: 'Shopper', seed: 'mall-3', female: true, x: 3.0, z: 1.2, rot: 2.4 },
+  ],
+  visitors: [],
+  spots: [
+    { id: 'fits', x: -5.8, z: -2.8, label: 'Clothes stall · style', reach: 1.8, kind: 'act', act: 'screen:style' },
+    { id: 'food', x: 2.5, z: -2.8, label: 'Food stall · eat', reach: 1.8, kind: 'act', act: 'screen:kitchen' },
+  ],
+  lights: [[-4, 0, '#fff1d0'], [4, 0, '#fff1d0']],
+});

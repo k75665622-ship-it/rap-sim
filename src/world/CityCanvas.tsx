@@ -12,7 +12,7 @@ import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
 import { gpsState, refreshGps } from './gps';
-import { buildKitchen, buildStudio, buildLabel, buildCrib, buildRadio, buildStage, buildBank, buildGym, buildDrip, buildApts, buildFlat, buildAirport, type Interior } from './interior';
+import { buildKitchen, buildStudio, buildLabel, buildCrib, buildRadio, buildStage, buildBank, buildGym, buildDrip, buildApts, buildFlat, buildAirport, buildStadium, buildArena, buildLot, buildMall, type Interior } from './interior';
 import { setStudioIntent } from './studioIntent';
 import { indoor } from './sim';
 import { storyBus } from '../story/bus';
@@ -110,7 +110,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     gpsBeacon.add(beaconMesh);
     gpsGroup.add(gpsRibbon, gpsBeacon);
     gpsGroup.visible = false;
-    const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin), apts: buildApts(bin), flat: buildFlat(bin), airport: buildAirport(bin) };
+    const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin), apts: buildApts(bin), flat: buildFlat(bin), airport: buildAirport(bin), stadium: buildStadium(bin), arena: buildArena(bin), lots: buildLot(bin), mall: buildMall(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
     scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);

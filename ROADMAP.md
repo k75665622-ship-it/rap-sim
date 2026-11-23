@@ -341,4 +341,5 @@ Studio 9 is a real room: lounge, recording booth with mic, mixing desk, beat pad
 ### Overhaul slice 3 — more walkable interiors
 Label HQ (Efua, board room, trophy room), your place (bed/wardrobe/laptop/TV) and Hot 101.9 radio station are now walkable rooms built with a generic `buildRoom` spec; their old menu screens open as in-room spots. Next: club backstage, bank, gym, Drip & Ink, GCS office via the same spec.
 
+### Overhaul slice 5 — "who is waiting" pill: any story encounter waiting in the world shows a HUD pill (name · place · days left, red when ≤1 day); GPS already routes there. Missions now read call → drive → arrive → walk up. Next: map expansion.
 ### Overhaul slice 4 — The Stage, First Capital bank, Iron House gym, Drip & Ink are walkable. Every building in the city now has an interior except GCS office. Next: phone call → drive → arrive missions with lateness, then map expansion.

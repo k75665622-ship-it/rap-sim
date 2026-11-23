@@ -358,3 +358,6 @@ National Stadium (pitch, stands), Iron Ring Arena (ring), Gold Coast Studios (so
 
 ### Overhaul slice 10 — country worlds (foundation)
 `setWorldCountry()` rebuilds the whole 900 m world per country: Ghana keeps the original streets; every other country gets its own seeded street/building layout and a continent palette (Africa terracotta, Europe stone, Asia pastel, Americas, Oceania). The world follows `abroad || player.country`, so a Nigerian start already begins in a Nigerian-built city. Flights land you at that country's airport door. District toasts show the country's first city. Next: story branching by start country, per-country place names/NPCs/currency, abroad-aware shows & missions, ports/ferries.
+
+### Overhaul slice 11 — story by start country
+`story/region.ts` maps your home country (and where you currently are) to a region; the store mirrors it into flags `from:<region>`, `at:<region>`, `away`. New arc `roots` (src/story/content/roots.ts): Mimi's region-flavoured opening call, Big Moses's "a desk at the airport" invite (tied to the flights), and a "you landed" call after you fly. Region-gated lines live inside shared nodes, so any arc can now branch by start country with `{k:'flag',id:'from:europe'}`. Next: fully separate openings per region (own cast, own kitchen), local place names/currency, abroad-aware shows.

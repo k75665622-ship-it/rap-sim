@@ -19,11 +19,12 @@ import { isRealId } from '../sim/realPeople';
 import { portraitFor } from '../components/avatar/usePortrait';
 import { SKIN, lookFor, type Look } from '../sim/look';
 import { dateToSerial } from '../sim/gameClock';
-import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD_HALF } from './layout';
+import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD } from './layout';
 import type { NPC } from '../types/game';
 
 const LANE = ROAD_HALF + SIDEWALK / 2;   // 7.5 m from a road's centre
-const LANE_END = WORLD_HALF - 2;
+const LANE_END = WORLD.x1 - 2;
+const LANE_START = WORLD.x0 + 2;
 
 // ─── the footpath network ──────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ function network(): Net {
     vLines.get(x)!.push(id);
     hLines.get(z)!.push(id);
   }
-  for (const v of lanes) for (const e of [-LANE_END, LANE_END]) {
+  for (const v of lanes) for (const e of [LANE_START, LANE_END]) {
     vLines.get(v)!.push(add({ x: v, z: e }));
     hLines.get(v)!.push(add({ x: e, z: v }));
   }

@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { cityLayout, KERB_H, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD_HALF, type Building } from './layout';
+import { cityLayout, KERB_H, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD, type Building } from './layout';
 import { SKIN, defaultLook, type Look } from '../sim/look';
 
 type Disposable = { dispose: () => void };
@@ -213,9 +213,10 @@ export function buildCity(bin: Bin): CityObjects {
 
   // Ground: one big sheet of asphalt; pavements sit on top of it.
   const asphalt = asphaltTexture(bin);
-  asphalt.repeat.set(170, 170);
-  const ground = new THREE.Mesh(geo(new THREE.PlaneGeometry(700, 700)), lambert({ map: asphalt }));
+  asphalt.repeat.set(340, 340);
+  const ground = new THREE.Mesh(geo(new THREE.PlaneGeometry(1400, 1400)), lambert({ map: asphalt }));
   ground.rotation.x = -Math.PI / 2;
+  ground.position.set(300, 0, 300);
   root.add(ground);
 
   // Pavements and the park, merged into two meshes.
@@ -224,7 +225,7 @@ export function buildCity(bin: Bin): CityObjects {
   const grassGeos: THREE.BufferGeometry[] = [];
   for (const b of L.blocks) {
     // A block's slab runs out to the kerb, except at the edge of the world.
-    const grow = (v: number, dir: number) => (Math.abs(v) >= WORLD_HALF - 0.01 ? v + dir * 40 : v + dir * SIDEWALK);
+    const grow = (v: number, dir: number) => (v <= WORLD.x0 + 0.01 || v >= WORLD.x1 - 0.01 ? v + dir * 40 : v + dir * SIDEWALK);
     const x0 = grow(b.minX, -1), x1 = grow(b.maxX, 1), z0 = grow(b.minZ, -1), z1 = grow(b.maxZ, 1);
     const g = tiledBox(x1 - x0, KERB_H, z1 - z0, 2);
     g.translate((x0 + x1) / 2, KERB_H / 2, (z0 + z1) / 2);
@@ -249,7 +250,7 @@ export function buildCity(bin: Bin): CityObjects {
   const m = new THREE.Matrix4();
   const nearJunction = (t: number) => ROAD_CENTRES.some((c) => Math.abs(t - c) < ROAD_HALF + SIDEWALK + 1.5);
   for (const c of ROAD_CENTRES) {
-    for (let t = -WORLD_HALF; t <= WORLD_HALF; t += 6) {
+    for (let t = WORLD.x0; t <= WORLD.x1; t += 6) {
       if (nearJunction(t)) continue;
       dashes.push(m.clone().compose(new THREE.Vector3(c, paintY, t), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)));
       dashes.push(m.clone().compose(new THREE.Vector3(t, paintY, c), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1)));
@@ -271,7 +272,7 @@ export function buildCity(bin: Bin): CityObjects {
   // Barriers where the roads leave town.
   const barriers: THREE.Matrix4[] = [];
   for (const c of ROAD_CENTRES) {
-    for (const e of [-WORLD_HALF + 0.6, WORLD_HALF - 0.6]) {
+    for (const e of [WORLD.x0 + 0.6, WORLD.x1 - 0.6]) {
       barriers.push(m.clone().makeTranslation(c, 0.5, e));
       barriers.push(m.clone().compose(new THREE.Vector3(e, 0.5, c), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1)));
     }

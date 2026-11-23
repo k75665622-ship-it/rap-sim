@@ -8,8 +8,29 @@
 
 import type { GameScreen } from '../types/game';
 
-export const WORLD_HALF = 150;         // playable area is -150..150 on x and z
-export const ROAD_CENTRES = [-120, -60, 0, 60, 120];
+// The world is a 3×3 grid of 300 m districts. Downtown is the middle of the
+// top-left one; everything else grows out from it along the same road grid.
+export const WORLD = { x0: -150, x1: 750, z0: -150, z1: 750 };
+export const WORLD_CENTRE = { x: 300, z: 300 };
+export const ROAD_CENTRES = [-120, -60, 0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720];
+
+export type ZoneId = 'downtown' | 'flats' | 'hollywood' | 'market' | 'sports' | 'heights' | 'suburb' | 'port' | 'airport';
+export const ZONES: Record<ZoneId, { name: string; col: number; row: number }> = {
+  downtown: { name: 'Downtown', col: 0, row: 0 },
+  flats: { name: 'Eastgate Flats', col: 1, row: 0 },
+  hollywood: { name: 'Studio Lots', col: 2, row: 0 },
+  market: { name: 'Market District', col: 0, row: 1 },
+  sports: { name: 'Sports Quarter', col: 1, row: 1 },
+  heights: { name: 'Skyline Heights', col: 2, row: 1 },
+  suburb: { name: 'Palm Estates', col: 0, row: 2 },
+  port: { name: 'Harbour', col: 1, row: 2 },
+  airport: { name: 'Airport', col: 2, row: 2 },
+};
+export function zoneAt(x: number, z: number): ZoneId {
+  const col = Math.max(0, Math.min(2, Math.floor((x + 150) / 300)));
+  const row = Math.max(0, Math.min(2, Math.floor((z + 150) / 300)));
+  return (Object.keys(ZONES) as ZoneId[]).find((k) => ZONES[k].col === col && ZONES[k].row === row)!;
+}
 export const ROAD_HALF = 6;            // a road is 12 m wide
 export const SIDEWALK = 3;             // then 3 m of pavement
 export const KERB_H = 0.15;            // pavement height
@@ -57,7 +78,32 @@ export const PLACES: Place[] = [
   { id: 'label', name: 'LABEL HQ', tagline: 'Your record label', screen: 'label', accent: '#ffd666', glyph: 'L' },
   { id: 'crib', name: 'THE CRIB', tagline: 'Home & life', screen: 'lifestyle', accent: '#9aa0b4', glyph: 'H' },
   { id: 'food', name: "MAMA'S KITCHEN", tagline: 'Jollof · Grill · Drinks', screen: 'kitchen', accent: '#ff4757', glyph: 'F' },
+  // Landmarks of the wider world — the buildings stand; their insides come next.
+  { id: 'apts', name: 'EASTGATE APARTMENTS', tagline: 'Flats to rent & let', accent: '#ffa94d', glyph: 'A' },
+  { id: 'lots', name: 'GOLD COAST STUDIOS', tagline: 'Film · TV · Soundstages', accent: '#ff5d8f', glyph: 'T' },
+  { id: 'mall', name: 'MARKET SQUARE', tagline: 'Shops · Food court', accent: '#4dd4ac', glyph: 'M' },
+  { id: 'stadium', name: 'NATIONAL STADIUM', tagline: 'Football', accent: '#7bd34d', glyph: 'B' },
+  { id: 'arena', name: 'IRON RING ARENA', tagline: 'Wrestling · Concerts', accent: '#ff6b6b', glyph: 'W' },
+  { id: 'heights', name: 'SKYLINE HEIGHTS', tagline: 'Luxury towers', accent: '#74c0fc', glyph: 'K' },
+  { id: 'estate', name: 'PALM ESTATES', tagline: 'Houses for sale', accent: '#b2f2bb', glyph: 'E' },
+  { id: 'port', name: 'TEMA HARBOUR', tagline: 'Ports · Ferries · Cargo', accent: '#4dabf7', glyph: 'P' },
+  { id: 'airport', name: 'GOLD COAST AIRPORT', tagline: 'Flights abroad', accent: '#e599f7', glyph: '✈' },
 ];
+const LANDMARKS: Partial<Record<ZoneId, string[]>> = {
+  flats: ['apts'], hollywood: ['lots'], market: ['mall'], sports: ['stadium', 'arena'], heights: ['heights'], suburb: ['estate'], port: ['port'], airport: ['airport'],
+};
+/** How each district builds: storeys, wall colours, and how it carves up a block. */
+const STYLE: Record<ZoneId, { h: [number, number]; walls: string[]; split: number }> = {
+  downtown: { h: [12, 42], walls: [], split: 0 },
+  flats: { h: [14, 26], walls: ['#e8c9a0', '#d9b48a', '#e6d3b3', '#c9a27a', '#f0dcc0'], split: 0 },
+  hollywood: { h: [8, 14], walls: ['#b8bcc6', '#9aa0ad', '#c9a7b9', '#a9b8c9', '#d2c2a8'], split: 0 },
+  market: { h: [8, 16], walls: ['#e7b98f', '#d9e0a5', '#a5d8cc', '#f0c4c4', '#c9c2e8'], split: 0 },
+  sports: { h: [6, 12], walls: ['#9db39a', '#b7c4b0', '#a8b8a4'], split: 0 },
+  heights: { h: [44, 90], walls: ['#9fb8d6', '#8aa6c8', '#b9c8dc', '#7f9bc0', '#a6b8cc'], split: 0 },
+  suburb: { h: [5, 8], walls: ['#f2e6d0', '#e8d5b5', '#f0c9a6', '#d9e4d0', '#f4dcdc', '#e2d8f0'], split: 3 },
+  port: { h: [8, 14], walls: ['#8b95a5', '#a05a4a', '#5a7a99', '#9aa38b'], split: 0 },
+  airport: { h: [5, 9], walls: ['#d6dde6', '#c4ced9', '#e4e9ef'], split: 0 },
+};
 
 // ─── tiny seeded random ────────────────────────────────────────────────────
 function rng(seed: number) {
@@ -81,7 +127,7 @@ export function onRoad(x: number, z: number): boolean {
 // The bands between roads on one axis: [-90..-69], [-51..-9], [9..51], [69..90].
 function bands(): Array<[number, number, boolean, boolean]> {
   // [from, to, roadOnLowSide, roadOnHighSide]
-  const edges = [-WORLD_HALF, ...ROAD_CENTRES, WORLD_HALF];
+  const edges = [WORLD.x0, ...ROAD_CENTRES, WORLD.x1];
   const out: Array<[number, number, boolean, boolean]> = [];
   for (let i = 0; i < edges.length - 1; i++) {
     const lowRoad = i > 0;
@@ -114,7 +160,11 @@ export function cityLayout(): CityLayout {
   const buildings: Building[] = [];
 
   // Three parks, so the skyline has gaps.
-  const isPark = (ix: number, iz: number) => (ix === B.length - 1 && iz === 0) || (ix === 0 && iz === B.length - 1) || (ix === 4 && iz === 3);
+  const isPark = (ix: number, iz: number) => {
+    if (ix <= 5 && iz <= 5) return (ix === 5 && iz === 0) || (ix === 0 && iz === 5) || (ix === 4 && iz === 3);
+    const z = zoneAt((B[ix][0] + B[ix][1]) / 2, (B[iz][0] + B[iz][1]) / 2);
+    return z !== 'airport' && z !== 'port' && z !== 'sports' && (ix * 7 + iz * 13) % 9 === 0;
+  };
 
   type Lot = Box & { inner: boolean; roads: Side[]; centreDist: number };
   const lots: Lot[] = [];
@@ -125,8 +175,10 @@ export function cityLayout(): CityLayout {
       blocks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, park });
       if (park) return;
       const inner = ix > 0 && ix < B.length - 1 && iz > 0 && iz < B.length - 1;
-      const nx = x1 - x0 > 30 ? 2 : 1;
-      const nz = z1 - z0 > 30 ? 2 : 1;
+      const zn = zoneAt((x0 + x1) / 2, (z0 + z1) / 2);
+      const sp = STYLE[zn].split;
+      const nx = sp || (x1 - x0 > 30 ? 2 : 1);
+      const nz = sp || (z1 - z0 > 30 ? 2 : 1);
       const gap = 4; // alleys between lots
       const lw = (x1 - x0 - gap * (nx - 1)) / nx;
       const ld = (z1 - z0 - gap * (nz - 1)) / nz;
@@ -148,24 +200,34 @@ export function cityLayout(): CityLayout {
   });
 
   // Named places take the inner lots nearest the middle of town.
-  const named = lots
-    .filter((l) => l.inner && l.roads.length)
+  const core = PLACES.slice(0, 9);
+  const named: Lot[] = lots
+    .filter((l) => l.inner && l.roads.length && zoneAt((l.minX + l.maxX) / 2, (l.minZ + l.maxZ) / 2) === 'downtown')
     .sort((a, b) => a.centreDist - b.centreDist || a.minX - b.minX || a.minZ - b.minZ)
-    .slice(0, PLACES.length);
+    .slice(0, core.length);
+  const placeOf = new Map<Lot, Place>();
+  named.forEach((l, i) => placeOf.set(l, core[i]));
+  // Each wider district gets its landmark on the lot nearest its own middle.
+  for (const [zn, ids] of Object.entries(LANDMARKS) as Array<[ZoneId, string[]]>) {
+    const zc = { x: -150 + ZONES[zn].col * 300 + 150, z: -150 + ZONES[zn].row * 300 + 150 };
+    const free = lots.filter((l) => l.roads.length && zoneAt((l.minX + l.maxX) / 2, (l.minZ + l.maxZ) / 2) === zn && !placeOf.has(l))
+      .sort((a, b) => Math.hypot((a.minX + a.maxX) / 2 - zc.x, (a.minZ + a.maxZ) / 2 - zc.z) - Math.hypot((b.minX + b.maxX) / 2 - zc.x, (b.minZ + b.maxZ) / 2 - zc.z));
+    ids.forEach((id, i) => { if (free[i * 2]) placeOf.set(free[i * 2], PLACES.find((p) => p.id === id)!); });
+  }
 
   for (const lot of lots) {
-    const placeIdx = named.indexOf(lot);
-    const place = placeIdx >= 0 ? PLACES[placeIdx] : undefined;
+    const place = placeOf.get(lot);
+    const zn = zoneAt((lot.minX + lot.maxX) / 2, (lot.minZ + lot.maxZ) / 2);
+    const sty = STYLE[zn];
     // Pull back from the pavement a little on sides with no road, so alleys read.
     const inset = 0.6;
     const bx: Box = { minX: lot.minX + inset, maxX: lot.maxX - inset, minZ: lot.minZ + inset, maxZ: lot.maxZ - inset };
     const edge = !lot.inner;
-    const height = place
-      ? 11 + r() * 5
-      : edge
-        ? 26 + r() * 40
-        : 12 + r() * 30;
-    const b: Building = { ...bx, height, color: WALLS[Math.floor(r() * WALLS.length)], place, rooftop: [] };
+    const height = zn === 'downtown'
+      ? (place ? 11 + r() * 5 : edge ? 26 + r() * 40 : 12 + r() * 30)
+      : place ? Math.max(sty.h[0], Math.min(sty.h[1], 14 + r() * 4)) : sty.h[0] + r() * (sty.h[1] - sty.h[0]);
+    const palette = sty.walls.length ? sty.walls : WALLS;
+    const b: Building = { ...bx, height, color: palette[Math.floor(r() * palette.length)], place, rooftop: [] };
 
     if (place) {
       // The door faces whichever road runs closest to the middle of town.
@@ -194,7 +256,7 @@ export function cityLayout(): CityLayout {
 
   for (const c of ROAD_CENTRES) {
     for (const sgn of [-1, 1]) {
-      for (let t = -WORLD_HALF + 6; t <= WORLD_HALF - 6; t += 10) {
+      for (let t = WORLD.x0 + 6; t <= WORLD.x1 - 6; t += 10) {
         if (nearJunction(t)) continue;
         const kind: Prop['kind'] = Math.round((t + 200) / 10) % 2 === 0 ? 'lamp' : 'tree';
         // Roads running north-south (x = c) and east-west (z = c).

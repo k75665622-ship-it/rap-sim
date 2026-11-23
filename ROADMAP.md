@@ -361,3 +361,6 @@ National Stadium (pitch, stands), Iron Ring Arena (ring), Gold Coast Studios (so
 
 ### Overhaul slice 11 — story by start country
 `story/region.ts` maps your home country (and where you currently are) to a region; the store mirrors it into flags `from:<region>`, `at:<region>`, `away`. New arc `roots` (src/story/content/roots.ts): Mimi's region-flavoured opening call, Big Moses's "a desk at the airport" invite (tied to the flights), and a "you landed" call after you fly. Region-gated lines live inside shared nodes, so any arc can now branch by start country with `{k:'flag',id:'from:europe'}`. Next: fully separate openings per region (own cast, own kitchen), local place names/currency, abroad-aware shows.
+
+### Overhaul slice 12 — local names
+`localPlace()` renames non-story places per country (airport, stadium, harbour, radio, bank, mall); the kitchen, Studio 9, label etc. keep their names so the story still reads. Map list uses the local names. Currency/units are still dollars everywhere — a game-wide change for later.

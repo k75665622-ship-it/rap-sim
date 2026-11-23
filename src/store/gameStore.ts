@@ -380,6 +380,7 @@ import {
 } from '../sim/beats';
 import { scorePattern } from '../sim/beatMaker';
 import { emptyStory, lapseNow as lapseNowFn, tick as storyTickFn, choose as storyChooseFn, type Ctx as StoryCtx } from '../story/engine';
+import { syncRegionFlags } from '../story/region';
 import type { Effect as StoryEffect, Path as StoryPath } from '../story/types';
 import { MISSIONS, STREAK_REWARDS, emptyGoals, metricsOf, pickDaily, pickWeekly, dailyDef, weeklyDef, progress } from '../sim/goals';
 import { LESSONS, COURSES, lessonsOf, emptyAcademy, examPass, type CourseId } from '../sim/academy';
@@ -9278,6 +9279,7 @@ function passTime(minutes: number): void {
 
 /** Write a line in the career's journal. */
 export function storyCtx(state: GameState): StoryCtx {
+  if (state.story) syncRegionFlags(state.story.flags, state.player?.country, (state.story.flags['abroad'] as string) || undefined);
   const m = metricsOf(state, state.goals);
   const mine = state.songs.filter((x) => !x.ownerId && !x.archivedAt);
   return {

@@ -349,3 +349,6 @@ World is now 900×900 m: a 3×3 grid of districts (Downtown, Eastgate Flats, Stu
 
 ### Overhaul slice 7 — apartments
 Eastgate Apartments is walkable (lobby with property office and three flat doors → furnished flat → back). Rent is no longer a fixed tier number: market rent = max(tier rent, 10%/yr of what you paid), you set your ask in Lifestyle (±10% steps), and pricing above market lowers occupancy. Next: per-unit tenants as NPCs, furnishing upgrades that raise value, airport + flights.
+
+### Overhaul slice 8 — airport & flights
+Gold Coast Airport is walkable (check-in desks, departures board). Check-in opens the Departures screen: every country in the game, fares by continent (same continent $180/3h, otherwise $720/9h), a short flight scene, and the story flag `abroad` records where you are (fly home from the same screen). Travel costs cash, energy and clock hours. Next: country-specific worlds/themes (the world loads the destination's districts), story branching by start country, abroad-aware shows/missions.

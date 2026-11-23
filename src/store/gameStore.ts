@@ -3211,6 +3211,8 @@ interface GameActions {
    * You can only eat so much — a second plate within a few hours does little.
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
+  /** Fly somewhere (or home). Costs money, energy and hours. */
+  bookFlight: (country: string, price: number, hours: number) => FeatureActionResult;
   /** Open mic at The Stage (the city): a 0–100 set pays fans and tips, once a day. */
   performStreetGig: (score: number) => FeatureActionResult;
   markDMRead: (npcId: string) => void;
@@ -13918,6 +13920,23 @@ export const useGameStore = create<GameState & GameActions>()(
         result = { ok: true, message: `${first} +${delta}` };
       });
       return result;
+    },
+
+    bookFlight: (country, price, hours) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      if (p.career.money < price) return { ok: false, message: `You're $${Math.ceil(price - p.career.money).toLocaleString()} short for the ticket.` };
+      const home = country === p.country;
+      set((state) => {
+        if (!state.player || !state.story) return;
+        state.player.career.money -= price;
+        state.player.energy = Math.max(0, state.player.energy - Math.min(25, 4 + hours * 1.5));
+        state.story.flags['abroad'] = home ? '' : country;
+        remember(state, 'life', home ? `Flew home to ${country}.` : `Flew to ${country}.`, { weight: 2 });
+      });
+      get().advanceClock(hours * 60);
+      return { ok: true, message: home ? 'Welcome home.' : `Landed in ${country}.` };
     },
 
     eatMeal: (price, energy, minutes, name) => {

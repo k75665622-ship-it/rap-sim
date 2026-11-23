@@ -346,3 +346,6 @@ Label HQ (Efua, board room, trophy room), your place (bed/wardrobe/laptop/TV) an
 
 ### Overhaul slice 6 — the big world (foundation)
 World is now 900×900 m: a 3×3 grid of districts (Downtown, Eastgate Flats, Studio Lots, Market District, Sports Quarter, Skyline Heights, Palm Estates, Harbour, Airport) on one road grid, each with its own heights/colours and a landmark building (apartments, studios, mall, stadium, arena, towers, estate, port, airport). Landmarks are not enterable yet ("opening soon"). District name toast when you cross. Next: apartment interiors + rent editing, airport + flights, stadium/arena/studio-lot interiors, second country.
+
+### Overhaul slice 7 — apartments
+Eastgate Apartments is walkable (lobby with property office and three flat doors → furnished flat → back). Rent is no longer a fixed tier number: market rent = max(tier rent, 10%/yr of what you paid), you set your ask in Lifestyle (±10% steps), and pricing above market lowers occupancy. Next: per-unit tenants as NPCs, furnishing upgrades that raise value, airport + flights.

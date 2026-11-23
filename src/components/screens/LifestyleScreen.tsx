@@ -10,7 +10,7 @@ import { Button } from '../ui/kit';
 import { cn } from '@/utils/cn';
 import { LUXURY_CATALOG } from '../../data/luxuryItems';
 import { dateToSerial, serialToDate, formatMedium, serialOf } from '../../sim/gameClock';
-import { HOMES, homeDef, rentFor, livingFor, priceFor, moveInCost, advanceMonths, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, newHome, type HomeTier } from '../../sim/home';
+import { HOMES, homeDef, rentFor, livingFor, priceFor, moveInCost, advanceMonths, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, newHome, type HomeTier } from '../../sim/home';
 import { money0 } from '../../sim/tax';
 import type { LuxuryItem } from '../../types/game';
 
@@ -37,6 +37,7 @@ export function LifestyleScreen() {
   const payRent = useGameStore((s) => s.payRent);
   const sellHome = useGameStore((s) => s.sellHome);
   const setRentedOut = useGameStore((s) => s.setHomeRentedOut);
+  const setRent = useGameStore((s) => s.setHomeRent);
   const houseTour = useGameStore((s) => s.houseTour);
   const buy = useGameStore((s) => s.buyLuxuryItem);
   const sell = useGameStore((s) => s.sellLuxury);
@@ -126,6 +127,15 @@ export function LifestyleScreen() {
                         <div className="text-[13px] font-semibold text-ink">{d.name} · {o.city}</div>
                         <div className="text-[11px] text-ink3">Paid {money0(o.paid)} · worth {money0(value)} today{live ? ' · you live here' : o.rentedOut ? ` · let for ${money0(rentIncome(o))}/mo` : ' · empty'}</div>
                       </div>
+                      {!live && o.rentedOut && (
+                        <div className="w-full flex items-center gap-2 text-[11px] text-ink3">
+                          <span>Ask</span>
+                          <Button size="sm" variant="ghost" onClick={() => done(setRent(o.id, Math.round(askRent(o) * 0.9)))}>−10%</Button>
+                          <b className="text-ink num">{money0(askRent(o))}/mo</b>
+                          <Button size="sm" variant="ghost" onClick={() => done(setRent(o.id, Math.round(askRent(o) * 1.1)))}>+10%</Button>
+                          <span>market {money0(marketRent(o))} · {Math.round(occupancy(o) * 100)}% let</span>
+                        </div>
+                      )}
                       {!live && <Button size="sm" variant="ghost" onClick={() => done(moveHome(o.tier, 'own', o.id))}>Move in</Button>}
                       {!live && <Button size="sm" variant="ghost" onClick={() => done(setRentedOut(o.id, !o.rentedOut))}>{o.rentedOut ? 'End tenancy' : 'Let it out'}</Button>}
                       {!live && <Button size="sm" variant="secondary" onClick={() => done(sellHome(o.id))}>Sell</Button>}

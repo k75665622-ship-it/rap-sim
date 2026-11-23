@@ -9,7 +9,7 @@ import { defaultLook, lookFor, type Look } from '../sim/look';
 export const KX = 2000; // the kitchen's centre on the x axis
 export const SX = 2100; // Studio 9's
 
-export interface Spot { id: string; x: number; z: number; label: string; reach: number; kind: 'exit' | 'counter' | 'radio' | 'act'; act?: string }
+export interface Spot { id: string; x: number; z: number; label: string; reach: number; kind: 'exit' | 'counter' | 'radio' | 'act'; act?: string; go?: string }
 export interface Npc { id: string; who: string; visitor?: boolean; model: PlayerModel; x: number; z: number; rot: number; sit: boolean; work: boolean; baseY: number }
 export interface Interior {
   id: string;
@@ -291,6 +291,7 @@ interface RoomSpec {
   id: string; name: string; x0: number; placeId: string; W: number; D: number;
   wall: string; floor: string; rug?: [number, number, number, number, string]; sign: string; signColor: string;
   boxes: B[]; npcs: Array<{ id: string; who: string; seed: string; female?: boolean; x: number; z: number; rot: number; sit?: boolean; work?: boolean; hair?: string; skin?: string }>;
+  back?: string;
   visitors: string[]; spots: Array<Omit<Spot, 'x'> & { x: number }>; lights: Array<[number, number, string]>;
 }
 function buildRoom(bin: Bin, r: RoomSpec): Interior {
@@ -338,7 +339,7 @@ function buildRoom(bin: Bin, r: RoomSpec): Interior {
   }
   for (const id of r.visitors) put(id, id, lookFor(`visitor-${id}`, ['adwoa', 'afia', 'efua', 'mimi', 'esi'].includes(id) ? 'female' : 'male'), 1.8, D - 1.2, Math.PI, false, false, true);
   const spots: Spot[] = r.spots.map((sp) => ({ ...sp, x: X + sp.x }));
-  spots.push({ id: 'exit', x: X, z: D - 0.5, label: 'Leave', reach: 1.5, kind: 'exit' });
+  spots.push(r.back ? { id: 'exit', x: X, z: D - 0.5, label: 'Back to the lobby', reach: 1.5, kind: 'act', go: r.back } : { id: 'exit', x: X, z: D - 0.5, label: 'Leave', reach: 1.5, kind: 'exit' });
   return { id: r.id, name: r.name, x0: X, where: r.id, placeId: r.placeId, halfW: W, halfD: D, group, lights, solids, bounds: { minX: X - W, maxX: X + W, minZ: -D, maxZ: D }, spawn: { x: X, z: D - 1.1, rot: Math.PI }, spots, npcs, walls };
 }
 
@@ -494,4 +495,47 @@ export const buildDrip = (bin: Bin) => buildRoom(bin, {
   visitors: ALL_VISITORS,
   spots: [{ id: 'style', x: 0, z: -2.4, label: 'Racks · style', reach: 2.0, kind: 'act', act: 'screen:style' }],
   lights: [[-2.5, -1, '#ff9ad0'], [2.5, 1, '#fff1d0']],
+});
+
+// ─── apartments: the lobby and a flat ──────────────────────────────────────
+export const APTS_X = 2900, FLAT_X = 3000;
+
+export const buildApts = (bin: Bin) => buildRoom(bin, {
+  id: 'apts', name: 'Eastgate Apartments', x0: APTS_X, placeId: 'apts', W: 6, D: 4.5, wall: '#e8dcc6', floor: '#6b5a48', rug: [0, 0.5, 4, 2.4, '#8a4a2a'], sign: 'EASTGATE', signColor: '#ffa94d',
+  boxes: [
+    [-5.4, -3.6, 1.5, 4.0, 0.9, '#3a2c20'],                    // property office desk
+    [-5.5, -2.5, -4.4, -4.2, 2.3, '#c9a27a', 0, false],         // unit doors on the north wall
+    [-1.5, 1.5, -4.4, -4.2, 2.3, '#c9a27a', 0, false],
+    [2.5, 5.5, -4.4, -4.2, 2.3, '#c9a27a', 0, false],
+    [4.4, 5.6, 1.2, 2.4, 0.5, '#2f5d8a'],                       // waiting bench
+    [-0.5, 0.5, 3.0, 3.6, 0.5, '#2e7d4f'],
+  ],
+  npcs: [{ id: 'agent', who: 'Property manager', seed: 'apts-agent', female: true, x: -4.5, z: 2.7, rot: Math.PI / 2, work: true }],
+  visitors: [],
+  spots: [
+    { id: 'office', x: -3.0, z: 2.6, label: 'Property office · rents', reach: 1.8, kind: 'act', act: 'screen:lifestyle' },
+    { id: 'u1', x: -4, z: -3.6, label: 'Flat A · go in', reach: 1.5, kind: 'act', go: 'flat' },
+    { id: 'u2', x: 0, z: -3.6, label: 'Flat B · go in', reach: 1.5, kind: 'act', go: 'flat' },
+    { id: 'u3', x: 4, z: -3.6, label: 'Flat C · go in', reach: 1.5, kind: 'act', go: 'flat' },
+  ],
+  lights: [[-3, 0, '#ffe3b0'], [3, 0, '#fff1d0']],
+});
+
+export const buildFlat = (bin: Bin) => buildRoom(bin, {
+  id: 'flat', name: 'Flat', x0: FLAT_X, placeId: '', W: 5, D: 4, wall: '#d8cdb8', floor: '#9a7a54', rug: [-1.2, 0.6, 3, 2, '#4a6a8a'], sign: 'FLAT', signColor: '#ffa94d', back: 'apts',
+  boxes: [
+    [-4.8, -2.4, -3.9, -2.1, 0.5, '#4a4f9a'], [-4.8, -4.3, -3.9, -2.1, 1.1, '#3a3d7a'],
+    [2.4, 4.8, -3.9, -3.2, 2.2, '#6a4a2e'],
+    [-1.0, 1.6, -3.9, -3.3, 0.8, '#d8c8a0'],
+    [-4.8, -2.4, 1.0, 2.0, 0.55, '#3a2f2f'], [-4.8, -4.5, 1.0, 2.0, 0.95, '#3a2f2f'],
+    [3.0, 4.8, 0.0, 1.0, 0.9, '#8a8a92'],
+    [0.8, 1.7, 2.8, 3.6, 0.45, '#8a4b2a'],
+  ],
+  npcs: [], visitors: [],
+  spots: [
+    { id: 'lease', x: 0.3, z: -2.5, label: 'Lease · set the rent', reach: 1.6, kind: 'act', act: 'screen:lifestyle' },
+    { id: 'wardrobe', x: 3.6, z: -2.6, label: 'Wardrobe · style', reach: 1.6, kind: 'act', act: 'screen:style' },
+    { id: 'bed', x: -2.5, z: -2.2, label: 'Rest · home life', reach: 1.6, kind: 'act', act: 'screen:lifestyle' },
+  ],
+  lights: [[-2.5, -1.5, '#ffe3b0'], [2.5, 1.5, '#fff1d0']],
 });

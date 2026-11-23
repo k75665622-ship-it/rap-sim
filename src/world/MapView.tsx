@@ -5,7 +5,7 @@
 // map you can tap a place (or pick it from the list) to send the GPS there.
 
 import { useEffect, useRef, useState } from 'react';
-import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, WORLD, WORLD_CENTRE } from './layout';
+import { cityLayout, placesNow, ROAD_CENTRES, ROAD_HALF, WORLD, WORLD_CENTRE } from './layout';
 import { live } from './sim';
 import { gpsState, setGpsPlace } from './gps';
 import { hudStore } from './input';
@@ -167,7 +167,7 @@ export function MapOverlay({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} aria-label="Close the map" className="w-10 h-10 rounded-full border border-white/25 text-ink2 text-[16px] shrink-0">✕</button>
         </div>
         <div className="overflow-y-auto space-y-1.5 pr-1">
-          {PLACES.map((p) => (
+          {placesNow().map((p) => (
             <button key={p.id} onClick={() => go(p.id, p.name)} className="w-full flex items-center gap-2.5 rounded-[12px] border border-white/15 bg-white/[0.05] px-3 h-11 text-left active:bg-white/10">
               <span className="w-6 h-6 rounded-md text-black text-[12px] font-black flex items-center justify-center shrink-0" style={{ background: p.accent }}>{p.glyph}</span>
               <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-ink truncate">{p.name}</span><span className="block text-[10px] text-ink3 truncate">{p.tagline}</span></span>

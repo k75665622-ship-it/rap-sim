@@ -7,7 +7,8 @@
 // Axes: x east, z south, y up. One unit is one metre.
 
 import type { GameScreen } from '../types/game';
-import { getCountry } from '../data/locations';
+import { getCountry, getCitiesByCountry } from '../data/locations';
+import { regionOf } from '../story/region';
 
 // The world is a 3×3 grid of 300 m districts. Downtown is the middle of the
 // top-left one; everything else grows out from it along the same road grid.
@@ -167,6 +168,21 @@ const THEMES: Record<string, string[]> = {
   'South America': ['#f0b88a', '#e8d27a', '#9fd3c0', '#f0a0a0', '#c9b0e0', '#f4e0b0'],
   Oceania: ['#e8e4da', '#b5d0e0', '#d9c8a8', '#c0d8c4', '#f0e4d0', '#a8c4d8'],
 };
+const NAMES: Record<string, Partial<Record<string, string>>> = {
+  radio: { westafrica: 'COOL 96.9', africa: 'RHYTHM 91.2', europe: 'CITY FM 98.4', americas: 'POWER 105.7', elsewhere: 'STAR FM 100.1' },
+  bank: { europe: 'NORTHBRIDGE BANK', americas: 'LIBERTY TRUST', elsewhere: 'GRAND UNION BANK' },
+  mall: { westafrica: 'GRAND BAZAAR', africa: 'GRAND BAZAAR', europe: 'THE ARCADE', americas: 'CITY MALL', elsewhere: 'NIGHT MARKET' },
+};
+/** The same places, named for where you are. Story-bound ones (the kitchen, Studio 9, the label) keep their names. */
+export function localPlace(p: Place, country = worldCountry): Place {
+  if (country === 'Ghana') return p;
+  const r = regionOf(country);
+  const city = (getCitiesByCountry(country)[0]?.name ?? country).toUpperCase();
+  const c = country.toUpperCase();
+  const name = p.id === 'airport' ? `${c} INTL AIRPORT` : p.id === 'stadium' ? `${c} NATIONAL STADIUM` : p.id === 'port' ? `${city} HARBOUR` : NAMES[p.id]?.[r] ?? p.name;
+  return name === p.name ? p : { ...p, name };
+}
+export const placesNow = (): Place[] => PLACES.map((p) => localPlace(p));
 const wallsForWorld = (): string[] => (worldCountry === 'Ghana' ? WALLS : THEMES[getCountry(worldCountry)?.continent ?? ''] ?? WALLS);
 
 export function cityLayout(): CityLayout {
@@ -233,7 +249,8 @@ export function cityLayout(): CityLayout {
   }
 
   for (const lot of lots) {
-    const place = placeOf.get(lot);
+    const place0 = placeOf.get(lot);
+    const place = place0 ? localPlace(place0) : undefined;
     const zn = zoneAt((lot.minX + lot.maxX) / 2, (lot.minZ + lot.maxZ) / 2);
     const sty = STYLE[zn];
     // Pull back from the pavement a little on sides with no road, so alleys read.

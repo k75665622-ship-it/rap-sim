@@ -12,7 +12,7 @@ import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
 import { gpsState, refreshGps } from './gps';
-import { buildKitchen, buildStudio, buildLabel, buildCrib, buildRadio, buildStage, buildBank, buildGym, buildDrip, type Interior } from './interior';
+import { buildKitchen, buildStudio, buildLabel, buildCrib, buildRadio, buildStage, buildBank, buildGym, buildDrip, buildApts, buildFlat, type Interior } from './interior';
 import { setStudioIntent } from './studioIntent';
 import { indoor } from './sim';
 import { storyBus } from '../story/bus';
@@ -110,7 +110,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     gpsBeacon.add(beaconMesh);
     gpsGroup.add(gpsRibbon, gpsBeacon);
     gpsGroup.visible = false;
-    const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin) };
+    const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin), apts: buildApts(bin), flat: buildFlat(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
     scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
@@ -151,6 +151,14 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     live.p.x = K.spawn.x; live.p.z = K.spawn.z; live.p.rot = K.spawn.rot; live.p.speed = 0; live.p.y = 0;
     live.cam.yaw = K.spawn.rot + Math.PI; live.cam.pitch = 0.85; live.cam.manualAt = -10;
     tmp.first = true; tmp.hummed = false; tmp.fired.clear();
+    hudStore.set({ inside: K.id });
+  };
+  const goInterior = (id: string) => {
+    const K = built.interiors[id];
+    indoor.id = K.id; indoor.solids = K.solids; indoor.bounds = K.bounds;
+    live.p.x = K.spawn.x; live.p.z = K.spawn.z; live.p.rot = K.spawn.rot; live.p.speed = 0;
+    live.cam.yaw = K.spawn.rot + Math.PI; live.cam.pitch = 0.85; live.cam.manualAt = -10;
+    tmp.first = true; tmp.fired.clear();
     hudStore.set({ inside: K.id });
   };
   const exitInterior = () => {
@@ -221,7 +229,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
           if (d < sp.reach && d < best) {
             best = d;
             target = { label: sp.label, run: () => {
-              if (sp.kind === 'exit') exitInterior();
+              if (sp.go) goInterior(sp.go);
+              else if (sp.kind === 'exit') exitInterior();
               else if (sp.kind === 'counter') useGameStore.getState().setScreen('kitchen');
               else if (sp.kind === 'act') {
                 if (sp.act?.startsWith('screen:')) useGameStore.getState().setScreen(sp.act.slice(7) as never);

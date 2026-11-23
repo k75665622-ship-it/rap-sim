@@ -425,7 +425,7 @@ import { newMarket, stepMarket, holdingValue, STOCK_FEE, COIN_FEE, type MarketSt
 import { VENTURE_BY_TYPE, newVenture, ventureMonth, ventureValue, dropCost, resolveDrop, resolveSpecial, type Venture, type VentureCtx, type VentureType, type PricePoint, type DropPlan } from '../sim/ventures';
 import { zoneOf, buildOf, buildCostFor, projectValue, monthlyRent, buildMonth, type Zone, type BuildType } from '../sim/realestate';
 import { creditScore, personalOffer, mortgageOffer, paymentFor, LENDERS } from '../sim/bank';
-import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, costIndex, type HomeState, type HomeTier } from '../sim/home';
+import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, costIndex, type HomeState, type HomeTier } from '../sim/home';
 import { GENRE_BY_ID } from '../data/genres';
 import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, rollDice, playFixture, tableLimit, vipTier, type BlackjackHand, type RouletteBet, type DiceBet } from '../sim/casino';
 import { assignmentsFor, weekOfWork } from '../sim/assignments';
@@ -3592,6 +3592,7 @@ interface GameActions {
   sellHome: (id: string) => FeatureActionResult;
   /** Let a home you own to tenants, or take it back. */
   setHomeRentedOut: (id: string, on: boolean) => FeatureActionResult;
+  setHomeRent: (id: string, ask: number | null) => FeatureActionResult;
   /** Film a house tour for Clip — once per place. */
   houseTour: () => FeatureActionResult;
   /** Post from your record label's page (not yours). */
@@ -19959,6 +19960,17 @@ export const useGameStore = create<GameState & GameActions>()(
         list.splice(i, 1);
         remember(state, 'money', `Sold the ${homeDef(o.tier).name.toLowerCase()} in ${o.city} for ${money0(value)} (paid ${money0(o.paid)}).`, { weight: 3 });
         result = { ok: true, message: `Sold for ${money0(value)} after the agent's 3%.` };
+      });
+      return result;
+    },
+
+    setHomeRent: (id, ask) => {
+      let result: FeatureActionResult = { ok: false, message: 'You don\'t own that.' };
+      set((state) => {
+        const o = (state.homes ?? []).find((x) => x.id === id);
+        if (!o) return;
+        o.rentAsk = ask === null ? undefined : Math.max(0, Math.round(ask));
+        result = { ok: true, message: `Asking ${money0(askRent(o))}/mo (market ${money0(marketRent(o))}) · ${Math.round(occupancy(o) * 100)}% let.` };
       });
       return result;
     },

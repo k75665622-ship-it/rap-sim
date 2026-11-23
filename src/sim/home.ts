@@ -120,6 +120,8 @@ export interface OwnedHome {
   boughtSerial: number;
   /** Let out to tenants while you live elsewhere. */
   rentedOut?: boolean;
+  /** What you ask each month when it's let. Unset = the market rent. */
+  rentAsk?: number;
 }
 
 export interface HomeState {
@@ -152,5 +154,16 @@ export function ownedValue(h: OwnedHome, propertyIndex = 100): number {
 
 /** What tenants pay you for a place you've let out, per month (after the agent). */
 export function rentIncome(h: OwnedHome): number {
-  return Math.round(rentFor(h.tier, h.country) * 0.85);
+  return Math.round(askRent(h) * occupancy(h) * 0.85);
+}
+
+/** What a place like this fetches: the tier's rent, or about 10% a year of what you put into it. */
+export function marketRent(h: OwnedHome): number {
+  return Math.max(rentFor(h.tier, h.country), Math.round(h.paid / 120));
+}
+export const askRent = (h: OwnedHome): number => h.rentAsk ?? marketRent(h);
+/** Ask a fair rent and it's full; push past the market and rooms sit empty. */
+export function occupancy(h: OwnedHome): number {
+  const ratio = askRent(h) / Math.max(1, marketRent(h));
+  return ratio <= 1.05 ? 1 : Math.max(0.15, 1 - (ratio - 1.05) * 1.6);
 }

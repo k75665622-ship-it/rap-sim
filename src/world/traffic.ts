@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { buildCar, Bin } from './build';
 import { ROAD_CENTRES, ROAD_HALF, WORLD } from './layout';
 import { signalState } from './signals';
+import { pedestrianHazards } from './pedestrianTraffic';
 
 type Axis = 'x' | 'z';
 type VehicleKind = 'car' | 'suv' | 'taxi' | 'motorcycle' | 'bike';
@@ -250,6 +251,16 @@ export function buildTraffic(bin: Bin): TrafficSystem {
           const state = signalState(u.axis, next.road, now);
           if (state === 'red' && next.distance < 9) targetSpeed = 0;
           else if (state === 'yellow' && next.distance < 7) targetSpeed = Math.min(targetSpeed, u.cruise * 0.25);
+        }
+
+        // Yield at zebra crossings when a pedestrian is already in the road.
+        // Only inspect hazards near this vehicle's lane, keeping the check tiny.
+        for (const ped of pedestrianHazards()) {
+          if (!ped.active || ped.axis !== u.axis || ped.road !== u.road) continue;
+          const lateral = u.axis === 'x' ? Math.abs((u.road + u.lane) - ped.z) : Math.abs((u.road + u.lane) - ped.x);
+          if (lateral > 2.2) continue;
+          const ahead = u.axis === 'x' ? (ped.x - u.pos) * u.dir : (ped.z - u.pos) * u.dir;
+          if (ahead > -1 && ahead < 10) targetSpeed = Math.min(targetSpeed, ahead < 4.5 ? 0 : u.cruise * 0.3);
         }
 
         for (const other of units) {

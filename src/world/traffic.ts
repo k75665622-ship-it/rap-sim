@@ -156,7 +156,6 @@ function vehicle(bin: Bin, kind: VehicleKind, color: string): THREE.Group {
 }
 
 function chooseTurn(u: Unit, intersection: number): Turn {
-  // Stable per vehicle/intersection: 60% straight, 20% left, 20% right.
   const seed = Math.abs(Math.floor(intersection * 17 + u.road * 3 + u.lane * 11));
   const r = seed % 10;
   if (r < 2) return -1;
@@ -166,10 +165,8 @@ function chooseTurn(u: Unit, intersection: number): Turn {
 
 function laneAfterTurn(inAxis: Axis, inDir: 1 | -1, inLane: number, turn: Turn): number {
   if (turn === 0) return inLane;
-  // Preserve a sensible right-hand-traffic lane after the turn. The sign is
-  // derived from the new travel direction rather than blindly reusing the old lane.
   const outAxis: Axis = inAxis === 'x' ? 'z' : 'x';
-  const outDir: 1 | -1 = turn < 0 ? -inDir as 1 | -1 : inDir;
+  const outDir: 1 | -1 = turn < 0 ? (inDir === 1 ? -1 : 1) : inDir;
   if (outAxis === 'x') return outDir > 0 ? 3 : -3;
   return outDir > 0 ? 3 : -3;
 }
@@ -232,8 +229,6 @@ export function buildTraffic(bin: Bin): TrafficSystem {
   });
 
   const signals: Signal[] = [];
-  // Signals are visualized at a subset of junctions; the same deterministic
-  // signal cycle governs every intersection, so cars never depend on missing art.
   for (const road of ROAD_CENTRES) {
     if (road % 120 !== 0) continue;
     signals.push(signal(bin, road + ROAD_HALF + 1, road - ROAD_HALF - 1, 'x', road));
@@ -257,7 +252,6 @@ export function buildTraffic(bin: Bin): TrafficSystem {
         const next = nextIntersection(u);
         let targetSpeed = u.cruise;
 
-        // Choose the turn once per junction, before the vehicle reaches it.
         if (next && u.turnAt !== next.road && next.distance < 8) {
           u.turnAt = next.road;
           u.turn = chooseTurn(u, next.road);
@@ -269,8 +263,6 @@ export function buildTraffic(bin: Bin): TrafficSystem {
           else if (state === 'yellow' && next.distance < 7) targetSpeed = Math.min(targetSpeed, u.cruise * 0.25);
         }
 
-        // Only vehicles on the same physical lane affect each other.
-        // The distance is measured in the vehicle's forward direction.
         for (const other of units) {
           if (other === u || other.axis !== u.axis || other.road !== u.road || other.lane !== u.lane) continue;
           const gap = (other.pos - u.pos) * u.dir;
@@ -287,8 +279,6 @@ export function buildTraffic(bin: Bin): TrafficSystem {
         const oldPos = u.pos;
         u.pos += u.dir * u.speed * dt;
 
-        // Perform the turn only after crossing the intersection. This prevents
-        // a car from switching axes early and guarantees one turn per junction.
         if (next && u.turnAt === next.road && u.turn !== 0) {
           const crossed = u.dir > 0 ? oldPos < next.road && u.pos >= next.road : oldPos > next.road && u.pos <= next.road;
           if (crossed) {
@@ -296,7 +286,7 @@ export function buildTraffic(bin: Bin): TrafficSystem {
             const incomingAxis = u.axis;
             const incomingDir = u.dir;
             u.axis = incomingAxis === 'x' ? 'z' : 'x';
-            u.dir = u.turn < 0 ? -incomingDir as 1 | -1 : incomingDir;
+            u.dir = u.turn < 0 ? (incomingDir === 1 ? -1 : 1) : incomingDir;
             u.road = intersection;
             u.lane = laneAfterTurn(incomingAxis, incomingDir, u.lane, u.turn);
             u.pos = intersection + u.dir * 0.08;

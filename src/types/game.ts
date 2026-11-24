@@ -2308,6 +2308,7 @@ export type GameScreen =
   | 'kitchen'
   | 'airport'
   | 'ferry'
+  | 'intercity'
   | 'studio'
   | 'social_chirp'
   | 'social_snapgram'

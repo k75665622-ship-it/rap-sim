@@ -1,7 +1,7 @@
 // The plots out past the city edge: bare ground, "for sale" boards, what
 // neighbours have built, and whatever you are putting up on your own land.
 import * as THREE from 'three';
-import { cityLayout, currentCountry, LAND_ZONES, type Plot } from './layout';
+import { cityLayout, worldKey, LAND_ZONES, type Plot } from './layout';
 import { useGameStore } from '../store/gameStore';
 import { npcBuilding, plotKey, takenBy, type LandZone } from '../sim/land';
 import { dateToSerial } from '../sim/gameClock';
@@ -20,7 +20,7 @@ export function plotAt(x: number, z: number, pad = 2): Plot | null {
 
 export function viewOf(p: Plot): PlotView {
   const st = useGameStore.getState();
-  const country = currentCountry();
+  const country = worldKey();
   const mine = (st.devProjects ?? []).find((d) => d.plotId === p.id && d.country === country && d.stage !== 'sold');
   if (mine) return { plot: p, status: 'yours', projectId: mine.id };
   const au = (st.landAuctions ?? []).find((a) => a.plotId === p.id && a.country === country);
@@ -64,7 +64,7 @@ export function buildLand(bin: Bin) {
   const refresh = () => {
     const st = useGameStore.getState();
     const serial = dateToSerial(st.gameDate);
-    const country = currentCountry();
+    const country = worldKey();
     const s = `${country}|${(st.devProjects ?? []).map((d) => d.plotId ? d.plotId + d.stage : '').join(',')}|${Object.keys(st.landTaken ?? {}).length}|${(st.landAuctions ?? []).map((a) => a.plotId + a.bidder).join(',')}|${Math.floor(serial / 10)}`;
     if (s === sig) return;
     sig = s;

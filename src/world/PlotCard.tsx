@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { money } from '@/utils/format';
 import { hudStore } from './input';
-import { cityLayout, currentCountry, ZONES } from './layout';
+import { cityLayout, worldKey, ZONES } from './layout';
 import { landZoneOf, viewOf } from './land';
 import { LAND_TIERS, plotKey, plotPrice, takenBy } from '../sim/land';
 import { dateToSerial } from '../sim/gameClock';
@@ -30,7 +30,7 @@ export function PlotCard() {
   const v = viewOf(plot);
   const lz = landZoneOf(plot);
   const tier = LAND_TIERS[lz];
-  const country = currentCountry();
+  const country = worldKey();
   const idx = st.market?.propertyIndex ?? 100;
   const disc = (st.crew ?? []).some((c) => c.role === 'accountant') ? 0.08 : 0;
   const price = plotPrice(lz, plotKey(country, plot.id), idx, disc);

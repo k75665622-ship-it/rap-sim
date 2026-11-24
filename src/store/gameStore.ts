@@ -172,7 +172,7 @@ import { buildRealArtists } from '../data/realArtists';
 import { ghostwriterById } from '../sim/ghostwriter';
 import { generateNPCs } from '../data/npcGenerator';
 import { getBaseStats, applyBackground, getStartingCareer } from '../data/backgrounds';
-import { getChartMarkets, getCountry } from '../data/locations';
+import { getChartMarkets, getCountry, getCitiesByCountry } from '../data/locations';
 import { getUnitsForCertification } from '../sim/songQuality';
 import {
   runStoryDirector,
@@ -425,7 +425,7 @@ import { generateJobBoard, JOB_CATEGORY_LABEL } from '../data/jobs';
 import { newMarket, stepMarket, holdingValue, STOCK_FEE, COIN_FEE, type MarketState, type MarketNews, type Portfolio } from '../sim/markets';
 import { VENTURE_BY_TYPE, newVenture, ventureMonth, ventureValue, dropCost, resolveDrop, resolveSpecial, type Venture, type VentureCtx, type VentureType, type PricePoint, type DropPlan } from '../sim/ventures';
 import { LAND_TIERS, NPC_OWNERS, plotKey, plotPrice, roll, snapChance, takenBy, type LandZone } from '../sim/land';
-import { cityLayout, currentCountry } from '../world/layout';
+import { cityLayout, worldKey as currentCountry } from '../world/layout';
 import { zoneOf, buildOf, buildCostFor, projectValue, monthlyRent, buildMonth, type Zone, type BuildType } from '../sim/realestate';
 import { creditScore, personalOffer, mortgageOffer, paymentFor, LENDERS } from '../sim/bank';
 import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, tenantOf, hash as homeHash, costIndex, type HomeState, type HomeTier } from '../sim/home';
@@ -3219,6 +3219,8 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Travel to another city in the country you are in. */
+  travelCity: (city: string, price: number, hours: number) => FeatureActionResult;
   bookFlight: (country: string, price: number, hours: number, by?: 'ferry') => FeatureActionResult;
   /** Open mic at The Stage (the city): a 0–100 set pays fans and tips, once a day. */
   performStreetGig: (score: number) => FeatureActionResult;
@@ -14019,6 +14021,23 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
+    travelCity: (city, price, hours) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      if (p.career.money < price) return { ok: false, message: `You're short for the fare.` };
+      set((state) => {
+        if (!state.player || !state.story) return;
+        const where = (state.story.flags['abroad'] as string) || state.player.country;
+        state.player.career.money -= price;
+        state.player.energy = Math.max(0, state.player.energy - Math.min(20, 3 + hours * 1.5));
+        state.story.flags['city'] = city === getCitiesByCountry(where)[0]?.name ? '' : city;
+        remember(state, 'life', `Travelled to ${city}.`, { weight: 1 });
+      });
+      get().advanceClock(hours * 60);
+      return { ok: true, message: `Arrived in ${city}.` };
+    },
+
     bookFlight: (country, price, hours, by) => {
       const before = get();
       const p = before.player;
@@ -14030,6 +14049,7 @@ export const useGameStore = create<GameState & GameActions>()(
         state.player.career.money -= price;
         state.player.energy = Math.max(0, state.player.energy - Math.min(25, 4 + hours * 1.5));
         state.story.flags['abroad'] = home ? '' : country;
+        state.story.flags['city'] = '';
         remember(state, 'life', home ? (by ? `Sailed home to ${country}.` : `Flew home to ${country}.`) : (by ? `Took the boat to ${country}.` : `Flew to ${country}.`), { weight: 2 });
       });
       get().advanceClock(hours * 60);

@@ -51,6 +51,7 @@ export function FerryScreen() {
         <button onClick={() => setScreen('city')} className="h-10 px-4 rounded-full border border-line text-[13px] font-semibold text-ink">Back to the quay</button>
       </div>
       <div className="text-[12px] text-ink3 mb-3">You are in <b className="text-ink">{where}</b>{abroad ? ` · home is ${home}` : ''}. Cash {money(player?.career.money ?? 0)}. Boats are cheap but slow — the clock keeps running while you sail.</div>
+      <button onClick={() => setScreen('intercity')} className="w-full mb-3 h-11 rounded-[12px] border border-line text-[13px] font-semibold text-ink">🚌 Other cities in {where}</button>
       {err ? <div className="mb-3 rounded-[10px] bg-red-500/15 border border-red-400/40 px-3 py-2 text-[12px] text-red-200">{err}</div> : null}
       {abroad ? (
         <button onClick={() => go(home)} className="w-full mb-3 h-12 rounded-[12px] bg-amber text-black font-bold text-[14px]">⛴ Sail home to {home} · {money(sailing(abroad, home).price)}</button>

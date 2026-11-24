@@ -579,3 +579,33 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
 }
 
 export function isOut(r: Resident): boolean { return r.inside < 0; }
+
+export interface HomeDoor { x: number; z: number; ox: number; oz: number; residents: Resident[]; home: Resident | null }
+/** A front door within reach of this spot, and who lives behind it. */
+export function homeDoorNear(x: number, z: number, reach = 3.4): HomeDoor | null {
+  const N = network();
+  let best: { node: number; d: number } | null = null;
+  for (const id of N.homes) {
+    const n = N.nodes[id];
+    if (!n.door) continue;
+    const d = Math.hypot(n.door.x - x, n.door.z - z);
+    if (d < reach && (!best || d < best.d)) best = { node: id, d };
+  }
+  if (!best) return null;
+  const n = N.nodes[best.node];
+  const dx = n.x - n.door!.x, dz = n.z - n.door!.z, len = Math.hypot(dx, dz) || 1;
+  const live = residents.filter((r) => r.home === best!.node);
+  return { x: n.door!.x, z: n.door!.z, ox: dx / len, oz: dz / len, residents: live, home: live.find((r) => r.inside === best!.node) ?? null };
+}
+
+/** What someone is up to, in a few words, for when you knock and they're out. */
+export function whereIs(r: Resident): string {
+  if (r.inside >= 0) {
+    const place = network().nodes[r.inside].place;
+    return place ? `inside ${place === 'food' ? "Mama's Kitchen" : place}` : 'in';
+  }
+  return r.goalDoing === 'work' ? 'on their way to work' : r.goalDoing === 'food' ? 'out for food' : r.goalDoing === 'club' ? 'out for the night' : r.goalDoing === 'gym' ? 'at the gym' : 'out and about';
+}
+
+/** Dev/test: where a resident's front door is. */
+export function homeDoorOf(r: Resident): { x: number; z: number } | null { const n = network().nodes[r.home]; return n?.door ?? null; }

@@ -24,6 +24,7 @@ import { cityLayout, type Place } from './layout';
 import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
+import { buildTraffic, type TrafficSystem } from './traffic';
 
 const SKY = '#9cc3e6';
 /** How close to a door marker counts as "at the door". */
@@ -38,7 +39,7 @@ export function CityCanvas({ look, onEnter, paused }: { look?: Look; onEnter: (p
   return (
     <Canvas
       // Phones: fewer pixels and no antialiasing — the biggest single saving.
-      dpr={COARSE ? [1, 1.3] : [1, 1.75]}
+      dpr={COARSE ? [0.72, 1.12] : [1, 1.65]}
       frameloop={paused ? 'never' : 'always'}
       gl={{ antialias: !COARSE, powerPreference: 'high-performance' }}
       camera={{ fov: 62, near: 0.1, far: 300 }}
@@ -70,6 +71,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const city = buildCity(bin);
     const player = buildPlayer(lookRef.current, bin);
     const car = buildCar('#ffb800', bin);
+    const traffic = buildTraffic(bin);
     const blob = blobTexture(bin);
     const shadowMat = bin.add(new THREE.MeshBasicMaterial({ map: blob, transparent: true, depthWrite: false }));
     const plane = bin.add(new THREE.PlaneGeometry(1, 1));
@@ -121,7 +123,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, poses, ray: new THREE.Raycaster() };
+    return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, poses, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => {
@@ -180,7 +182,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const steps = Math.max(1, Math.ceil(frameDt / 0.034));
     const dt = frameDt / steps;
     const t = state.clock.elapsedTime;
-    const { player, car, pShadow, cShadow, city, doors, ray } = built;
+    traffic.update(frameDt, t);
+    const { player, car, pShadow, cShadow, city, doors, ray, traffic } = built;
 
     // ── camera drag ─────────────────────────────────────────────────────
     const look = takeLook();

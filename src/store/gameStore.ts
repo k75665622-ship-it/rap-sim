@@ -424,6 +424,8 @@ import { cameoQuote, quoteCameos, type CameoQuote } from '../sim/cameo';
 import { generateJobBoard, JOB_CATEGORY_LABEL } from '../data/jobs';
 import { newMarket, stepMarket, holdingValue, STOCK_FEE, COIN_FEE, type MarketState, type MarketNews, type Portfolio } from '../sim/markets';
 import { VENTURE_BY_TYPE, newVenture, ventureMonth, ventureValue, dropCost, resolveDrop, resolveSpecial, type Venture, type VentureCtx, type VentureType, type PricePoint, type DropPlan } from '../sim/ventures';
+import { LAND_TIERS, NPC_OWNERS, plotKey, plotPrice, roll, snapChance, takenBy, type LandZone } from '../sim/land';
+import { cityLayout, currentCountry } from '../world/layout';
 import { zoneOf, buildOf, buildCostFor, projectValue, monthlyRent, buildMonth, type Zone, type BuildType } from '../sim/realestate';
 import { creditScore, personalOffer, mortgageOffer, paymentFor, LENDERS } from '../sim/bank';
 import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, tenantOf, hash as homeHash, costIndex, type HomeState, type HomeTier } from '../sim/home';
@@ -879,6 +881,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         portfolio: state.portfolio,
         ventures: state.ventures,
         devProjects: state.devProjects,
+        landTaken: state.landTaken,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -1360,6 +1363,7 @@ function getInitialState(): GameState {
     portfolio: { stocks: [], coins: [], realized: 0, dividends: 0 },
     ventures: [],
     devProjects: [],
+    landTaken: {},
     wealthHistory: [],
     pendingDMs: [],
     appointments: [],
@@ -3519,6 +3523,8 @@ interface GameActions {
   brandRetire: (ventureId: string, productId: string) => FeatureActionResult;
   brandWarehouse: (ventureId: string) => FeatureActionResult;
   buyPlot: (zone: Zone) => FeatureActionResult;
+  /** Buy one plot of open land, or (with several ids) a whole block as an estate. */
+  buyWorldPlot: (ids: string[], landZone: LandZone) => FeatureActionResult;
   startBuild: (projectId: string, build: BuildType) => FeatureActionResult;
   payOverrun: (projectId: string) => FeatureActionResult;
   setRenting: (projectId: string, on: boolean) => FeatureActionResult;
@@ -9521,6 +9527,32 @@ export function monthlyBurnOf(state: Pick<GameState, 'home' | 'homes' | 'ownedAs
 }
 
 /** Rent renewals, the landlord's patience, and the monthly bills. */
+/** Out in the open world, other buyers are moving too: a plot you wait on can be gone tomorrow. */
+function landTick(state: GameState, days: number, serial: number): void {
+  const country = currentCountry();
+  const L = cityLayout();
+  const taken = (state.landTaken ??= {});
+  const mine = (state.devProjects ?? []).filter((d) => d.plotId && d.country === country);
+  // A building you sold goes to its new owner.
+  for (const d of mine) if (d.stage === 'sold') {
+    const k = plotKey(country, d.plotId!);
+    if (!taken[k]) taken[k] = { by: NPC_OWNERS[Math.floor(roll(k + serial) * NPC_OWNERS.length)], serial };
+  }
+  const own = new Set(mine.filter((d) => d.stage !== 'sold').map((d) => d.plotId!));
+  const chance = snapChance(days, state.market?.propertyIndex ?? 100);
+  for (const pl of L.plots) {
+    if (own.has(pl.id)) continue;
+    const k = plotKey(country, pl.id);
+    if (takenBy(taken, k)) continue;
+    if (Math.random() >= chance) continue;
+    const by = NPC_OWNERS[Math.floor(Math.random() * NPC_OWNERS.length)];
+    taken[k] = { by, serial };
+    const blk = L.landBlocks.find((b) => b.id === pl.block);
+    const near = blk?.plots.some((id) => own.has(id));
+    if (near || Math.random() < 0.05) pushNotification(state, { kind: 'business', title: '🏷️ Land sold', body: `${by} just bought a plot ${near ? 'next to yours' : 'in ' + (pl.zone === 'lakeside' ? 'Lakeside' : 'the new districts')}. Good land goes fast.`, artSeed: `land|${k}` });
+  }
+}
+
 function homeTick(state: GameState, serial: number, log: string[]): void {
   const p = state.player;
   if (!p) return;
@@ -18517,6 +18549,37 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
+    buyWorldPlot: (ids, landZone) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not buy the land.' };
+      set((state) => {
+        const p = state.player;
+        if (!p || !ids.length) return;
+        const country = currentCountry();
+        const m = marketOf(state);
+        const mine = (state.devProjects ?? []).filter((d) => d.stage !== 'sold');
+        if (mine.length + ids.length > 20) { result.message = 'Twenty properties at once is the limit.'; return; }
+        const gone = ids.filter((id) => takenBy(state.landTaken, plotKey(country, id)) || mine.some((d) => d.plotId === id && d.country === country));
+        if (gone.length) { result.message = ids.length > 1 ? 'Part of that block is already taken — someone got there first.' : 'Too late — someone else just bought it.'; return; }
+        const estate = ids.length > 1;
+        const disc = dealDiscount(state) + (estate ? 0.1 : 0);
+        const prices = ids.map((id) => plotPrice(landZone, plotKey(country, id), m.propertyIndex, disc));
+        const total = prices.reduce((a, b) => a + b, 0);
+        if (p.career.money < total) { result.message = `That costs $${total.toLocaleString()}.`; return; }
+        p.career.money -= total;
+        const tier = LAND_TIERS[landZone];
+        const serial = dateToSerial(state.gameDate);
+        ids.forEach((id, i) => {
+          (state.devProjects ??= []).push({
+            id: uuidv4(), zone: tier.zone, stage: 'land', landCost: prices[i], buildCost: 0, spent: prices[i], boughtSerial: serial, indexAtBuy: m.propertyIndex,
+            quality: Math.round(45 + (p.stats.businessKnowledge ?? 40) / 5), renting: false, owed: 0, totalRent: 0, plotId: id, country, estate,
+            log: [estate ? `Bought a block of ${ids.length} plots to start an estate.` : `Bought a plot of ${landZone === 'farms' ? 'farmland' : 'land'} for $${prices[i].toLocaleString()}.`],
+          });
+        });
+        result = { ok: true, message: estate ? `${tier.emoji} Estate started — ${ids.length} plots for $${total.toLocaleString()} (10% off). Open Property to build.` : `${tier.emoji} Plot is yours: $${total.toLocaleString()}. Open Property to build on it.` };
+      });
+      return result;
+    },
+
     startBuild: (projectId, build) => {
       let result: FeatureActionResult = { ok: false, message: 'Could not start.' };
       set((state) => {
@@ -22178,6 +22241,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // Rent, bills and what you own cost money every month — and the bank
         // wants its payment whatever kind of month it was.
         homeTick(state, todaySerial, log);
+        landTick(state, days, todaySerial);
         bankTick(state, todaySerial, log);
 
         // Monthly family obligation. It is an actual ledger expense, not flavour.

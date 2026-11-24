@@ -379,3 +379,9 @@ Story `where` now accepts any walkable place (stadium, arena, lots, mall, airpor
 
 ### Slice 14b — tenant events
 Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goes empty and the next tenant is someone new (`lettings` counter). A happy tenant occasionally means a repair bill (30% of a month's rent). Log lines and a memory mark each.
+
+### Land, forest & estates
+- World is now 4×4 districts (1200 m). The east and south rim is open country: **Greenwood Forest / Pinewood / Hilltop Woods** (dense trees) and **Sunrise Plots / Ridge Wilds / Meadow Farms / Lakeside** cut into 480 buyable plots (~19 m each, 120 blocks).
+- Walk onto a plot and press E/✋: buy it, or buy the whole block (4 plots, 10% off) to start an **estate** (+10% rent). Plots become normal Property projects, so the existing building process (apartments/villas/plaza/hotel, delays, overruns) applies, and the build rises on the plot in the world.
+- **Competition**: ~25% of plots are sold at start, and every day each free plot has a chance of being bought by an NPC buyer (`landTick`); sold buildings go to new owners. Neighbours' plots show houses.
+- Next: forest props (cabins, logging), plot pricing by road frontage, selling land, rival bidding/auctions.

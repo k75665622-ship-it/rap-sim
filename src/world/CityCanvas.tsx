@@ -3,6 +3,7 @@
 // The 3D view. Builds the city once, then every frame: read input, move the
 // player or the car, pose the models, and put the camera behind them.
 
+import { buildLand, plotAt, viewOf } from './land';
 import { shootCam } from './shootcam';
 import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -73,6 +74,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const city = buildCity(bin);
     const player = buildPlayer(lookRef.current, bin);
     const car = buildCar('#ffb800', bin);
+    const land = buildLand(bin);
     const traffic = buildTraffic(bin);
     const transport = buildTransport(bin);
     const blob = blobTexture(bin);
@@ -122,11 +124,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin), apts: buildApts(bin), flat: buildFlat(bin), airport: buildAirport(bin), stadium: buildStadium(bin), arena: buildArena(bin), lots: buildLot(bin), mall: buildMall(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
-    scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group);
+    scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, land.group, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, homeType: b.homeType, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, transport, poses, ray: new THREE.Raycaster() };
+    return { land, interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, transport, poses, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => {
@@ -299,9 +301,17 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       if (door) prompt = door.homeType || door.place.screen || Object.values(built.interiors).some((i) => i.placeId === door.place.id) ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
       else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
+      const plot = !door && !person && !nearCar ? plotAt(live.p.x, live.p.z) : null;
+      if (plot) {
+        const pv = viewOf(plot);
+        prompt = pv.status === 'sale' ? 'Land for sale · look at it' : pv.status === 'yours' ? 'Your land · manage' : `Land owned by ${pv.owner}`;
+      }
 
       if (action) {
-        if (door) {
+        if (plot && !door && !person && !nearCar) {
+          live.p.speed = 0;
+          hudStore.set({ plot: plot.id });
+        } else if (door) {
           if (door.place.screen) {
             // Step back out facing the street when you return.
             live.p.x = door.x;
@@ -494,6 +504,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       tmp.carTick = (t * 4) | 0;
       const px = live.p.x, pz = live.p.z;
       for (const c of city.parked.children) c.visible = Math.hypot(c.position.x - px, c.position.z - pz) < 90;
+      built.land.refresh();
       for (const c of city.shops) c.visible = Math.hypot(c.position.x - px, c.position.z - pz) < 95;
     }
     for (const g of city.glow) g.mat.emissiveIntensity = g.day + (g.night - g.day) * day.night;

@@ -59,7 +59,7 @@ function network(): Net {
   const corners: number[] = [];
   for (const x of lanes) for (const z of lanes) {
     const id = add({ x, z });
-    corners.push(id);
+    if (x < 760 && z < 760) corners.push(id);
     vLines.get(x)!.push(id);
     hLines.get(z)!.push(id);
   }

@@ -217,10 +217,10 @@ export function buildCity(bin: Bin): CityObjects {
 
   // Ground: one big sheet of asphalt; pavements sit on top of it.
   const asphalt = asphaltTexture(bin);
-  asphalt.repeat.set(340, 340);
-  const ground = new THREE.Mesh(geo(new THREE.PlaneGeometry(1400, 1400)), lambert({ map: asphalt }));
+  asphalt.repeat.set(412, 412);
+  const ground = new THREE.Mesh(geo(new THREE.PlaneGeometry(1700, 1700)), lambert({ map: asphalt }));
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(300, 0, 300);
+  ground.position.set(450, 0, 450);
   root.add(ground);
 
   // Pavements and the park, merged into two meshes.

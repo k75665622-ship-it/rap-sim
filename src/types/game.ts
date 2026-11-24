@@ -2640,6 +2640,8 @@ export interface GameState {
   ventures?: Venture[];
   /** Land and buildings you are developing. */
   devProjects?: DevProject[];
+  /** Plots in the open world that someone else has bought, by `country:plot`. */
+  landTaken?: Record<string, { by: string; serial: number }>;
   casino?: CasinoState;
   /** Net worth, once a week, for the chart. */
   wealthHistory?: { serial: number; net: number }[];

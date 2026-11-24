@@ -44,6 +44,11 @@ export interface DevProject {
   log: string[];
   soldFor?: number;
   totalRent: number;
+  /** Set when the plot sits in the open world: which one, and in which country. */
+  plotId?: string;
+  country?: string;
+  /** Bought as part of a whole block: the estate earns a little more. */
+  estate?: boolean;
 }
 
 const zoneOf = (z: Zone) => ZONES.find((x) => x.id === z)!;
@@ -70,7 +75,7 @@ export function projectValue(p: DevProject, index: number, serial: number): numb
 export function monthlyRent(p: DevProject, index: number): number {
   if (p.stage !== 'done' || !p.renting) return 0;
   const b = buildOf(p.build!);
-  return Math.round((p.landCost + p.buildCost) * b.rent * zoneOf(p.zone).mult ** 0.25 * (0.8 + p.quality / 250) * (index / 100) ** 0.5);
+  return Math.round((p.landCost + p.buildCost) * b.rent * zoneOf(p.zone).mult ** 0.25 * (0.8 + p.quality / 250) * (index / 100) ** 0.5 * (p.estate ? 1.1 : 1));
 }
 
 /** A month on site: things go wrong, sometimes right. */

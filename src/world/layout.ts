@@ -12,11 +12,17 @@ import { regionOf } from '../story/region';
 
 // The world is a 3×3 grid of 300 m districts. Downtown is the middle of the
 // top-left one; everything else grows out from it along the same road grid.
-export const WORLD = { x0: -150, x1: 750, z0: -150, z1: 750 };
-export const WORLD_CENTRE = { x: 300, z: 300 };
-export const ROAD_CENTRES = [-120, -60, 0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720];
+export const WORLD = { x0: -150, x1: 1050, z0: -150, z1: 1050 };
+export const WORLD_CENTRE = { x: 450, z: 450 };
+export const ROAD_CENTRES = [-120, -60, 0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020];
+/** Where the built-up city ends; beyond it (east and south) is forest and land for sale. */
+export const CITY_EDGE = 750;
 
-export type ZoneId = 'downtown' | 'flats' | 'hollywood' | 'market' | 'sports' | 'heights' | 'suburb' | 'port' | 'airport';
+export type ZoneId = 'downtown' | 'flats' | 'hollywood' | 'market' | 'sports' | 'heights' | 'suburb' | 'port' | 'airport'
+  | 'forest' | 'plots' | 'wilds' | 'pines' | 'farms' | 'lakeside' | 'hills';
+/** Zones that are open country: forest is only trees; land zones are cut into plots you can buy. */
+export const LAND_ZONES: ZoneId[] = ['plots', 'wilds', 'farms', 'lakeside'];
+export const FOREST_ZONES: ZoneId[] = ['forest', 'pines', 'hills'];
 export const ZONES: Record<ZoneId, { name: string; col: number; row: number }> = {
   downtown: { name: 'Downtown', col: 0, row: 0 },
   flats: { name: 'Eastgate Flats', col: 1, row: 0 },
@@ -27,10 +33,17 @@ export const ZONES: Record<ZoneId, { name: string; col: number; row: number }> =
   suburb: { name: 'Palm Estates', col: 0, row: 2 },
   port: { name: 'Harbour', col: 1, row: 2 },
   airport: { name: 'Airport', col: 2, row: 2 },
+  forest: { name: 'Greenwood Forest', col: 3, row: 0 },
+  plots: { name: 'Sunrise Plots', col: 3, row: 1 },
+  wilds: { name: 'Ridge Wilds', col: 3, row: 2 },
+  pines: { name: 'Pinewood', col: 3, row: 3 },
+  farms: { name: 'Meadow Farms', col: 0, row: 3 },
+  lakeside: { name: 'Lakeside', col: 1, row: 3 },
+  hills: { name: 'Hilltop Woods', col: 2, row: 3 },
 };
 export function zoneAt(x: number, z: number): ZoneId {
-  const col = Math.max(0, Math.min(2, Math.floor((x + 150) / 300)));
-  const row = Math.max(0, Math.min(2, Math.floor((z + 150) / 300)));
+  const col = Math.max(0, Math.min(3, Math.floor((x + 150) / 300)));
+  const row = Math.max(0, Math.min(3, Math.floor((z + 150) / 300)));
   return (Object.keys(ZONES) as ZoneId[]).find((k) => ZONES[k].col === col && ZONES[k].row === row)!;
 }
 export const ROAD_HALF = 6;            // a road is 12 m wide
@@ -70,6 +83,10 @@ export interface Prop { kind: 'tree' | 'lamp'; x: number; z: number; rot: number
 export interface ParkedCar { x: number; z: number; heading: number; color: string }
 
 export interface Block extends Box { park: boolean }
+/** One buyable parcel of land (about 19 m square). */
+export interface Plot extends Box { id: string; zone: ZoneId; block: string }
+/** A whole block of four plots: the unit you buy to start an estate. */
+export interface LandBlock extends Box { id: string; zone: ZoneId; plots: string[] }
 
 // The places you can walk into. Order = how close to the middle of town.
 export const PLACES: Place[] = [
@@ -107,6 +124,8 @@ const STYLE: Record<ZoneId, { h: [number, number]; walls: string[]; split: numbe
   suburb: { h: [5, 8], walls: ['#f2e6d0', '#e8d5b5', '#f0c9a6', '#d9e4d0', '#f4dcdc', '#e2d8f0'], split: 3 },
   port: { h: [8, 14], walls: ['#8b95a5', '#a05a4a', '#5a7a99', '#9aa38b'], split: 0 },
   airport: { h: [5, 9], walls: ['#d6dde6', '#c4ced9', '#e4e9ef'], split: 0 },
+  forest: { h: [4, 6], walls: [], split: 0 }, plots: { h: [4, 6], walls: [], split: 0 }, wilds: { h: [4, 6], walls: [], split: 0 },
+  pines: { h: [4, 6], walls: [], split: 0 }, farms: { h: [4, 6], walls: [], split: 0 }, lakeside: { h: [4, 6], walls: [], split: 0 }, hills: { h: [4, 6], walls: [], split: 0 },
 };
 
 // ─── tiny seeded random ────────────────────────────────────────────────────
@@ -148,6 +167,8 @@ export interface CityLayout {
   buildings: Building[];
   props: Prop[];
   parked: ParkedCar[];
+  plots: Plot[];
+  landBlocks: LandBlock[];
   /** Everything solid, for the player and the car. */
   solids: Box[];
   spawn: { x: number; z: number; rot: number };
@@ -193,11 +214,14 @@ export function cityLayout(): CityLayout {
   const B = bands();
   const blocks: Block[] = [];
   const buildings: Building[] = [];
+  const plots: Plot[] = [];
+  const landBlocks: LandBlock[] = [];
 
   // Three parks, so the skyline has gaps.
   const isPark = (ix: number, iz: number) => {
     if (ix <= 5 && iz <= 5) return (ix === 5 && iz === 0) || (ix === 0 && iz === 5) || (ix === 4 && iz === 3);
     const z = zoneAt((B[ix][0] + B[ix][1]) / 2, (B[iz][0] + B[iz][1]) / 2);
+    if (LAND_ZONES.includes(z) || FOREST_ZONES.includes(z)) return true;
     return z !== 'airport' && z !== 'port' && z !== 'sports' && (ix * 7 + iz * 13) % 9 === 0;
   };
 
@@ -208,7 +232,21 @@ export function cityLayout(): CityLayout {
     B.forEach(([z0, z1, zLowRoad, zHighRoad], iz) => {
       const park = isPark(ix, iz);
       blocks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, park });
-      if (park) return;
+      if (park) {
+        const zk = zoneAt((x0 + x1) / 2, (z0 + z1) / 2);
+        if (LAND_ZONES.includes(zk)) {
+          const gap = 3, w = (x1 - x0 - gap) / 2, d = (z1 - z0 - gap) / 2;
+          const bid = `b${ix}_${iz}`;
+          const ids: string[] = [];
+          for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) {
+            const id = `${bid}${a}${b}`;
+            ids.push(id);
+            plots.push({ id, zone: zk, block: bid, minX: x0 + a * (w + gap), maxX: x0 + a * (w + gap) + w, minZ: z0 + b * (d + gap), maxZ: z0 + b * (d + gap) + d });
+          }
+          landBlocks.push({ id: bid, zone: zk, minX: x0, maxX: x1, minZ: z0, maxZ: z1, plots: ids });
+        }
+        return;
+      }
       const inner = ix > 0 && ix < B.length - 1 && iz > 0 && iz < B.length - 1;
       const zn = zoneAt((x0 + x1) / 2, (z0 + z1) / 2);
       const sp = STYLE[zn].split;
@@ -321,6 +359,7 @@ export function cityLayout(): CityLayout {
         ];
         for (const [x, z, rot] of spots) {
           if (nearDoor(x, z)) continue;
+          if (kind === 'lamp' && (x > CITY_EDGE || z > CITY_EDGE)) continue;
           props.push({ kind, x, z, rot });
         }
       }
@@ -329,7 +368,19 @@ export function cityLayout(): CityLayout {
 
   // The park: trees on grass.
   for (const park of blocks.filter((b) => b.park)) {
-    const n = Math.round(((park.maxX - park.minX) * (park.maxZ - park.minZ)) / 120);
+    const zk = zoneAt((park.minX + park.maxX) / 2, (park.minZ + park.maxZ) / 2);
+    if (LAND_ZONES.includes(zk)) {
+      // Land for sale: only a ring of trees round the edge, so the plots stay open.
+      for (let i = 0; i < 7; i++) {
+        const t = r() * 4;
+        const e = 1.5;
+        const x = t < 1 ? park.minX + e : t < 2 ? park.maxX - e : park.minX + 3 + r() * (park.maxX - park.minX - 6);
+        const z = t < 1 || t < 2 ? park.minZ + 3 + r() * (park.maxZ - park.minZ - 6) : t < 3 ? park.minZ + e : park.maxZ - e;
+        props.push({ kind: 'tree', x, z, rot: 0 });
+      }
+      continue;
+    }
+    const n = FOREST_ZONES.includes(zk) ? Math.round(((park.maxX - park.minX) * (park.maxZ - park.minZ)) / 38) : Math.round(((park.maxX - park.minX) * (park.maxZ - park.minZ)) / 120);
     for (let i = 0; i < n; i++) {
       props.push({ kind: 'tree', x: park.minX + 3 + r() * (park.maxX - park.minX - 6), z: park.minZ + 3 + r() * (park.maxZ - park.minZ - 6), rot: 0 });
     }
@@ -373,7 +424,7 @@ export function cityLayout(): CityLayout {
     ? { x: d.x + d.nx * toLane, z: d.z - 6, heading: d.nx > 0 ? 0 : Math.PI }
     : { x: d.x - 6, z: d.z + d.nz * toLane, heading: d.nz > 0 ? -Math.PI / 2 : Math.PI / 2 };
 
-  cached = { blocks, buildings, props, parked, solids, spawn, carSpawn };
+  cached = { blocks, buildings, props, parked, plots, landBlocks, solids, spawn, carSpawn };
   return cached;
 }
 

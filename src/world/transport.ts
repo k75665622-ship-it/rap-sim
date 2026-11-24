@@ -111,8 +111,8 @@ export function buildTransport(bin: Bin): TransportSystem {
 
   // Aircraft circle over the airport district (roughly x/z 450–750).
   const airStarts: Array<[number, number, number, number, boolean]> = [
-    [0.2, 105, 10, 2.4, false],
-    [3.5, 135, -7, 2.8, true],
+    [0.2, 105, 10, 55, false],
+    [3.5, 135, -7, 72, true],
   ];
   airStarts.forEach(([angle, radius, speed, y, cargo]) => {
     const g = plane(bin, cargo);

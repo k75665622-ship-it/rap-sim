@@ -141,10 +141,15 @@ export function buildNpcVehicles(bin: Bin, residents: Resident[]): NpcVehicleSys
         if (!r) { car.phase = 'idle'; car.timer = 3; continue; }
 
         if (car.phase === 'pickup') {
-          // The pedestrian remains visible and keeps walking until the car
-          // reaches them, giving the impression of walking to a pickup point.
-          const d = steer(car, { x: r.x, z: r.z }, dt);
-          if (d < 3.0) {
+          // Follow the road-grid pickup route instead of cutting through buildings.
+          // The final point is refreshed because the pedestrian keeps moving.
+          if (car.routeIndex >= car.route.length) {
+            car.route = roadRoute({ x: car.group.position.x, z: car.group.position.z }, { x: r.x, z: r.z });
+            car.routeIndex = 1;
+          }
+          const pickupTarget = car.route[car.routeIndex] ?? { x: r.x, z: r.z };
+          const d = steer(car, pickupTarget, dt);
+          if (Math.hypot(r.x - car.group.position.x, r.z - car.group.position.z) < 3.0) {
             r.vehicleState = 'passenger';
             r.vehicleId = car.id;
             car.phase = 'boarding';
@@ -206,7 +211,7 @@ export function buildNpcVehicles(bin: Bin, residents: Resident[]): NpcVehicleSys
       // Keep ambient vehicles inside the playable world if the map changes.
       for (const car of cars) {
         car.group.position.x = Math.max(WORLD.x0 - 25, Math.min(WORLD.x1 + 25, car.group.position.x));
-        car.group.position.z = Math.max(WORLD.x0 - 25, Math.min(WORLD.x1 + 25, car.group.position.z));
+        car.group.position.z = Math.max(WORLD.z0 - 25, Math.min(WORLD.z1 + 25, car.group.position.z));
       }
     },
   };

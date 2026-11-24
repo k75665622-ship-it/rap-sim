@@ -148,7 +148,7 @@ export function buildNpcVehicles(bin: Bin, residents: Resident[]): NpcVehicleSys
             car.routeIndex = 1;
           }
           const pickupTarget = car.route[car.routeIndex] ?? { x: r.x, z: r.z };
-          const d = steer(car, pickupTarget, dt);
+          steer(car, pickupTarget, dt);
           if (Math.hypot(r.x - car.group.position.x, r.z - car.group.position.z) < 3.0) {
             r.vehicleState = 'passenger';
             r.vehicleId = car.id;

@@ -379,7 +379,7 @@ import {
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
 import { scorePattern } from '../sim/beatMaker';
-import { emptyStory, lapseNow as lapseNowFn, tick as storyTickFn, choose as storyChooseFn, type Ctx as StoryCtx } from '../story/engine';
+import { NODES as STORY_NODES, emptyStory, lapseNow as lapseNowFn, tick as storyTickFn, choose as storyChooseFn, type Ctx as StoryCtx } from '../story/engine';
 import { syncRegionFlags } from '../story/region';
 import type { Effect as StoryEffect, Path as StoryPath } from '../story/types';
 import { MISSIONS, STREAK_REWARDS, emptyGoals, metricsOf, pickDaily, pickWeekly, dailyDef, weeklyDef, progress } from '../sim/goals';
@@ -17035,7 +17035,18 @@ export const useGameStore = create<GameState & GameActions>()(
       return next;
     },
     storyDecline: (nodeId) => set((state) => { if (!state.story) return; applyStoryWorld(state, lapseNowFn(state.story, nodeId, storyCtx(state))); applyStoryWorld(state, storyTickFn(state.story, storyCtx(state))); }),
-    storyOpen: (nodeId) => set((state) => { const d = state.story?.inbox.find((x) => x.node === nodeId); if (d && d.status === 'new') d.status = 'open'; }),
+    storyOpen: (nodeId) => set((state) => {
+      const d = state.story?.inbox.find((x) => x.node === nodeId);
+      if (d && d.status === 'new') {
+        d.status = 'open';
+        // Showing up on the last day (or after): they waited, and they noticed.
+        const n = STORY_NODES[nodeId];
+        if (state.story && n && n.channel === 'encounter' && d.due !== undefined && dateToSerial(state.gameDate) >= d.due) {
+          state.story.flags[`late:${nodeId}`] = true;
+          state.story.bonds[n.from] = Math.max(-100, (state.story.bonds[n.from] ?? 0) - 1);
+        }
+      }
+    }),
     setStoryPath: (path) => set((state) => {
       const ctx = storyCtx(state);
       if (state.story && state.story.log.length > 0) return;

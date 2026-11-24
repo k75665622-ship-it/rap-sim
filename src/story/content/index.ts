@@ -6,5 +6,6 @@ import { priceArc, adwoaArc, fiifiArc } from './act2';
 import { act2SeatArcs } from './act2seats';
 import { galaArc } from './gala';
 import { rootsArc } from './roots';
+import { missionsArc } from './missions';
 import { kjArc, familyArc, whispersArc } from './personal';
-export const ARCS: Arc[] = [rapperArc, producerArc, managerArc, singerArc, directorArc, djArc, kjArc, familyArc, whispersArc, priceArc, adwoaArc, fiifiArc, galaArc, rootsArc, ...act2SeatArcs];
+export const ARCS: Arc[] = [rapperArc, producerArc, managerArc, singerArc, directorArc, djArc, kjArc, familyArc, whispersArc, priceArc, adwoaArc, fiifiArc, galaArc, rootsArc, missionsArc, ...act2SeatArcs];

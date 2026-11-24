@@ -211,7 +211,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       for (const d of st?.inbox ?? []) {
         if (d.status !== 'new' && d.status !== 'open') continue;
         const n = NODES[d.node];
-        if (n?.channel === 'encounter' && n.where === K.where) waiting.push({ node: d.node, from: n.from });
+        if (n?.channel === 'encounter' && (n.where === K.where || (K.id === 'stage' && n.where === 'shows'))) waiting.push({ node: d.node, from: n.from });
       }
       // The visitors you're expecting appear; the rest stay out.
       for (const n of K.npcs) if (n.visitor) n.model.group.visible = waiting.some((w) => w.from === n.id);

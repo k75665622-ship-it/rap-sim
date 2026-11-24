@@ -8,7 +8,7 @@ export type Path = 'rapper' | 'producer' | 'manager' | 'singer' | 'director' | '
 export type Channel = 'call' | 'text' | 'encounter' | 'letter' | 'scene';
 export type Axis = 'integrity' | 'hustle' | 'heart';
 /** Where an encounter lives: a screen id the player enters (kitchen, studio, shows, bank…). */
-export type Place = 'kitchen' | 'studio' | 'shows' | 'bank' | 'city';
+export type Place = 'kitchen' | 'studio' | 'shows' | 'bank' | 'city' | 'stadium' | 'arena' | 'lots' | 'mall' | 'airport' | 'apts' | 'gym' | 'drip' | 'radio' | 'label' | 'crib';
 export type Tone = 'kind' | 'sharp' | 'honest' | 'sly' | 'quiet';
 
 export type Cond =

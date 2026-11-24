@@ -7,7 +7,7 @@ import { cityLayout, ROAD_CENTRES, WORLD } from './layout';
 export interface Target { x: number; z: number; label: string; placeId: string }
 export type Pt = { x: number; z: number };
 
-export const PLACE_FOR: Record<string, string> = { kitchen: 'food', studio: 'studio', shows: 'stage', bank: 'bank' };
+export const PLACE_FOR: Record<string, string> = { kitchen: 'food', studio: 'studio', shows: 'stage', bank: 'bank', stadium: 'stadium', arena: 'arena', lots: 'lots', mall: 'mall', airport: 'airport', apts: 'apts', gym: 'gym', drip: 'drip', radio: 'radio', label: 'label', crib: 'crib' };
 const TASK_PLACE: Record<string, string> = { song: 'studio', mix: 'studio', beat: 'studio', gig: 'stage', release: 'studio' };
 
 /** A place the player chose on the map. Beats the story's target until they get there. */
@@ -89,7 +89,7 @@ export function waitingFor(day: number): Waiting[] {
     if (n?.channel !== 'encounter' || !n.where || !PLACE_FOR[n.where]) continue;
     const c = CAST[n.from];
     const b = cityLayout().buildings.find((x) => x.place?.id === PLACE_FOR[n.where!]);
-    out.push({ from: n.from, name: c?.name.split(' ')[0] ?? n.from, emoji: c?.emoji ?? '👤', place: b?.place?.name ?? n.where, daysLeft: d.due !== undefined ? d.due - day : null });
+    out.push({ from: n.from, name: (c?.name.replace(/^Big /, '') ?? n.from).split(' ')[0], emoji: c?.emoji ?? '👤', place: b?.place?.name ?? n.where, daysLeft: d.due !== undefined ? d.due - day : null });
   }
   return out;
 }

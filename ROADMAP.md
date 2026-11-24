@@ -367,3 +367,6 @@ National Stadium (pitch, stands), Iron Ring Arena (ring), Gold Coast Studios (so
 
 ### Fix — big-world freeze
 The 900 m world froze phones at start: the walker route table solved every-pair shortest paths (~10 s once the map grew), and the whole city was drawn and collision-tested every frame. Routes are now solved per destination on demand; geometry and instances are split into 120 m chunks so off-screen ones are culled; collisions look up a 24 m grid. Software-GL test: start-up longest task 10.6 s → 0.9 s, frames in 3 s 5 → 23.
+
+### Perf pass — smoother on phones
+Draw calls in view 455 → ~150 and per-chunk meshes now: one wall material (colours in vertices), props/road paint/trees baked into one mesh per chunk, parked cars baked to one mesh each and hidden beyond 90 m, shopfronts hidden beyond 95 m, lamp-light pools not drawn in daytime, 160 m chunks. Dev hooks: `window.__rapGl/__rapScene/__rapCam`.

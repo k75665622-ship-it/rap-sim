@@ -54,6 +54,10 @@ export function CityCanvas({ look, onEnter, paused }: { look?: Look; onEnter: (p
 
 function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) {
   const camera = useThree((s) => s.camera);
+  const glRef = useThree((s) => s.gl);
+  (window as unknown as { __rapGl?: unknown }).__rapGl = glRef;
+  (window as unknown as { __rapCam?: unknown }).__rapCam = camera;
+  (window as unknown as { __rapScene?: unknown }).__rapScene = useThree((s) => s.scene);
   const enterRef = useRef(onEnter);
   enterRef.current = onEnter;
 
@@ -133,7 +137,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
   }, []);
 
   const tmp = useMemo(() => ({
-    target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true,
+    target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true, carTick: -1,
     /** The minute of the day being shown; eases after the game clock. */
     minute: useGameStore.getState().clockMinute ?? 720,
     mode: live.mode as typeof live.mode,
@@ -457,8 +461,16 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     sun.color.copy(day.sunColor);
     sun.intensity = day.sunIntensity;
     sun.position.copy(day.lightDir).multiplyScalar(100);
+    // Far parked cars, and the shadows under them, aren't drawn.
+    if (((t * 4) | 0) !== tmp.carTick) {
+      tmp.carTick = (t * 4) | 0;
+      const px = live.p.x, pz = live.p.z;
+      for (const c of city.parked.children) c.visible = Math.hypot(c.position.x - px, c.position.z - pz) < 90;
+      for (const c of city.shops) c.visible = Math.hypot(c.position.x - px, c.position.z - pz) < 95;
+    }
     for (const g of city.glow) g.mat.emissiveIntensity = g.day + (g.night - g.day) * day.night;
     city.pools.opacity = day.night * 0.8;
+    city.pools.visible = day.night > 0.03;
     // Headlights come on when you're behind the wheel after dark.
     beam.intensity = live.mode === 'car' ? day.night * 45 : 0;
     sky.stars.opacity = Math.max(0, day.night - 0.35) * 1.4;

@@ -191,6 +191,10 @@ function tiledBox(w: number, h: number, d: number, unit: number, offU = 0, offV 
 
 export interface CityObjects {
   root: THREE.Group;
+  /** Parked cars, a child each. */
+  parked: THREE.Group;
+  /** Shopfront groups; far ones are skipped. */
+  shops: THREE.Object3D[];
   /** Walls the camera should not pass through. */
   occluders: THREE.Object3D[];
   /** Door markers that pulse and spin. */
@@ -265,8 +269,10 @@ export function buildCity(bin: Bin): CityObjects {
       }
     }
   }
-  root.add(instancedChunked(geo(new THREE.BoxGeometry(0.2, 0.02, 2.6)), lambert({ color: '#f2c230' }), dashes));
-  root.add(instancedChunked(geo(new THREE.BoxGeometry(0.6, 0.02, 3.2)), lambert({ color: '#e9e9e9' }), zebra));
+  const statics: StaticPart[] = [
+    { g: new THREE.BoxGeometry(0.2, 0.02, 2.6), mats: dashes, color: '#f2c230' },
+    { g: new THREE.BoxGeometry(0.6, 0.02, 3.2), mats: zebra, color: '#e9e9e9' },
+  ];
 
   // Barriers where the roads leave town.
   const barriers: THREE.Matrix4[] = [];
@@ -276,22 +282,15 @@ export function buildCity(bin: Bin): CityObjects {
       barriers.push(m.clone().compose(new THREE.Vector3(e, 0.5, c), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1)));
     }
   }
-  root.add(instancedChunked(geo(new THREE.BoxGeometry(ROAD_HALF * 2, 1, 0.6)), lambert({ color: '#d8432f' }), barriers));
+  statics.push({ g: new THREE.BoxGeometry(ROAD_HALF * 2, 1, 0.6), mats: barriers, color: '#d8432f' });
 
   // Buildings.
   const windows = windowsTexture(bin);
   const windowsNight = windowsNightTexture(bin);
   const roof = lambert({ color: '#4a4d55' });
-  const wallMats = new Map<string, THREE.MeshLambertMaterial>();
-  const wallFor = (color: string) => {
-    let mat = wallMats.get(color);
-    if (!mat) {
-      mat = lambert({ map: windows, color, emissiveMap: windowsNight, emissive: '#ffffff', emissiveIntensity: 0 });
-      wallMats.set(color, mat);
-      glow.push({ mat, day: 0, night: 0.8 });
-    }
-    return mat;
-  };
+  // One wall material for the whole city; each building's colour lives in its vertices.
+  const wallMat = lambert({ map: windows, vertexColors: true, emissiveMap: windowsNight, emissive: '#ffffff', emissiveIntensity: 0 });
+  glow.push({ mat: wallMat, day: 0, night: 0.8 });
   let bi = 0;
   const roofBits = new Map<string, THREE.BufferGeometry[]>();
   // Walls are merged per colour, so the whole skyline is a dozen draw calls.
@@ -305,9 +304,10 @@ export function buildCity(bin: Bin): CityObjects {
     const box = tiledBox(w, b.height, d, 16, ((bi * 7) % 4) * 0.25, ((bi * 3) % 4) * 0.25);
     box.translate(cx, KERB_H + b.height / 2, cz);
     const [walls, top] = splitBox(box);
+    paint(walls, b.color);
     box.dispose();
     const ck = chunkOf(cx, cz);
-    const wk = `${ck}|${b.color}`;
+    const wk = ck;
     if (!wallGeos.has(wk)) wallGeos.set(wk, []);
     wallGeos.get(wk)!.push(walls);
     into(roofBits, ck, top);
@@ -322,8 +322,8 @@ export function buildCity(bin: Bin): CityObjects {
     }
     if (b.place && b.door) addShopfront(b, root, bin, markers, glow);
   }
-  for (const [wk, list] of wallGeos) {
-    const mesh = new THREE.Mesh(geo(mergeGeometries(list)), wallFor(wk.split('|')[1]));
+  for (const list of wallGeos.values()) {
+    const mesh = new THREE.Mesh(geo(mergeGeometries(list)), wallMat);
     root.add(mesh);
     occluders.push(mesh);
     list.forEach((g) => g.dispose());
@@ -348,9 +348,10 @@ export function buildCity(bin: Bin): CityObjects {
       heads.push(m.clone().compose(new THREE.Vector3(p.x + off.x, KERB_H + 5.15, p.z + off.z), hq, new THREE.Vector3(1, 1, 1)));
     }
   }
-  root.add(instancedChunked(geo(new THREE.CylinderGeometry(0.16, 0.22, 2.2, 6)), lambert({ color: '#6b4a32' }), trunks));
-  root.add(instancedChunked(geo(new THREE.IcosahedronGeometry(1.6, 0)), lambert({ color: '#4f8a3c', flatShading: true }), crowns));
-  root.add(instancedChunked(geo(new THREE.CylinderGeometry(0.09, 0.12, 5.2, 6)), lambert({ color: '#2c2f36' }), poles));
+  statics.push({ g: new THREE.CylinderGeometry(0.16, 0.22, 2.2, 6), mats: trunks, color: '#6b4a32' });
+  statics.push({ g: new THREE.IcosahedronGeometry(1.6, 0), mats: crowns, color: '#4f8a3c' });
+  statics.push({ g: new THREE.CylinderGeometry(0.09, 0.12, 5.2, 6), mats: poles, color: '#2c2f36' });
+  root.add(mergeStatics(statics, bin));
   const lampMat = lambert({ color: '#2c2f36', emissive: '#fff3c4', emissiveIntensity: 0.15 });
   glow.push({ mat: lampMat, day: 0.15, night: 2.6 });
   root.add(instanced(geo(new THREE.BoxGeometry(0.45, 0.18, 2.4)), lampMat, heads));
@@ -370,15 +371,18 @@ export function buildCity(bin: Bin): CityObjects {
   poolMesh.children.forEach((c) => { c.renderOrder = 1; });
   root.add(poolMesh);
 
-  // Parked cars.
+  // Parked cars (the frame loop hides the far ones).
+  const parkedRoot = new THREE.Group();
   for (const pc of L.parked) {
     const car = buildCar(pc.color, bin);
+    bake(car.group, bin);
     car.group.position.set(pc.x, 0, pc.z);
     car.group.rotation.y = pc.heading;
-    root.add(car.group);
+    parkedRoot.add(car.group);
   }
+  root.add(parkedRoot);
 
-  return { root, occluders, markers, glow, pools };
+  return { root, occluders, markers, glow, pools, parked: parkedRoot, shops: root.children.filter((c) => c.userData.far) };
 }
 
 /** A box's four walls and its roof as separate non-indexed pieces (no floor). */
@@ -404,8 +408,61 @@ function splitBox(g: THREE.BufferGeometry): [THREE.BufferGeometry, THREE.BufferG
 }
 
 /** The world is cut into square chunks so the phone only draws what is in front of it. */
-const CHUNK = 120;
+const CHUNK = 160;
 const chunkOf = (x: number, z: number) => `${Math.floor((x - WORLD.x0) / CHUNK)}_${Math.floor((z - WORLD.z0) / CHUNK)}`;
+
+/** A parked car never moves: fold its plain parts into one mesh (one draw call, not a dozen). */
+function bake(group: THREE.Group, bin: Bin): void {
+  group.updateMatrixWorld(true);
+  const parts: THREE.BufferGeometry[] = [];
+  const gone: THREE.Mesh[] = [];
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    const mat = m.material as THREE.MeshStandardMaterial;
+    const plain = mat && (mat.type === 'MeshLambertMaterial' || mat.type === 'MeshStandardMaterial') && !mat.map && !mat.transparent && (mat.emissive?.getHex() ?? 0) === 0;
+    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || !plain) return;
+    let g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    g.deleteAttribute('uv');
+    g = g.applyMatrix4(m.matrixWorld);
+    paint(g, `#${mat.color.getHexString()}`);
+    parts.push(g);
+    gone.push(m);
+  });
+  if (parts.length < 2) return;
+  for (const m of gone) m.parent?.remove(m);
+  group.add(new THREE.Mesh(bin.add(mergeGeometries(parts)), bin.add(new THREE.MeshLambertMaterial({ vertexColors: true }))));
+  parts.forEach((g) => g.dispose());
+}
+
+type StaticPart = { g: THREE.BufferGeometry; mats: THREE.Matrix4[]; color: string };
+/** Give every vertex a colour, so differently coloured things can share one material and one draw call. */
+function paint(g: THREE.BufferGeometry, color: string): void {
+  const c = new THREE.Color(color);
+  const n = g.getAttribute('position').count;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+}
+/** Trees, poles, road paint and barriers, baked into one mesh per chunk. */
+function mergeStatics(parts: StaticPart[], bin: Bin): THREE.Group {
+  const out = new THREE.Group();
+  const by = new Map<string, THREE.BufferGeometry[]>();
+  const v = new THREE.Vector3();
+  for (const part of parts) {
+    const base = part.g.index ? part.g.toNonIndexed() : part.g;
+    base.deleteAttribute('uv');
+    paint(base, part.color);
+    for (const mm of part.mats) {
+      v.setFromMatrixPosition(mm);
+      const k = chunkOf(v.x, v.z);
+      if (!by.has(k)) by.set(k, []);
+      by.get(k)!.push(base.clone().applyMatrix4(mm));
+    }
+  }
+  const mat = bin.add(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  for (const list of by.values()) { out.add(new THREE.Mesh(bin.add(mergeGeometries(list)), mat)); list.forEach((g) => g.dispose()); }
+  return out;
+}
 
 /** Instances split by chunk: each piece gets its own bounds, so off-screen ones are skipped. */
 function instancedChunked(g: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Matrix4[]): THREE.Group {
@@ -438,6 +495,7 @@ function addShopfront(b: Building, root: THREE.Group, bin: Bin, markers: CityObj
   const face = new THREE.Group();
   face.position.set(door.x, KERB_H, door.z);
   face.rotation.y = Math.atan2(door.nx, door.nz);
+  face.userData.far = 95;
   root.add(face);
 
   const accent = new THREE.Color(place.accent);

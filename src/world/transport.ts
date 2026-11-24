@@ -141,7 +141,7 @@ export function buildTransport(bin: Bin): TransportSystem {
         a.group.position.set(x, a.y + 4.0, z);
         a.group.rotation.y = -a.angle + Math.PI / 2;
         a.group.rotation.z = 0.04;
-        const nav = a.group.children.find((c) => c.geometry instanceof THREE.SphereGeometry) as THREE.Mesh | undefined;
+        const nav = a.group.children.find((c): c is THREE.Mesh => c instanceof THREE.Mesh && c.geometry instanceof THREE.SphereGeometry);
         if (nav) (nav.material as THREE.MeshLambertMaterial).emissiveIntensity = 0.7 + night * 2.2 + Math.sin(now * 7) * 0.4;
       }
 

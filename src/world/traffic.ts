@@ -1,10 +1,11 @@
-// Lightweight ambient traffic. Fixed lanes + simple intersection state keep CPU cost predictable on phones.
+// Lightweight ambient traffic. Fixed lanes + waypoint turns keep CPU cost predictable on phones.
 import * as THREE from 'three';
 import { buildCar, Bin } from './build';
 import { ROAD_CENTRES, ROAD_HALF, WORLD } from './layout';
 
 type Axis = 'x' | 'z';
 type VehicleKind = 'car' | 'suv' | 'taxi' | 'motorcycle' | 'bike';
+type Turn = -1 | 0 | 1;
 
 type Unit = {
   group: THREE.Group;
@@ -17,8 +18,8 @@ type Unit = {
   cruise: number;
   length: number;
   kind: VehicleKind;
-  nextTurnAt: number;
-  turnChoice: -1 | 0 | 1;
+  turnAt: number | null;
+  turn: Turn;
 };
 
 type Signal = {
@@ -40,7 +41,7 @@ function mat(bin: Bin, color: string, glow = false) {
   }));
 }
 
-function bike(bin: Bin, color: string, motorcycle = false) {
+function bike(bin: Bin, color: string, motorcycle: boolean) {
   const g = new THREE.Group();
   const dark = mat(bin, '#15171b');
   const frame = mat(bin, color);
@@ -95,8 +96,6 @@ function signal(bin: Bin, x: number, z: number, axis: Axis, road: number): Signa
   return { group, red, yellow, green, axis, road };
 }
 
-// The same deterministic cycle is used by both the visual signal and traffic.
-// x traffic gets the first half; z traffic gets the second half.
 function signalState(axis: Axis, road: number, now: number): 'red' | 'yellow' | 'green' {
   const p = ((now + road * 0.011) % 14 + 14) % 14;
   if (axis === 'x') {
@@ -120,15 +119,13 @@ function nearestRoad(v: number): number {
 }
 
 function nextIntersection(u: Unit): { road: number; distance: number } | null {
-  const candidates = ROAD_CENTRES.filter((c) => u.dir > 0 ? c > u.pos + 0.1 : c < u.pos - 0.1);
-  if (!candidates.length) return null;
-  const road = u.dir > 0 ? candidates[0] : candidates[candidates.length - 1];
+  const ahead = ROAD_CENTRES.filter((c) => u.dir > 0 ? c > u.pos + 0.05 : c < u.pos - 0.05);
+  if (!ahead.length) return null;
+  const road = u.dir > 0 ? ahead[0] : ahead[ahead.length - 1];
   return { road, distance: Math.abs(road - u.pos) };
 }
 
 function addVehicleDetail(bin: Bin, group: THREE.Group, kind: VehicleKind, color: string) {
-  // A few cheap silhouettes make traffic read as different vehicle classes without
-  // adding expensive imported models or per-frame physics.
   if (kind === 'suv') {
     const roof = new THREE.Mesh(bin.add(new THREE.BoxGeometry(1.78, 0.28, 2.1)), mat(bin, color));
     roof.position.y = 1.7;
@@ -158,13 +155,35 @@ function vehicle(bin: Bin, kind: VehicleKind, color: string): THREE.Group {
   return car.group;
 }
 
-function chooseTurn(u: Unit, intersection: number): -1 | 0 | 1 {
+function chooseTurn(u: Unit, intersection: number): Turn {
+  // Stable per vehicle/intersection: 60% straight, 20% left, 20% right.
   const seed = Math.abs(Math.floor(intersection * 17 + u.road * 3 + u.lane * 11));
   const r = seed % 10;
-  // Most traffic continues straight. A small but visible number turns.
   if (r < 2) return -1;
   if (r < 4) return 1;
   return 0;
+}
+
+function laneAfterTurn(inAxis: Axis, inDir: 1 | -1, inLane: number, turn: Turn): number {
+  if (turn === 0) return inLane;
+  // Preserve a sensible right-hand-traffic lane after the turn. The sign is
+  // derived from the new travel direction rather than blindly reusing the old lane.
+  const outAxis: Axis = inAxis === 'x' ? 'z' : 'x';
+  const outDir: 1 | -1 = turn < 0 ? -inDir as 1 | -1 : inDir;
+  if (outAxis === 'x') return outDir > 0 ? 3 : -3;
+  return outDir > 0 ? 3 : -3;
+}
+
+function applyTransform(u: Unit) {
+  if (u.axis === 'x') {
+    u.group.position.x = u.pos;
+    u.group.position.z = u.road + u.lane;
+    u.group.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+  } else {
+    u.group.position.z = u.pos;
+    u.group.position.x = u.road + u.lane;
+    u.group.rotation.y = u.dir > 0 ? 0 : Math.PI;
+  }
 }
 
 export interface TrafficSystem {
@@ -177,48 +196,45 @@ export function buildTraffic(bin: Bin): TrafficSystem {
   const units: Unit[] = [];
 
   const starts: Array<[Axis, number, number, 1 | -1, number, VehicleKind]> = [
-    ['x', 3.0, -120, 1, 8.5, 'car'],
-    ['x', -3.0, 180, -1, 7.2, 'suv'],
-    ['x', 3.0, 420, 1, 9.0, 'taxi'],
-    ['x', -3.0, 600, -1, 6.8, 'car'],
-    ['z', 3.0, 0, 1, 8.0, 'car'],
-    ['z', -3.0, 240, -1, 7.0, 'suv'],
-    ['z', 3.0, 480, 1, 8.7, 'taxi'],
-    ['z', -3.0, 660, -1, 6.5, 'car'],
-  ];
-
-  starts.forEach(([axis, lane, pos, dir, speed, kind], i) => {
-    const m = vehicle(bin, kind, PAINTS[i % PAINTS.length]);
-    m.position.y = 0.02;
-    m.rotation.y = axis === 'x' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-    const road = nearestRoad(axis === 'x' ? 0 : pos);
-    const roadPos = axis === 'x' ? pos : pos;
-    group.add(m);
-    units.push({
-      group: m, axis, road, lane, pos, dir, speed, cruise: speed, length: kind === 'suv' ? 5.0 : 4.4,
-      kind, nextTurnAt: road, turnChoice: 0,
-    });
-  });
-
-  const bikes: Array<[Axis, number, number, 1 | -1, number, VehicleKind]> = [
+    ['x', 3, -120, 1, 8.5, 'car'],
+    ['x', -3, 180, -1, 7.2, 'suv'],
+    ['x', 3, 420, 1, 9.0, 'taxi'],
+    ['x', -3, 600, -1, 6.8, 'car'],
+    ['z', 3, 0, 1, 8.0, 'car'],
+    ['z', -3, 240, -1, 7.0, 'suv'],
+    ['z', 3, 480, 1, 8.7, 'taxi'],
+    ['z', -3, 660, -1, 6.5, 'car'],
     ['x', 4.8, 40, 1, 6.0, 'bike'],
     ['z', -4.8, 150, -1, 5.4, 'motorcycle'],
     ['x', -4.8, 360, -1, 5.8, 'bike'],
     ['z', 4.8, 500, 1, 5.2, 'motorcycle'],
   ];
-  bikes.forEach(([axis, lane, pos, dir, speed, kind]) => {
-    const g = vehicle(bin, kind, kind === 'motorcycle' ? '#d35400' : '#2e86de');
+
+  starts.forEach(([axis, lane, pos, dir, speed, kind], i) => {
+    const g = vehicle(bin, kind, PAINTS[i % PAINTS.length]);
     g.position.y = 0.02;
-    g.rotation.y = axis === 'x' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-    const road = nearestRoad(axis === 'x' ? 0 : pos);
     group.add(g);
-    units.push({ group: g, axis, road, lane, pos, dir, speed, cruise: speed, length: 1.4, kind, nextTurnAt: road, turnChoice: 0 });
+    units.push({
+      group: g,
+      axis,
+      road: nearestRoad(axis === 'x' ? 0 : pos),
+      lane,
+      pos,
+      dir,
+      speed,
+      cruise: speed,
+      length: kind === 'suv' ? 5.0 : kind === 'motorcycle' || kind === 'bike' ? 1.6 : 4.4,
+      kind,
+      turnAt: null,
+      turn: 0,
+    });
+    applyTransform(units[units.length - 1]);
   });
 
   const signals: Signal[] = [];
+  // Signals are visualized at a subset of junctions; the same deterministic
+  // signal cycle governs every intersection, so cars never depend on missing art.
   for (const road of ROAD_CENTRES) {
-    // Keep the signal count bounded: every second junction has lights, while
-    // the deterministic cycle still governs every road intersection.
     if (road % 120 !== 0) continue;
     signals.push(signal(bin, road + ROAD_HALF + 1, road - ROAD_HALF - 1, 'x', road));
     signals.push(signal(bin, road - ROAD_HALF - 1, road + ROAD_HALF + 1, 'z', road));
@@ -237,61 +253,61 @@ export function buildTraffic(bin: Bin): TrafficSystem {
     update(dt, now) {
       for (const s of signals) updateSignal(s, now);
 
-      // Low-frequency steering decisions: movement itself remains smooth every frame.
       for (const u of units) {
         const next = nextIntersection(u);
         let targetSpeed = u.cruise;
 
-        if (next) {
+        // Choose the turn once per junction, before the vehicle reaches it.
+        if (next && u.turnAt !== next.road && next.distance < 8) {
+          u.turnAt = next.road;
+          u.turn = chooseTurn(u, next.road);
+        }
+
+        if (next && next.distance < 12) {
           const state = signalState(u.axis, next.road, now);
-          // Only the junction we're actually approaching controls us.
-          if (next.distance < 10 && state === 'red') targetSpeed = 0;
-          else if (next.distance < 15 && state === 'yellow') targetSpeed = u.cruise * 0.35;
+          if (state === 'red' && next.distance < 9) targetSpeed = 0;
+          else if (state === 'yellow' && next.distance < 7) targetSpeed = Math.min(targetSpeed, u.cruise * 0.25);
+        }
 
-          // Follow traffic in the same lane. This avoids cars visually merging
-          // through one another without adding a physics engine.
-          for (const other of units) {
-            if (other === u || other.axis !== u.axis || other.road !== u.road || other.lane !== u.lane) continue;
-            const gap = (other.pos - u.pos) * u.dir;
-            if (gap > 0 && gap < 9) targetSpeed = Math.min(targetSpeed, Math.max(0, other.speed * 0.72));
-          }
-
-          if (next.distance < 1.2 && next.road !== u.nextTurnAt) {
-            u.nextTurnAt = next.road;
-            u.turnChoice = chooseTurn(u, next.road);
+        // Only vehicles on the same physical lane affect each other.
+        // The distance is measured in the vehicle's forward direction.
+        for (const other of units) {
+          if (other === u || other.axis !== u.axis || other.road !== u.road || other.lane !== u.lane) continue;
+          const gap = (other.pos - u.pos) * u.dir;
+          if (gap > 0 && gap < u.length + other.length + 3) {
+            targetSpeed = Math.min(targetSpeed, Math.max(0, other.speed * Math.max(0.25, Math.min(1, gap / 8))));
           }
         }
 
-        const accel = targetSpeed > u.speed ? 3.0 : 5.0;
-        u.speed += Math.sign(targetSpeed - u.speed) * Math.min(Math.abs(targetSpeed - u.speed), accel * dt);
+        const accel = targetSpeed > u.speed ? 3.2 : 5.5;
+        const delta = targetSpeed - u.speed;
+        u.speed += Math.sign(delta) * Math.min(Math.abs(delta), accel * dt);
         if (u.speed < 0.02) u.speed = 0;
 
+        const oldPos = u.pos;
         u.pos += u.dir * u.speed * dt;
 
-        // Turn at a junction. This is a waypoint turn, not a physics simulation,
-        // so the CPU cost is tiny and the vehicle always stays on a lane.
-        if (next && next.distance < 0.7 && u.turnChoice !== 0) {
-          const oldAxis = u.axis;
-          u.axis = oldAxis === 'x' ? 'z' : 'x';
-          u.road = next.road;
-          u.lane = u.turnChoice < 0 ? -u.lane : u.lane;
-          u.dir = u.turnChoice < 0 ? (u.dir === 1 ? -1 : 1) : u.dir;
-          u.pos = next.road + u.dir * 0.05;
-          u.turnChoice = 0;
-          u.group.rotation.y = u.axis === 'x' ? (u.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (u.dir > 0 ? 0 : Math.PI);
+        // Perform the turn only after crossing the intersection. This prevents
+        // a car from switching axes early and guarantees one turn per junction.
+        if (next && u.turnAt === next.road && u.turn !== 0) {
+          const crossed = u.dir > 0 ? oldPos < next.road && u.pos >= next.road : oldPos > next.road && u.pos <= next.road;
+          if (crossed) {
+            const intersection = next.road;
+            const incomingAxis = u.axis;
+            const incomingDir = u.dir;
+            u.axis = incomingAxis === 'x' ? 'z' : 'x';
+            u.dir = u.turn < 0 ? -incomingDir as 1 | -1 : incomingDir;
+            u.road = intersection;
+            u.lane = laneAfterTurn(incomingAxis, incomingDir, u.lane, u.turn);
+            u.pos = intersection + u.dir * 0.08;
+            u.turn = 0;
+          }
         }
 
-        if (u.axis === 'x') {
-          u.group.position.x = u.pos;
-          u.group.position.z = u.road + u.lane;
-        } else {
-          u.group.position.z = u.pos;
-          u.group.position.x = u.road + u.lane;
-        }
+        applyTransform(u);
 
-        // Recycle vehicles at the edge instead of letting them accumulate.
-        if (u.pos > WORLD.x1 + 25) u.pos = WORLD.x0 - 25;
-        if (u.pos < WORLD.x0 - 25) u.pos = WORLD.x1 + 25;
+        if (u.pos > WORLD.x1 + 30) u.pos = WORLD.x0 - 30;
+        else if (u.pos < WORLD.x0 - 30) u.pos = WORLD.x1 + 30;
       }
     },
   };

@@ -212,6 +212,9 @@ export interface Resident {
   /** Ambient street behavior: keeps pedestrians from looking like synchronized robots. */
   activity: 'walk' | 'idle' | 'phone';
   activityTimer: number;
+  /** Brief arrival behavior before an NPC disappears inside a destination. */
+  arrivalHold: number;
+  arrivalActivity: 'idle' | 'phone';
 }
 
 const LOCAL_NAMES = ['Kwame', 'Ama', 'Kojo', 'Efua', 'Yaw', 'Akosua', 'Kofi', 'Abena', 'Tunde', 'Ngozi', 'Chidi', 'Aisha', 'Femi', 'Esi', 'Kwabena', 'Adwoa', 'Emeka', 'Zainab'];
@@ -274,7 +277,7 @@ export function cast(): Resident[] {
       offset: Math.floor(rnd01(`off|${id}`) * 90) - 30,
       inside: -1, goal: -1, goalDoing: 'stroll', path: [], pathNodes: [],
       x: 0, z: 0, rot: 0, speed: 1.35 + rnd01(`spd|${id}`) * 0.5, phase: rnd01(`ph|${id}`) * 6, hold: 0, startle: 0, lastPlan: -1,
-      activity: 'walk', activityTimer: 0,
+      activity: 'walk', activityTimer: 0, arrivalHold: 0, arrivalActivity: 'idle',
     };
   };
 
@@ -467,6 +470,19 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
     }
     if (r.inside >= 0) continue;
     if (r.hold > 0) { r.hold -= dt; continue; }
+    // Destinations feel occupied: some NPCs pause at the entrance, check a
+    // phone or chat for a few seconds before actually going inside.
+    if (r.arrivalHold > 0) {
+      r.arrivalHold -= dt;
+      r.activity = r.arrivalActivity;
+      if (r.arrivalHold <= 0) {
+        r.activity = 'walk';
+        r.inside = r.goal;
+        r.x = N.nodes[r.goal].x;
+        r.z = N.nodes[r.goal].z;
+      }
+      continue;
+    }
 
     // At a junction, occasionally stop to check a phone or simply take in the
     // street. These pauses are deterministic per NPC/day, so they feel varied
@@ -485,7 +501,20 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
     const target = r.path[0];
     if (!target) {
       if (r.goalDoing === 'stroll') strollOn(r);
-      else { r.inside = r.goal; r.x = N.nodes[r.goal].x; r.z = N.nodes[r.goal].z; }
+      else {
+        // Roughly one in three visits has a little human moment at the door.
+        // This keeps destinations visible without adding extra NPC meshes.
+        const arrivalKey = `${r.id}|arrival|${day}|${r.goal}|${Math.floor(minute / 30)}`;
+        if (rnd01(arrivalKey) < 0.34) {
+          r.arrivalActivity = rnd01(`${arrivalKey}|phone`) < 0.55 ? 'phone' : 'idle';
+          r.arrivalHold = 2.5 + rnd01(`${arrivalKey}|duration`) * 6;
+          r.activity = r.arrivalActivity;
+        } else {
+          r.inside = r.goal;
+          r.x = N.nodes[r.goal].x;
+          r.z = N.nodes[r.goal].z;
+        }
+      }
       continue;
     }
     const dx = target.x - r.x, dz = target.z - r.z;

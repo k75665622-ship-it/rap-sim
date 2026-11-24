@@ -320,7 +320,10 @@ export function buildCity(bin: Bin): CityObjects {
       g.translate((t.minX + t.maxX) / 2, KERB_H + b.height + t.h / 2, (t.minZ + t.maxZ) / 2);
       into(roofBits, ck, flatten(g));
     }
-    if (b.place && b.door) addShopfront(b, root, bin, markers, glow);
+    if (b.place && b.door) {
+      if (b.homeType) addResidentialFront(b, root, bin, markers, glow);
+      else addShopfront(b, root, bin, markers, glow);
+    }
   }
   for (const list of wallGeos.values()) {
     const mesh = new THREE.Mesh(geo(mergeGeometries(list)), wallMat);
@@ -486,6 +489,64 @@ function instanced(g: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Mat
   im.instanceMatrix.needsUpdate = true;
   im.computeBoundingSphere();
   return im;
+}
+
+/**
+ * Residential front: a proper house/apartment entrance rather than a giant
+ * commercial sign. It stays lightweight, but gives the neighbourhood a
+ * believable doorway, windows, porch light and house marker.
+ */
+function addResidentialFront(b: Building, root: THREE.Group, bin: Bin, markers: CityObjects['markers'], glow: CityObjects['glow']) {
+  const place = b.place!;
+  const door = b.door!;
+  const face = new THREE.Group();
+  face.position.set(door.x, KERB_H, door.z);
+  face.rotation.y = Math.atan2(door.nx, door.nz);
+  face.userData.far = 80;
+  root.add(face);
+
+  const accent = new THREE.Color(place.accent);
+  const mat = (p: THREE.MeshLambertMaterialParameters) => bin.add(new THREE.MeshLambertMaterial(p));
+  const box = (w: number, h: number, d: number) => bin.add(new THREE.BoxGeometry(w, h, d));
+
+  // Low porch step + canopy.
+  const step = new THREE.Mesh(box(3.8, 0.16, 1.8), mat({ color: '#b9a17f' }));
+  step.position.set(0, 0.08, 0.75); face.add(step);
+  const canopy = new THREE.Mesh(box(3.4, 0.16, 1.3), mat({ color: accent }));
+  canopy.position.set(0, 2.95, 0.55); canopy.rotation.x = 0.08; face.add(canopy);
+
+  // Door + frame.
+  const frame = new THREE.Mesh(box(1.65, 2.55, 0.18), mat({ color: accent }));
+  frame.position.set(0, 1.28, 0.08); face.add(frame);
+  const doorMat = mat({ color: '#26303a', emissive: '#d9b35b', emissiveIntensity: 0.08 });
+  glow.push({ mat: doorMat, day: 0.05, night: 0.24 });
+  const doorMesh = new THREE.Mesh(box(1.25, 2.2, 0.2), doorMat);
+  doorMesh.position.set(0, 1.12, 0.17); face.add(doorMesh);
+  const knob = new THREE.Mesh(bin.add(new THREE.SphereGeometry(0.055, 8, 6)), mat({ color: '#d9b35b', metalness: 0.5 }));
+  knob.position.set(0.42, 1.1, 0.3); face.add(knob);
+
+  // Two windows give the building a residential rhythm. Apartment fronts are
+  // taller; houses get a warmer lower pair.
+  const winMat = mat({ color: b.homeType === 'apartment' ? '#6c9fc5' : '#8fc1d4', emissive: '#8bc7e8', emissiveIntensity: 0.12 });
+  glow.push({ mat: winMat, day: 0.08, night: 0.35 });
+  for (const sx of [-2.65, 2.65]) {
+    const w = new THREE.Mesh(box(1.8, b.homeType === 'apartment' ? 2.25 : 1.65, 0.12), winMat);
+    w.position.set(sx, b.homeType === 'apartment' ? 2.35 : 1.85, 0.04); face.add(w);
+    const mullion = new THREE.Mesh(box(0.08, w.scale.y * 0 + (b.homeType === 'apartment' ? 2.25 : 1.65), 0.14), mat({ color: '#e7e1d6' }));
+    mullion.position.set(sx, b.homeType === 'apartment' ? 2.35 : 1.85, 0.12); face.add(mullion);
+  }
+
+  // Small mailbox / number plate beside the door.
+  const plate = new THREE.Mesh(box(0.42, 0.24, 0.06), mat({ color: '#f1e7c9' }));
+  plate.position.set(-1.15, 1.05, 0.2); face.add(plate);
+  const ring = new THREE.Mesh(bin.add(new THREE.RingGeometry(0.58, 0.76, 24)), bin.add(new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.52, toneMapped: false, depthWrite: false })));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(door.x + door.nx * 1.45, KERB_H + 0.02, door.z + door.nz * 1.45);
+  root.add(ring);
+  const gem = new THREE.Mesh(bin.add(new THREE.OctahedronGeometry(0.2, 0)), bin.add(new THREE.MeshBasicMaterial({ color: accent, toneMapped: false })));
+  gem.position.set(ring.position.x, KERB_H + 1.8, ring.position.z);
+  root.add(gem);
+  markers.push({ ring, gem, baseY: gem.position.y });
 }
 
 /** Door, awning, lit sign and the glowing marker on the pavement. */

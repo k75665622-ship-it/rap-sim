@@ -10,7 +10,7 @@ import { Button } from '../ui/kit';
 import { cn } from '@/utils/cn';
 import { LUXURY_CATALOG } from '../../data/luxuryItems';
 import { dateToSerial, serialToDate, formatMedium, serialOf } from '../../sim/gameClock';
-import { HOMES, homeDef, rentFor, livingFor, priceFor, moveInCost, advanceMonths, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, newHome, type HomeTier } from '../../sim/home';
+import { HOMES, homeDef, rentFor, livingFor, priceFor, moveInCost, advanceMonths, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, tenantOf, newHome, type HomeTier } from '../../sim/home';
 import { money0 } from '../../sim/tax';
 import type { LuxuryItem } from '../../types/game';
 
@@ -134,6 +134,7 @@ export function LifestyleScreen() {
                           <b className="text-ink num">{money0(askRent(o))}/mo</b>
                           <Button size="sm" variant="ghost" onClick={() => done(setRent(o.id, Math.round(askRent(o) * 1.1)))}>+10%</Button>
                           <span>market {money0(marketRent(o))} · {Math.round(occupancy(o) * 100)}% let</span>
+                          <span className="w-full">🧑🏾 {tenantOf(o).name}, {tenantOf(o).job} · {tenantOf(o).mood}</span>
                         </div>
                       )}
                       {!live && <Button size="sm" variant="ghost" onClick={() => done(moveHome(o.tier, 'own', o.id))}>Move in</Button>}

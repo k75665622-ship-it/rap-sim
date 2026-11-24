@@ -373,3 +373,6 @@ Draw calls in view 455 → ~150 and per-chunk meshes now: one wall material (col
 
 ### Overhaul slice 13 — world missions
 Story `where` now accepts any walkable place (stadium, arena, lots, mall, airport, apts, gym, drip, radio, label, crib). Encounters there happen inside: GPS routes you, the person appears in the room, and walking up opens the scene. Turning up on or after the deadline sets `late:<node>` (−1 bond, "you kept them waiting" opening line); missing it lapses with no fail screen. New arc `missions` (content/missions.ts): call/text → drive → meet at the stadium (Moses), studio lot (Selasi), Market Square (Mimi), First Capital (Afia). Pattern for more: a call node whose choice schedules the encounter with `sched(node, 0)`.
+
+### Overhaul slice 14 — tenants
+`tenantOf(home)` gives each let flat a stable person (name, job) whose mood follows your asking rent (happy ≤105% of market, uneasy ≤125%, angry above). Apartment lobby doors now map to your first three owned flats (A/B/C) with the tenant's name and mood on the prompt; inside, the tenant stands in the flat and talks to you (their line, then the lease screen). Lifestyle shows the tenant. Next: tenants moving out / late rent events, more than three units, furnishing upgrades.

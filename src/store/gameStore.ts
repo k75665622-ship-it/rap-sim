@@ -426,7 +426,7 @@ import { newMarket, stepMarket, holdingValue, STOCK_FEE, COIN_FEE, type MarketSt
 import { VENTURE_BY_TYPE, newVenture, ventureMonth, ventureValue, dropCost, resolveDrop, resolveSpecial, type Venture, type VentureCtx, type VentureType, type PricePoint, type DropPlan } from '../sim/ventures';
 import { zoneOf, buildOf, buildCostFor, projectValue, monthlyRent, buildMonth, type Zone, type BuildType } from '../sim/realestate';
 import { creditScore, personalOffer, mortgageOffer, paymentFor, LENDERS } from '../sim/bank';
-import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, costIndex, type HomeState, type HomeTier } from '../sim/home';
+import { homeDef, newHome, rentFor, livingFor, priceFor, moveInCost, movingFee, renewalMonths, upkeepFor, resaleFor, ownedValue, rentIncome, marketRent, askRent, occupancy, tenantOf, hash as homeHash, costIndex, type HomeState, type HomeTier } from '../sim/home';
 import { GENRE_BY_ID } from '../data/genres';
 import { dealBlackjack, hit, stand, doubleDown, spinRoulette, isRed, spinSlots, rollDice, playFixture, tableLimit, vipTier, type BlackjackHand, type RouletteBet, type DiceBet } from '../sim/casino';
 import { assignmentsFor, weekOfWork } from '../sim/assignments';
@@ -9573,6 +9573,24 @@ function homeTick(state: GameState, serial: number, log: string[]): void {
       if (!state.storyFired?.['broke_month'] || serial - state.storyFired['broke_month'] > 120) {
         (state.storyFired ?? (state.storyFired = {}))['broke_month'] = serial;
         remember(state, 'money', `Couldn't cover the month's bills. Family stepped in.`, { weight: 3, tone: 'bad' });
+      }
+    }
+    // Tenants: an unhappy one leaves; a happy one sometimes costs you a repair.
+    for (const o of state.homes ?? []) {
+      if (!o.rentedOut || o.id === h.ownedId) continue;
+      const t = tenantOf(o);
+      const roll = (homeHash(`${o.id}|${h.nextBill}`) % 1000) / 1000;
+      const where = `${homeDef(o.tier).name.toLowerCase()} in ${o.city}`;
+      if ((t.mood === 'angry' && roll < 0.45) || (t.mood === 'uneasy' && roll < 0.1)) {
+        o.rentedOut = false;
+        o.lettings = (o.lettings ?? 0) + 1;
+        log.push(`🧑🏾 ${t.name} moved out of your ${where}: the rent was too high. It's empty.`);
+        remember(state, 'money', `${t.name} moved out of the ${where}. You'd pushed the rent too far.`, { weight: 2, tone: 'bad' });
+      } else if (t.mood === 'happy' && roll > 0.93) {
+        const cost = Math.round(askRent(o) * 0.3);
+        p.career.money -= cost;
+        ledgerAdd('upkeep', -cost);
+        log.push(`🔧 A pipe burst at the ${where}. Repairs: ${money0(cost)}. ${t.name} sends thanks.`);
       }
     }
     h.nextBill += 30;

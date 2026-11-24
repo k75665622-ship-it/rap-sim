@@ -122,6 +122,8 @@ export interface OwnedHome {
   rentedOut?: boolean;
   /** What you ask each month when it's let. Unset = the market rent. */
   rentAsk?: number;
+  /** How many tenants have moved out; the next one is someone new. */
+  lettings?: number;
 }
 
 export interface HomeState {
@@ -161,12 +163,12 @@ export function rentIncome(h: OwnedHome): number {
 const FIRST = ['Kwame', 'Abena', 'Tunde', 'Chioma', 'Kofi', 'Efua', 'Ife', 'Naa', 'Samuel', 'Zainab', 'Yaw', 'Amara', 'David', 'Mariam', 'Kojo', 'Lola', 'Femi', 'Akosua'];
 const LAST = ['Asante', 'Mensah', 'Okafor', 'Boateng', 'Adeyemi', 'Owusu', 'Danso', 'Balogun', 'Quaye', 'Nkrumah-Lamptey', 'Tetteh', 'Sarpong', 'Abubakar', 'Ofori'];
 const JOBS = ['nurse', 'bus driver', 'teacher', 'trader', 'software tester', 'barber', 'accountant', 'caterer', 'photographer', 'security officer', 'fashion student', 'DJ'];
-const hash = (s: string) => [...s].reduce((a, c) => (Math.imul(a, 31) + c.charCodeAt(0)) >>> 0, 7);
+export const hash = (s: string) => [...s].reduce((a, c) => (Math.imul(a, 31) + c.charCodeAt(0)) >>> 0, 7);
 
 export interface Tenant { name: string; job: string; mood: 'happy' | 'uneasy' | 'angry'; line: string }
 /** The person renting a flat you've let. The same person every time, and how they feel follows your price. */
 export function tenantOf(h: OwnedHome): Tenant {
-  const k = hash(h.id);
+  const k = hash(`${h.id}|${h.lettings ?? 0}`);
   const name = `${FIRST[k % FIRST.length]} ${LAST[(k >> 4) % LAST.length]}`;
   const job = JOBS[(k >> 8) % JOBS.length];
   const ratio = askRent(h) / Math.max(1, marketRent(h));

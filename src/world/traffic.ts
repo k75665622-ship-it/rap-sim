@@ -76,11 +76,6 @@ export function buildTraffic(bin: Bin): TrafficSystem {
   }
   signals.forEach(s=>group.add(s.group));
 
-  const phaseFor=(axis:'x'|'z',now:number,road:number)=>{
-    const p=((now+road*.011)%14+14)%14;
-    return axis==='x'?p:p-7;
-  };
-
   return { group, update(dt,now) {
     for(const s of signals){
       const p=((now+s.road*.011)%14+14)%14;

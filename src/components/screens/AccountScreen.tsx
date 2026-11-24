@@ -3,6 +3,7 @@
 // account online.
 
 import { useState } from 'react';
+import { currencyCode, setUseLocalCurrency, usingLocalCurrency } from '../../utils/currency';
 import { useGameStore } from '../../store/gameStore';
 import { Button } from '../ui/kit';
 import { cn } from '@/utils/cn';
@@ -94,6 +95,12 @@ export function AccountScreen() {
           )}
         </section>
       )}
+
+      <section className="rounded-[16px] border border-line bg-card p-4 space-y-2">
+        <div className="text-[15px] font-semibold text-ink">Money</div>
+        <div className="text-[13px] text-ink2 leading-snug">Amounts are shown in the money of the country you are in ({currencyCode()}). Underneath, the game still counts in dollars.</div>
+        <Button size="sm" variant="secondary" onClick={() => { setUseLocalCurrency(!usingLocalCurrency()); window.location.reload(); }}>{usingLocalCurrency() ? 'Show everything in US dollars' : 'Use local currency'}</Button>
+      </section>
 
       <section className="rounded-[16px] border border-line bg-card p-4 space-y-2">
         <div className="text-[15px] font-semibold text-ink">Game server</div>

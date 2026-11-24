@@ -1,5 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { startCurrencyDom } from "./utils/currencyDom";
+import { setCurrencyCountry } from "./utils/currency";
 import "./index.css";
 import "./studio-cinematic.css";
 import { loadKit } from "./audio/kit";
@@ -115,6 +117,10 @@ async function boot() {
       <App />
     </StrictMode>
   );
+  startCurrencyDom();
+  const syncCurrency = () => { const st = useGameStore.getState(); setCurrencyCountry(((st.story?.flags['abroad'] as string) || st.player?.country) ?? undefined); };
+  useGameStore.subscribe(syncCurrency);
+  syncCurrency();
   void probeServer();
   startAutoSync();
 }

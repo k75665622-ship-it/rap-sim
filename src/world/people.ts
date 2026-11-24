@@ -21,6 +21,7 @@ import { SKIN, lookFor, type Look } from '../sim/look';
 import { dateToSerial } from '../sim/gameClock';
 import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD } from './layout';
 import { pedestrianCanCross, type SignalAxis } from './signals';
+import { setPedestrianHazards, type PedestrianHazard } from './pedestrianTraffic';
 import type { NPC } from '../types/game';
 
 const LANE = ROAD_HALF + SIDEWALK / 2;   // 7.5 m from a road's centre
@@ -423,6 +424,7 @@ function placeEveryone() {
   const s = useGameStore.getState();
   const minute = s.clockMinute ?? 720;
   const day = dayOf();
+  const hazards: PedestrianHazard[] = [];
   for (const r of residents) {
     const p = plan(r, minute, day);
     r.pathNodes = [];
@@ -489,6 +491,11 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
     const dx = target.x - r.x, dz = target.z - r.z;
     const d = Math.hypot(dx, dz);
     const crossing = crossingAhead(r, target);
+    if (crossing && pedestrianCanCross(crossing.axis, crossing.road, now)) {
+      // Once the pedestrian reaches the crossing, tell traffic to yield.
+      const distanceToRoad = Math.abs((crossing.axis === 'z' ? r.x : r.z) - crossing.road);
+      if (distanceToRoad < ROAD_HALF + 2.0) hazards.push({ x: r.x, z: r.z, axis: crossing.axis, road: crossing.road, active: true });
+    }
     if (crossing && !pedestrianCanCross(crossing.axis, crossing.road, now)) {
       const dir = crossing.axis === 'z' ? Math.sign(dx) || 1 : Math.sign(dz) || 1;
       const along = crossing.axis === 'z' ? r.x : r.z;
@@ -537,6 +544,7 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
       }
     }
   }
+  setPedestrianHazards(hazards);
   return scared;
 }
 

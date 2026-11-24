@@ -605,4 +605,4 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
   return scared;
 }
 
-export function isOut(r: Resident): boolean { return r.inside < 0; }
+export function isOut(r: Resident): boolean { return r.inside < 0 && r.vehicleState === 'none'; }

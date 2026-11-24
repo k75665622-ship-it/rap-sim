@@ -83,11 +83,11 @@ export function buildTransport(bin: Bin): TransportSystem {
   // Harbour water is kept to the southern edge of the harbour district so it
   // does not cover the existing road grid. The moving boats stay inside it.
   const water = new THREE.Mesh(
-    bin.add(new THREE.PlaneGeometry(280, 115)),
+    bin.add(new THREE.PlaneGeometry(280, 90)),
     bin.add(new THREE.MeshLambertMaterial({ color: '#286b82', transparent: true, opacity: 0.78 })),
   );
   water.rotation.x = -Math.PI / 2;
-  water.position.set(300, 0.04, 692);
+  water.position.set(300, 0.04, 790);
   group.add(water);
 
   const waterLine = new THREE.Mesh(
@@ -95,13 +95,13 @@ export function buildTransport(bin: Bin): TransportSystem {
     bin.add(new THREE.MeshBasicMaterial({ color: '#8ed8e8', transparent: true, opacity: 0.32 })),
   );
   waterLine.rotation.x = -Math.PI / 2;
-  waterLine.position.set(300, 0.055, 635);
+  waterLine.position.set(300, 0.055, 746);
   group.add(waterLine);
 
   const boatStarts: Array<[number, number, number, boolean]> = [
-    [205, 670, 3.8, false],
-    [330, 705, -2.8, true],
-    [410, 660, 2.6, false],
+    [205, 775, 3.8, false],
+    [330, 800, -2.8, true],
+    [410, 765, 2.6, false],
   ];
   boatStarts.forEach(([x, z, speed, cargo]) => {
     const g = boat(bin, cargo ? '#596773' : '#e5eef3', cargo);

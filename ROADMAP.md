@@ -390,3 +390,7 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 - Harbour door opens a **Ferry screen**: cheap 12 h ferries to countries on your continent, freighter berths (40 h) further; arrive at the destination's port.
 - **Land auctions**: up to 3 plots at a time go to auction (purple board); bid +10%, rivals outbid you, you pay only if you win when the hammer falls (can't cover it = lost).
 - **Sell the land back** from the plot card (existing sell flow; plot returns to NPC owners).
+
+### Local currency
+- Amounts show in the money of the country you're in (GH₵, ₦, £, €, ¥…; ~60 currencies, fixed game rates). Underneath, everything is still dollars.
+- `utils/currency.ts` (rates/symbols), money formatters convert, and `currencyDom.ts` converts any hard-coded "$1,234" text as it reaches the screen. Account → Money switches back to US dollars.

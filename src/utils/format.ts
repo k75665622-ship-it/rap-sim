@@ -2,6 +2,8 @@
 // Every figure in the app is a real number from the save. These helpers only
 // shorten it for display — they never invent or round away the value.
 
+import { toLocal, currencySymbol } from './currency';
+
 const UNITS = [
   { at: 1_000_000_000_000, suffix: 'T' },
   { at: 1_000_000_000, suffix: 'B' },
@@ -30,22 +32,26 @@ export function full(n: number | undefined | null): string {
 
 export function money(n: number | undefined | null): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return '—';
-  return `$${Math.round(n).toLocaleString()}`;
+  const v = toLocal(n);
+  return `${v < 0 ? '−' : ''}${currencySymbol()}${Math.abs(Math.round(v)).toLocaleString()}`;
 }
 
 export function moneyCompact(n: number | undefined | null): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return '—';
-  if (Math.abs(n) < 10_000) return `$${Math.round(n).toLocaleString()}`;
-  return `$${compact(n)}`;
+  const v = toLocal(n);
+  if (Math.abs(v) < 10_000) return `${v < 0 ? '−' : ''}${currencySymbol()}${Math.abs(Math.round(v)).toLocaleString()}`;
+  return `${v < 0 ? '−' : ''}${currencySymbol()}${compact(Math.abs(v))}`;
 }
 
 /** Rates need the small end of the scale, so they get their own formatter. */
 export function money4(n: number | undefined | null): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return '—';
-  if (n === 0) return '$0';
-  if (Math.abs(n) < 0.01) return `$${n.toFixed(4)}`;
-  if (Math.abs(n) < 1) return `$${n.toFixed(3)}`;
-  return `$${n.toFixed(2)}`;
+  const v = toLocal(n), S = currencySymbol();
+  if (v === 0) return `${S}0`;
+  if (Math.abs(v) < 0.01) return `${S}${v.toFixed(4)}`;
+  if (Math.abs(v) < 1) return `${S}${v.toFixed(3)}`;
+  if (Math.abs(v) >= 1000) return `${S}${Math.round(v).toLocaleString()}`;
+  return `${S}${v.toFixed(2)}`;
 }
 
 export function pct(n: number | undefined | null, digits = 0): string {

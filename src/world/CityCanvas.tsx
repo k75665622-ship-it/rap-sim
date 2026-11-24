@@ -12,6 +12,7 @@ import { cast, isOut, stepPeople, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
 import { gpsState, refreshGps } from './gps';
+import { tenantOf } from '../sim/home';
 import { buildKitchen, buildStudio, buildLabel, buildCrib, buildRadio, buildStage, buildBank, buildGym, buildDrip, buildApts, buildFlat, buildAirport, buildStadium, buildArena, buildLot, buildMall, type Interior } from './interior';
 import { setStudioIntent } from './studioIntent';
 import { indoor } from './sim';
@@ -141,7 +142,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
   }, []);
 
   const tmp = useMemo(() => ({
-    target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true, carTick: -1,
+    target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true, carTick: -1, unit: 0,
     /** The minute of the day being shown; eases after the game clock. */
     minute: useGameStore.getState().clockMinute ?? 720,
     mode: live.mode as typeof live.mode,
@@ -234,12 +235,28 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
           target = { label: `Talk to ${who}`, auto: d < 1.55 ? w.node : undefined, run: () => { live.p.rot = Math.atan2(npc.x - live.p.x, npc.z - live.p.z); live.p.speed = 0; storyBus.request(w.node); } };
         }
       }
+      // Your flats: which one you're in, and who lives there.
+      const homes = useGameStore.getState().homes ?? [];
+      const home = K.id === 'flat' ? homes[tmp.unit] : undefined;
+      if (K.id === 'flat') { const tn = K.npcs.find((q) => q.id === 'tenant'); if (tn) tn.model.group.visible = !!home?.rentedOut; }
+      const labelOf = (sp: (typeof K.spots)[number]): string => {
+        if (sp.unit !== undefined) {
+          const h = homes[sp.unit], L = 'ABC'[sp.unit];
+          return !h ? `Flat ${L} · not yours` : h.rentedOut ? `Flat ${L} · ${tenantOf(h).name} (${tenantOf(h).mood})` : `Flat ${L} · yours, empty`;
+        }
+        if (K.id === 'flat' && sp.id === 'tenant') return home ? `Talk to ${tenantOf(home).name}` : sp.label;
+        return sp.label;
+      };
       if (!target) {
         for (const sp of K.spots) {
+          if (K.id === 'flat' && sp.id === 'tenant' && !home?.rentedOut) continue;
           const d = Math.hypot(sp.x - live.p.x, sp.z - live.p.z);
           if (d < sp.reach && d < best) {
             best = d;
-            target = { label: sp.label, run: () => {
+            target = { label: labelOf(sp), run: () => {
+              if (sp.unit !== undefined && !homes[sp.unit]) { hudStore.toast('That flat belongs to someone else.', 2600); return; }
+              if (sp.unit !== undefined) tmp.unit = sp.unit;
+              if (K.id === 'flat' && sp.id === 'tenant' && home) hudStore.toast(`${tenantOf(home).name}: “${tenantOf(home).line}”`, 6000);
               if (sp.go) goInterior(sp.go);
               else if (sp.kind === 'exit') exitInterior();
               else if (sp.kind === 'counter') useGameStore.getState().setScreen('kitchen');

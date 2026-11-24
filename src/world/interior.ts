@@ -9,7 +9,7 @@ import { defaultLook, lookFor, type Look } from '../sim/look';
 export const KX = 2000; // the kitchen's centre on the x axis
 export const SX = 2100; // Studio 9's
 
-export interface Spot { id: string; x: number; z: number; label: string; reach: number; kind: 'exit' | 'counter' | 'radio' | 'act'; act?: string; go?: string }
+export interface Spot { id: string; x: number; z: number; label: string; reach: number; kind: 'exit' | 'counter' | 'radio' | 'act'; act?: string; go?: string; unit?: number }
 export interface Npc { id: string; who: string; visitor?: boolean; model: PlayerModel; x: number; z: number; rot: number; sit: boolean; work: boolean; baseY: number }
 export interface Interior {
   id: string;
@@ -536,9 +536,9 @@ export const buildApts = (bin: Bin) => buildRoom(bin, {
   visitors: ALL_VISITORS,
   spots: [
     { id: 'office', x: -3.0, z: 2.6, label: 'Property office · rents', reach: 1.8, kind: 'act', act: 'screen:lifestyle' },
-    { id: 'u1', x: -4, z: -3.6, label: 'Flat A · go in', reach: 1.5, kind: 'act', go: 'flat' },
-    { id: 'u2', x: 0, z: -3.6, label: 'Flat B · go in', reach: 1.5, kind: 'act', go: 'flat' },
-    { id: 'u3', x: 4, z: -3.6, label: 'Flat C · go in', reach: 1.5, kind: 'act', go: 'flat' },
+    { id: 'u1', x: -4, z: -3.6, label: 'Flat A · go in', reach: 1.5, kind: 'act', go: 'flat', unit: 0 },
+    { id: 'u2', x: 0, z: -3.6, label: 'Flat B · go in', reach: 1.5, kind: 'act', go: 'flat', unit: 1 },
+    { id: 'u3', x: 4, z: -3.6, label: 'Flat C · go in', reach: 1.5, kind: 'act', go: 'flat', unit: 2 },
   ],
   lights: [[-3, 0, '#ffe3b0'], [3, 0, '#fff1d0']],
 });
@@ -553,9 +553,10 @@ export const buildFlat = (bin: Bin) => buildRoom(bin, {
     [3.0, 4.8, 0.0, 1.0, 0.9, '#8a8a92'],
     [0.8, 1.7, 2.8, 3.6, 0.45, '#8a4b2a'],
   ],
-  npcs: [], visitors: ALL_VISITORS,
+  npcs: [{ id: 'tenant', who: 'Tenant', seed: 'flat-tenant', x: 1.6, z: 0.4, rot: Math.PI / 2 }], visitors: [],
   spots: [
     { id: 'lease', x: 0.3, z: -2.5, label: 'Lease · set the rent', reach: 1.6, kind: 'act', act: 'screen:lifestyle' },
+    { id: 'tenant', x: 1.6, z: 1.6, label: 'Talk to the tenant', reach: 1.5, kind: 'act', act: 'screen:lifestyle' },
     { id: 'wardrobe', x: 3.6, z: -2.6, label: 'Wardrobe · style', reach: 1.6, kind: 'act', act: 'screen:style' },
     { id: 'bed', x: -2.5, z: -2.2, label: 'Rest · home life', reach: 1.6, kind: 'act', act: 'screen:lifestyle' },
   ],

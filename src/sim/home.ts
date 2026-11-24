@@ -157,6 +157,24 @@ export function rentIncome(h: OwnedHome): number {
   return Math.round(askRent(h) * occupancy(h) * 0.85);
 }
 
+// ─── WHO LIVES IN YOUR FLATS ──────────────────────────────────────────────
+const FIRST = ['Kwame', 'Abena', 'Tunde', 'Chioma', 'Kofi', 'Efua', 'Ife', 'Naa', 'Samuel', 'Zainab', 'Yaw', 'Amara', 'David', 'Mariam', 'Kojo', 'Lola', 'Femi', 'Akosua'];
+const LAST = ['Asante', 'Mensah', 'Okafor', 'Boateng', 'Adeyemi', 'Owusu', 'Danso', 'Balogun', 'Quaye', 'Nkrumah-Lamptey', 'Tetteh', 'Sarpong', 'Abubakar', 'Ofori'];
+const JOBS = ['nurse', 'bus driver', 'teacher', 'trader', 'software tester', 'barber', 'accountant', 'caterer', 'photographer', 'security officer', 'fashion student', 'DJ'];
+const hash = (s: string) => [...s].reduce((a, c) => (Math.imul(a, 31) + c.charCodeAt(0)) >>> 0, 7);
+
+export interface Tenant { name: string; job: string; mood: 'happy' | 'uneasy' | 'angry'; line: string }
+/** The person renting a flat you've let. The same person every time, and how they feel follows your price. */
+export function tenantOf(h: OwnedHome): Tenant {
+  const k = hash(h.id);
+  const name = `${FIRST[k % FIRST.length]} ${LAST[(k >> 4) % LAST.length]}`;
+  const job = JOBS[(k >> 8) % JOBS.length];
+  const ratio = askRent(h) / Math.max(1, marketRent(h));
+  const mood = ratio <= 1.05 ? 'happy' : ratio <= 1.25 ? 'uneasy' : 'angry';
+  const line = mood === 'happy' ? 'Rent goes through on time. The place is lovely — thank you.' : mood === 'uneasy' ? "The rent is a bit steep for the area, to be honest. I'm managing, but I've been looking at other flats." : "I can't keep paying this. Half the neighbours pay less. I'll be gone by the end of the month if nothing changes.";
+  return { name, job, mood, line };
+}
+
 /** What a place like this fetches: the tier's rent, or about 10% a year of what you put into it. */
 export function marketRent(h: OwnedHome): number {
   return Math.max(rentFor(h.tier, h.country), Math.round(h.paid / 120));

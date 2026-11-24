@@ -364,3 +364,6 @@ National Stadium (pitch, stands), Iron Ring Arena (ring), Gold Coast Studios (so
 
 ### Overhaul slice 12 — local names
 `localPlace()` renames non-story places per country (airport, stadium, harbour, radio, bank, mall); the kitchen, Studio 9, label etc. keep their names so the story still reads. Map list uses the local names. Currency/units are still dollars everywhere — a game-wide change for later.
+
+### Fix — big-world freeze
+The 900 m world froze phones at start: the walker route table solved every-pair shortest paths (~10 s once the map grew), and the whole city was drawn and collision-tested every frame. Routes are now solved per destination on demand; geometry and instances are split into 120 m chunks so off-screen ones are culled; collisions look up a 24 m grid. Software-GL test: start-up longest task 10.6 s → 0.9 s, frames in 3 s 5 → 23.

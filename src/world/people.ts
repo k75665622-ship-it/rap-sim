@@ -32,7 +32,7 @@ export interface PathNode { x: number; z: number; door?: { x: number; z: number 
 
 interface Net {
   nodes: PathNode[];
-  next: Int16Array;      // next[a * n + b] = the next node on the way from a to b
+  towards: (t: number) => Int16Array;   // towards(b)[a] = the next node on the way from a to b
   n: number;
   corners: number[];     // junction nodes, for strolling
   placeNode: Record<string, number>;
@@ -136,32 +136,31 @@ function network(): Net {
   vLines.forEach((ids) => link(ids, 'z'));
   hLines.forEach((ids) => link(ids, 'x'));
 
-  // Shortest routes between every pair, once (a few hundred nodes at most).
-  const next = new Int16Array(n * n).fill(-1);
-  const dist = new Float32Array(n);
-  const prev = new Int16Array(n);
-  for (let s = 0; s < n; s++) {
-    dist.fill(Infinity);
-    prev.fill(-1);
-    dist[s] = 0;
+  // Routes are worked out on demand: one shortest-path tree per destination,
+  // kept once built. (All pairs up front was a ten-second freeze on a big map.)
+  const rows = new Map<number, Int16Array>();
+  const towards = (t: number): Int16Array => {
+    let row = rows.get(t);
+    if (row) return row;
+    row = new Int16Array(n).fill(-1);
+    const dist = new Float32Array(n).fill(Infinity);
     const done = new Uint8Array(n);
-    for (;;) {
-      let u = -1, best = Infinity;
-      for (let i = 0; i < n; i++) if (!done[i] && dist[i] < best) { best = dist[i]; u = i; }
-      if (u < 0) break;
+    dist[t] = 0;
+    // The graph is undirected, so the parent in the tree from t is the next hop toward t.
+    const heap: Array<[number, number]> = [[0, t]];
+    while (heap.length) {
+      let bi = 0;
+      for (let i = 1; i < heap.length; i++) if (heap[i][0] < heap[bi][0]) bi = i;
+      const [, u] = heap.splice(bi, 1)[0];
+      if (done[u]) continue;
       done[u] = 1;
-      for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; prev[v] = u; }
+      for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; row[v] = u; heap.push([dist[v], v]); }
     }
-    // First step from s towards each t.
-    for (let t = 0; t < n; t++) {
-      if (t === s || prev[t] < 0) continue;
-      let c = t;
-      while (prev[c] !== s && prev[c] >= 0) c = prev[c];
-      next[s * n + t] = c;
-    }
-  }
+    rows.set(t, row);
+    return row;
+  };
 
-  net = { nodes, next, n, corners, placeNode, homes };
+  net = { nodes, towards, n, corners, placeNode, homes };
   return net;
 }
 
@@ -171,7 +170,7 @@ function route(from: number, to: number): number[] {
   let c = from;
   let guard = 0;
   while (c !== to && guard++ < 400) {
-    const nx = N.next[c * N.n + to];
+    const nx = N.towards(to)[c];
     if (nx < 0) break;
     out.push(nx);
     c = nx;

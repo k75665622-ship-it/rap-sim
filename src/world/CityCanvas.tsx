@@ -122,7 +122,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
-      .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
+      .map((b) => ({ place: b.place!, door: b.door!, homeType: b.homeType, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
     return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, poses, ray: new THREE.Raycaster() };
   }, []);
 
@@ -292,7 +292,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
             live.cam.yaw = live.p.rot + Math.PI - 0.75;
             live.cam.pitch = 0.3;
           }
-          const room = Object.values(built.interiors).find((i) => i.placeId === door.place.id);
+          // Named businesses use their dedicated interiors. Residential doors
+          // use the furnished Crib interior as a lightweight reusable home.
+          // The world still has many physical homes without duplicating a room
+          // for every house, which keeps mobile memory and draw calls sane.
+          const room = door.homeType ? built.interiors.crib : Object.values(built.interiors).find((i) => i.placeId === door.place.id);
           if (room) enterInterior(room.id, door.door.nx, door.door.nz, door.x, door.z); else enterRef.current(door.place);
         } else if (person) {
           // They stop and turn to you; you turn to them.

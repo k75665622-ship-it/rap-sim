@@ -424,7 +424,6 @@ function placeEveryone() {
   const s = useGameStore.getState();
   const minute = s.clockMinute ?? 720;
   const day = dayOf();
-  const hazards: PedestrianHazard[] = [];
   for (const r of residents) {
     const p = plan(r, minute, day);
     r.pathNodes = [];
@@ -455,6 +454,7 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
   let scared = false;
   const N = network();
   const day = dayOf();
+  const hazards: PedestrianHazard[] = [];
   for (const r of residents) {
     r.startle = Math.max(0, r.startle - dt);
     // Re-think the plan a few times an hour of game time, staggered.

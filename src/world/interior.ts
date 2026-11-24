@@ -512,7 +512,7 @@ export const buildAirport = (bin: Bin) => buildRoom(bin, {
     { id: 'agent2', who: 'Check-in', seed: 'air-2', x: 0.5, z: -4.1, rot: 0, work: true },
     { id: 'guard', who: 'Security', seed: 'air-3', x: 5.0, z: 0.2, rot: -Math.PI / 2 },
   ],
-  visitors: [],
+  visitors: ALL_VISITORS,
   spots: [
     { id: 'fly', x: 0.5, z: -2.8, label: 'Check-in · book a flight', reach: 2.0, kind: 'act', act: 'screen:airport' },
     { id: 'board', x: 5.0, z: -3.5, label: 'Departures board', reach: 1.8, kind: 'act', act: 'screen:airport' },
@@ -533,7 +533,7 @@ export const buildApts = (bin: Bin) => buildRoom(bin, {
     [-0.5, 0.5, 3.0, 3.6, 0.5, '#2e7d4f'],
   ],
   npcs: [{ id: 'agent', who: 'Property manager', seed: 'apts-agent', female: true, x: -4.5, z: 2.7, rot: Math.PI / 2, work: true }],
-  visitors: [],
+  visitors: ALL_VISITORS,
   spots: [
     { id: 'office', x: -3.0, z: 2.6, label: 'Property office · rents', reach: 1.8, kind: 'act', act: 'screen:lifestyle' },
     { id: 'u1', x: -4, z: -3.6, label: 'Flat A · go in', reach: 1.5, kind: 'act', go: 'flat' },
@@ -553,7 +553,7 @@ export const buildFlat = (bin: Bin) => buildRoom(bin, {
     [3.0, 4.8, 0.0, 1.0, 0.9, '#8a8a92'],
     [0.8, 1.7, 2.8, 3.6, 0.45, '#8a4b2a'],
   ],
-  npcs: [], visitors: [],
+  npcs: [], visitors: ALL_VISITORS,
   spots: [
     { id: 'lease', x: 0.3, z: -2.5, label: 'Lease · set the rent', reach: 1.6, kind: 'act', act: 'screen:lifestyle' },
     { id: 'wardrobe', x: 3.6, z: -2.6, label: 'Wardrobe · style', reach: 1.6, kind: 'act', act: 'screen:style' },
@@ -601,7 +601,7 @@ export const buildStadium = (bin: Bin) => buildRoom(bin, {
     { id: 'groundsman', who: 'Groundsman', seed: 'stad-g', x: -18, z: 12, rot: 0.6, work: true },
     { id: 'steward', who: 'Steward', seed: 'stad-s', x: 20, z: 17, rot: Math.PI, work: true },
   ],
-  visitors: [],
+  visitors: ALL_VISITORS,
   spots: [
     { id: 'pitch', x: 0, z: -2, label: 'Pitch · watch / book the stadium', reach: 3.0, kind: 'act', act: 'screen:shows' },
     { id: 'stands', x: 0, z: -18, label: 'Main stand · watch live football', reach: 3.0, kind: 'act', act: 'screen:shows' },
@@ -619,7 +619,7 @@ export const buildArena = (bin: Bin) => buildRoom(bin, {
     [-6.8, -4.6, 2.6, 5.2, 0.6, '#3a3a44'], [4.6, 6.8, 2.6, 5.2, 0.6, '#3a3a44'],
   ],
   npcs: [{ id: 'ref', who: 'Referee', seed: 'arena-ref', x: 3.2, z: 0.2, rot: -Math.PI / 2 }],
-  visitors: [],
+  visitors: ALL_VISITORS,
   spots: [{ id: 'ring', x: 0, z: 2.6, label: 'Ringside · book a night', reach: 2.0, kind: 'act', act: 'screen:shows' }],
   lights: [[0, -0.5, '#ffffff'], [-5, 0, '#ff6b6b'], [5, 0, '#6bb0ff']],
 });
@@ -642,7 +642,7 @@ export const buildLot = (bin: Bin) => buildRoom(bin, {
     { id: 'actor', who: 'Actor', seed: 'lot-act', female: true, x: -5.0, z: -2.0, rot: 0 },
     { id: 'crew', who: 'Crew', seed: 'lot-crew', x: 6.6, z: 3.0, rot: -Math.PI / 2, sit: true },
   ],
-  visitors: [],
+  visitors: ALL_VISITORS,
   spots: [
     { id: 'set', x: -1.0, z: -1.5, label: 'Soundstage · shoot a video', reach: 2.2, kind: 'act', act: 'video' },
     { id: 'tv', x: 5.5, z: -1.5, label: 'Newsroom set · interviews', reach: 2.0, kind: 'act', act: 'screen:interviews' },
@@ -663,7 +663,7 @@ export const buildMall = (bin: Bin) => buildRoom(bin, {
     { id: 'vendor2', who: 'Vendor', seed: 'mall-2', x: 2.5, z: -4.2, rot: 0, work: true },
     { id: 'shopper', who: 'Shopper', seed: 'mall-3', female: true, x: 3.0, z: 1.2, rot: 2.4 },
   ],
-  visitors: [],
+  visitors: ALL_VISITORS,
   spots: [
     { id: 'fits', x: -5.8, z: -2.8, label: 'Clothes stall · style', reach: 1.8, kind: 'act', act: 'screen:style' },
     { id: 'food', x: 2.5, z: -2.8, label: 'Food stall · eat', reach: 1.8, kind: 'act', act: 'screen:kitchen' },

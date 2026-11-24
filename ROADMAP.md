@@ -370,3 +370,6 @@ The 900 m world froze phones at start: the walker route table solved every-pair 
 
 ### Perf pass — smoother on phones
 Draw calls in view 455 → ~150 and per-chunk meshes now: one wall material (colours in vertices), props/road paint/trees baked into one mesh per chunk, parked cars baked to one mesh each and hidden beyond 90 m, shopfronts hidden beyond 95 m, lamp-light pools not drawn in daytime, 160 m chunks. Dev hooks: `window.__rapGl/__rapScene/__rapCam`.
+
+### Overhaul slice 13 — world missions
+Story `where` now accepts any walkable place (stadium, arena, lots, mall, airport, apts, gym, drip, radio, label, crib). Encounters there happen inside: GPS routes you, the person appears in the room, and walking up opens the scene. Turning up on or after the deadline sets `late:<node>` (−1 bond, "you kept them waiting" opening line); missing it lapses with no fail screen. New arc `missions` (content/missions.ts): call/text → drive → meet at the stadium (Moses), studio lot (Selasi), Market Square (Mimi), First Capital (Afia). Pattern for more: a call node whose choice schedules the encounter with `sched(node, 0)`.

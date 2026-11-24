@@ -10,11 +10,15 @@ import { CAST, BOND_CAST } from '../../story/cast';
 import type { Channel, Delivery, Place, StoryNode, Path } from '../../story/types';
 import { cn } from '@/utils/cn';
 import { hudStore } from '../../world/input';
+import { setGpsPlace } from '../../world/gps';
 import type { GameScreen } from '../../types/game';
 
 const PLACE: Record<Place, { screen: GameScreen; name: string }> = {
+  stadium: { screen: 'city', name: 'National Stadium' }, arena: { screen: 'city', name: 'Iron Ring Arena' }, lots: { screen: 'city', name: 'Gold Coast Studios' }, mall: { screen: 'city', name: 'Market Square' }, airport: { screen: 'city', name: 'the airport' }, apts: { screen: 'city', name: 'Eastgate Apartments' }, gym: { screen: 'city', name: 'Iron House' }, drip: { screen: 'city', name: 'Drip & Ink' }, radio: { screen: 'city', name: 'Hot 101.9' }, label: { screen: 'city', name: 'Label HQ' }, crib: { screen: 'city', name: 'Your place' },
   kitchen: { screen: 'kitchen', name: "Mama's Kitchen" }, studio: { screen: 'studio', name: 'Studio 9' }, shows: { screen: 'shows', name: 'The Stage' }, bank: { screen: 'investments', name: 'First Capital' }, city: { screen: 'city', name: 'the street' },
 };
+/** Places you walk into: the meeting happens inside, when you walk up to them. */
+const INWORLD = new Set<Place>(['kitchen', 'studio', 'stadium', 'arena', 'lots', 'mall', 'airport', 'apts', 'gym', 'drip', 'radio', 'label', 'crib']);
 const ICON: Record<Channel, string> = { call: '📞', text: '💬', encounter: '📍', letter: '✉️', scene: '🎬' };
 const PATHS: { id: Path; label: string; blurb: string }[] = [
   { id: 'rapper', label: '🎤 Rapper — Two Rooms', blurb: 'You and Static grew up one flat apart.' },
@@ -57,7 +61,7 @@ export function StoryHost() {
     if (scene) return;
     for (const d of pending) {
       const n = NODES[d.node];
-      if (n?.channel === 'encounter' && n.where && n.where !== 'kitchen' && n.where !== 'studio' && PLACE[n.where].screen === screen && autoDone.current !== `${d.id}|${screen}`) {
+      if (n?.channel === 'encounter' && n.where && !INWORLD.has(n.where) && PLACE[n.where].screen === screen && autoDone.current !== `${d.id}|${screen}`) {
         autoDone.current = `${d.id}|${screen}`;
         open(d.node); setScene(d.node); return;
       }
@@ -74,7 +78,8 @@ export function StoryHost() {
           📖{others.length > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-amber text-black text-[11px] flex items-center justify-center" data-testid="story-count">{others.length}</span>}
         </button>
       )}
-      {sheet && !scene && <Sheet onClose={() => setSheet(false)} pending={others} onOpen={(d) => { const n = NODES[d.node]; if (n.channel === 'encounter' && n.where && PLACE[n.where].screen !== screen) { setSheet(false); setScreen(PLACE[n.where].screen); return; } open(d.node); setSheet(false); setScene(d.node); }} />}
+      {sheet && !scene && <Sheet onClose={() => setSheet(false)} pending={others} onOpen={(d) => { const n = NODES[d.node]; if (n.channel === 'encounter' && n.where && INWORLD.has(n.where) && n.where !== 'kitchen' && n.where !== 'studio') { setSheet(false); setGpsPlace(n.where); setScreen('city'); hudStore.toast(`📍 GPS set: ${PLACE[n.where].name}`, 2600); return; }
+          if (n.channel === 'encounter' && n.where && PLACE[n.where].screen !== screen) { setSheet(false); setScreen(PLACE[n.where].screen); return; } open(d.node); setSheet(false); setScene(d.node); }} />}
     </>
   );
   return createPortal(body, document.body);
@@ -149,7 +154,7 @@ function Scene({ nodeId: first, onClose }: { nodeId: string; onClose: () => void
   const bottom = useRef<HTMLDivElement>(null);
   const n: StoryNode | undefined = NODES[nodeId];
   const x = storyCtx(useGameStore.getState());
-  const lines = useMemo(() => (n ? n.lines.filter((l) => check(l.if, story, x)) : []), [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lines = useMemo(() => (n ? [...(story.flags[`late:${n.id}`] ? [{ who: 'narr', text: 'You kept them waiting. It shows.' }] : []), ...n.lines.filter((l) => check(l.if, story, x))] : []), [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const choices = n ? n.choices.filter((c) => check(c.if, story, x)) : [];
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [shown, nodeId]);
   if (!n) return null;

@@ -215,6 +215,10 @@ export interface Resident {
   /** Brief arrival behavior before an NPC disappears inside a destination. */
   arrivalHold: number;
   arrivalActivity: 'idle' | 'phone';
+  /** Lightweight vehicle life: the NPC is hidden while riding in an ambient car. */
+  vehicleState: 'none' | 'passenger';
+  vehicleId: number;
+  vehicleCooldown: number;
 }
 
 const LOCAL_NAMES = ['Kwame', 'Ama', 'Kojo', 'Efua', 'Yaw', 'Akosua', 'Kofi', 'Abena', 'Tunde', 'Ngozi', 'Chidi', 'Aisha', 'Femi', 'Esi', 'Kwabena', 'Adwoa', 'Emeka', 'Zainab'];
@@ -277,7 +281,7 @@ export function cast(): Resident[] {
       offset: Math.floor(rnd01(`off|${id}`) * 90) - 30,
       inside: -1, goal: -1, goalDoing: 'stroll', path: [], pathNodes: [],
       x: 0, z: 0, rot: 0, speed: 1.35 + rnd01(`spd|${id}`) * 0.5, phase: rnd01(`ph|${id}`) * 6, hold: 0, startle: 0, lastPlan: -1,
-      activity: 'walk', activityTimer: 0, arrivalHold: 0, arrivalActivity: 'idle',
+      activity: 'walk', activityTimer: 0, arrivalHold: 0, arrivalActivity: 'idle', vehicleState: 'none', vehicleId: -1, vehicleCooldown: 0,
     };
   };
 
@@ -356,6 +360,27 @@ export function describe(r: Resident): string {
 export function peopleAt(placeId: string): Resident[] {
   const node = network().placeNode[placeId];
   return cast().filter((r) => r.inside === node);
+}
+
+/** World position of a public footpath destination. Used by lightweight ambient vehicle AI. */
+export function nodePosition(node: number): { x: number; z: number; door?: { x: number; z: number } } | null {
+  const n = network().nodes[node];
+  return n ? { x: n.x, z: n.z, door: n.door } : null;
+}
+
+/** Drop an NPC at a vehicle destination and let them finish the last few metres on foot. */
+export function dropOffFromVehicle(r: Resident): void {
+  const N = network();
+  const n = N.nodes[r.goal];
+  if (!n) { r.vehicleState = 'none'; r.vehicleId = -1; return; }
+  r.vehicleState = 'none';
+  r.vehicleId = -1;
+  r.x = n.x;
+  r.z = n.z;
+  r.pathNodes = [r.goal];
+  r.path = n.door && r.goalDoing !== 'stroll' ? [{ x: n.door.x, z: n.door.z }] : [];
+  r.arrivalHold = 0;
+  r.activity = 'walk';
 }
 
 function titleCase(s: string) { return s.toLowerCase().replace(/(^|\s)(\S)/g, (_m, a: string, b: string) => a + b.toUpperCase()); }
@@ -460,6 +485,7 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
   const day = dayOf();
   const hazards: PedestrianHazard[] = [];
   for (const r of residents) {
+    r.vehicleCooldown = Math.max(0, r.vehicleCooldown - dt);
     r.startle = Math.max(0, r.startle - dt);
     // Re-think the plan a few times an hour of game time, staggered.
     if (Math.abs(minute - r.lastPlan) >= 10 || r.lastPlan < 0) {
@@ -469,6 +495,7 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
       else if (p.node < 0 && r.goalDoing !== 'stroll') strollOn(r);
       else if (p.node >= 0 && r.inside < 0 && r.goal === p.node && !r.path.length) setGoal(r, p.node, p.doing);
     }
+    if (r.vehicleState !== 'none') continue;
     if (r.inside >= 0) continue;
     if (r.hold > 0) { r.hold -= dt; continue; }
     // Destinations feel occupied: some NPCs pause at the entrance, check a
@@ -578,4 +605,4 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null, now
   return scared;
 }
 
-export function isOut(r: Resident): boolean { return r.inside < 0; }
+export function isOut(r: Resident): boolean { return r.inside < 0 && r.vehicleState === 'none'; }

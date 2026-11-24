@@ -522,7 +522,7 @@ function addResidentialFront(b: Building, root: THREE.Group, bin: Bin, markers: 
   glow.push({ mat: doorMat, day: 0.05, night: 0.24 });
   const doorMesh = new THREE.Mesh(box(1.25, 2.2, 0.2), doorMat);
   doorMesh.position.set(0, 1.12, 0.17); face.add(doorMesh);
-  const knob = new THREE.Mesh(bin.add(new THREE.SphereGeometry(0.055, 8, 6)), mat({ color: '#d9b35b', metalness: 0.5 }));
+  const knob = new THREE.Mesh(bin.add(new THREE.SphereGeometry(0.055, 8, 6)), mat({ color: '#d9b35b' }));
   knob.position.set(0.42, 1.1, 0.3); face.add(knob);
 
   // Two windows give the building a residential rhythm. Apartment fronts are

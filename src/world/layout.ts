@@ -83,6 +83,8 @@ export interface Prop { kind: 'tree' | 'lamp'; x: number; z: number; rot: number
 export interface ParkedCar { x: number; z: number; heading: number; color: string }
 
 export interface Block extends Box { park: boolean }
+/** A campsite (tent + fire) or a cabin in the forest. */
+export interface Camp { id: string; kind: 'camp' | 'cabin'; x: number; z: number; rot: number }
 /** One buyable parcel of land (about 19 m square). */
 export interface Plot extends Box { id: string; zone: ZoneId; block: string }
 /** A whole block of four plots: the unit you buy to start an estate. */
@@ -169,6 +171,7 @@ export interface CityLayout {
   parked: ParkedCar[];
   plots: Plot[];
   landBlocks: LandBlock[];
+  camps: Camp[];
   /** Everything solid, for the player and the car. */
   solids: Box[];
   spawn: { x: number; z: number; rot: number };
@@ -395,6 +398,19 @@ export function cityLayout(): CityLayout {
     }
   }
 
+  // Clearings in the forest: a campsite here, a cabin there.
+  const camps: Camp[] = [];
+  for (const b of blocks) {
+    if (!b.park) continue;
+    const zk = zoneAt((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2);
+    if (!FOREST_ZONES.includes(zk)) continue;
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const k = Math.round(cx * 7 + cz * 13);
+    if (k % 3 === 0) camps.push({ id: `camp${camps.length}`, kind: 'camp', x: cx, z: cz, rot: (k % 8) * 0.7 });
+    else if (k % 4 === 0) camps.push({ id: `cabin${camps.length}`, kind: 'cabin', x: cx, z: cz, rot: (k % 4) * Math.PI / 2 });
+  }
+  for (let i = props.length - 1; i >= 0; i--) if (camps.some((c) => Math.hypot(props[i].x - c.x, props[i].z - c.z) < (c.kind === 'cabin' ? 9 : 6.5))) props.splice(i, 1);
+
   // ─── parked cars along kerbs ───────────────────────────────────────────
   const paints = ['#c0392b', '#2c3e50', '#ecf0f1', '#16a085', '#7f8c8d', '#2980b9', '#111318', '#d35400'];
   const parked: ParkedCar[] = [];
@@ -415,6 +431,7 @@ export function cityLayout(): CityLayout {
     const h = p.kind === 'tree' ? 0.25 : 0.15;
     solids.push({ minX: p.x - h, maxX: p.x + h, minZ: p.z - h, maxZ: p.z + h });
   }
+  for (const c of camps) if (c.kind === 'cabin') solids.push({ minX: c.x - 3.2, maxX: c.x + 3.2, minZ: c.z - 2.7, maxZ: c.z + 2.7 });
   for (const c of parked) {
     const along = Math.abs(Math.sin(c.heading)) > 0.5; // east-west
     const hw = along ? 2.2 : 1.0;
@@ -433,7 +450,7 @@ export function cityLayout(): CityLayout {
     ? { x: d.x + d.nx * toLane, z: d.z - 6, heading: d.nx > 0 ? 0 : Math.PI }
     : { x: d.x - 6, z: d.z + d.nz * toLane, heading: d.nz > 0 ? -Math.PI / 2 : Math.PI / 2 };
 
-  cached = { blocks, buildings, props, parked, plots, landBlocks, solids, spawn, carSpawn };
+  cached = { blocks, buildings, props, parked, plots, landBlocks, camps, solids, spawn, carSpawn };
   return cached;
 }
 

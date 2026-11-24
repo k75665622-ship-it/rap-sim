@@ -302,13 +302,18 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
       const plot = !door && !person && !nearCar ? plotAt(live.p.x, live.p.z) : null;
+      const camp = !door && !person && !nearCar && !plot ? cityLayout().camps.find((c) => Math.hypot(c.x - live.p.x, c.z - live.p.z) < (c.kind === 'cabin' ? 5.2 : 4.2)) : undefined;
+      if (camp) prompt = camp.kind === 'cabin' ? 'Forest cabin · stay' : 'Campfire · sit down';
       if (plot) {
         const pv = viewOf(plot);
         prompt = pv.status === 'auction' ? '🔨 Land auction · bid' : pv.status === 'sale' ? 'Land for sale · look at it' : pv.status === 'yours' ? 'Your land · manage' : `Land owned by ${pv.owner}`;
       }
 
       if (action) {
-        if (plot && !door && !person && !nearCar) {
+        if (camp) {
+          live.p.speed = 0;
+          hudStore.set({ camp: camp.id });
+        } else if (plot && !door && !person && !nearCar) {
           live.p.speed = 0;
           hudStore.set({ plot: plot.id });
         } else if (door) {

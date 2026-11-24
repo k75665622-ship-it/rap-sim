@@ -104,6 +104,38 @@ export function buildLand(bin: Bin) {
     }
   };
   refresh();
+
+  // Forest: tents, campfires and cabins (built once).
+  const fixed = (g: THREE.BufferGeometry, color: string, mats: THREE.Matrix4[], basic = false) => {
+    if (!mats.length) return;
+    const mat = bin.add(basic ? new THREE.MeshBasicMaterial({ color }) : new THREE.MeshLambertMaterial({ color }));
+    const im = new THREE.InstancedMesh(bin.add(g), mat, mats.length);
+    mats.forEach((mm, i) => im.setMatrixAt(i, mm));
+    im.frustumCulled = false;
+    group.add(im);
+  };
+  const tents: THREE.Matrix4[] = [], fires: THREE.Matrix4[] = [], logs: THREE.Matrix4[] = [], cabW: THREE.Matrix4[] = [], cabR: THREE.Matrix4[] = [], doors: THREE.Matrix4[] = [];
+  const one = new THREE.Vector3(1, 1, 1);
+  for (const c of L.camps) {
+    const rq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), c.rot);
+    if (c.kind === 'camp') {
+      const off = new THREE.Vector3(2.6, 0, 0).applyQuaternion(rq);
+      tents.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + off.x, 0.19 + 1.1, c.z + off.z), rq.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4)), one));
+      fires.push(new THREE.Matrix4().makeTranslation(c.x, 0.19 + 0.45, c.z));
+      logs.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0.19 + 0.12, c.z), rq, new THREE.Vector3(1, 1, 1)));
+    } else {
+      cabW.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0.19 + 1.7, c.z), rq, new THREE.Vector3(6, 3.4, 4.6)));
+      cabR.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0.19 + 3.4 + 1.1, c.z), rq.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4)), new THREE.Vector3(1, 1, 1)));
+      const d = new THREE.Vector3(0, 0, 2.31).applyQuaternion(rq);
+      doors.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + d.x, 0.19 + 1.0, c.z + d.z), rq, new THREE.Vector3(1, 2, 0.1)));
+    }
+  }
+  fixed(new THREE.ConeGeometry(1.9, 2.2, 4), '#c9703a', tents);
+  fixed(new THREE.ConeGeometry(0.38, 0.9, 6), '#ff8a1f', fires, true);
+  fixed(new THREE.BoxGeometry(1.5, 0.22, 0.3), '#4a3222', logs);
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#8a6240', cabW);
+  fixed(new THREE.ConeGeometry(4.6, 2.2, 4), '#5b3a26', cabR);
+  fixed(new THREE.BoxGeometry(0.9, 1, 1), '#3a281c', doors);
   return { group, refresh };
 }
 

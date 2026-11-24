@@ -397,3 +397,6 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 
 ### Cities inside a country
 - Each country's listed cities are playable: coach/train from the airport or ferry screen ("Other cities in …"). Every city has its own seeded streets/skyline, local place names, and its own plots (land keyed `Country/City`). Flying or sailing abroad resets you to that country's main city.
+
+### Forest life
+- 82 clearings across the three forests: campfires with tents (sit/write/walk) and 10 rentable cabins (night stay, full rest). Daily creativity/songwriting boost (`forestDay`), and trail walks with small finds, fans and quiet moments.

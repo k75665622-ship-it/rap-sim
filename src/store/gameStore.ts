@@ -883,6 +883,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         devProjects: state.devProjects,
         landTaken: state.landTaken,
         landAuctions: state.landAuctions,
+        forestDay: state.forestDay,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -3219,6 +3220,8 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Things to do in the forest: sit by the fire, write, walk, or stay in a cabin. */
+  forestAct: (kind: 'sit' | 'write' | 'walk' | 'cabin') => FeatureActionResult;
   /** Travel to another city in the country you are in. */
   travelCity: (city: string, price: number, hours: number) => FeatureActionResult;
   bookFlight: (country: string, price: number, hours: number, by?: 'ferry') => FeatureActionResult;
@@ -14019,6 +14022,48 @@ export const useGameStore = create<GameState & GameActions>()(
         result = { ok: true, message: `${first} +${delta}` };
       });
       return result;
+    },
+
+    forestAct: (kind) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      const today = dateToSerial(before.gameDate);
+      const cost = kind === 'cabin' ? 90 : 0;
+      if (p.career.money < cost) return { ok: false, message: 'The cabin keeper wants $90 for the night.' };
+      let message = '';
+      let minutes = 120;
+      set((state) => {
+        const q = state.player;
+        if (!q) return;
+        q.career.money -= cost;
+        const fresh = state.forestDay !== today;
+        const bump = (k: 'creativity' | 'songwriting', n: number) => { q.stats[k] = Math.min(100, (q.stats[k] ?? 0) + n); };
+        if (kind === 'sit') {
+          q.energy = Math.min(q.maxEnergy, q.energy + 28);
+          message = 'The fire does most of the talking. +28 energy.';
+        } else if (kind === 'write') {
+          if (q.energy < 10) { message = 'Too tired to write. Sit by the fire first.'; minutes = 0; return; }
+          q.energy = Math.max(0, q.energy - 6);
+          if (fresh) { bump('songwriting', 0.6); bump('creativity', 0.6); state.forestDay = today; message = 'Two lines you keep, one you steal from the crickets. Your writing sharpens a little.'; }
+          else message = 'You write until the fire dies down. Nothing new today — the well needs a day to fill.';
+        } else if (kind === 'cabin') {
+          minutes = 480;
+          q.energy = q.maxEnergy;
+          if (fresh) { bump('creativity', 1); bump('songwriting', 0.4); state.forestDay = today; }
+          message = 'Slept like a stone. Full energy, and the city noise is out of your head.';
+        } else {
+          minutes = 60;
+          q.energy = Math.max(0, q.energy - 5);
+          const r = Math.random();
+          if (r < 0.35) { const f = Math.round(20 + Math.random() * 130); q.career.money += f; message = `You find a forgotten bag on the trail: $${f}.`; }
+          else if (r < 0.6) { const fans = Math.round(5 + Math.random() * 35); q.career.fanbase += fans; message = `A hiker recognises you. ${fans} new fans, and a selfie with a very tired dog.`; }
+          else if (r < 0.7) { bump('creativity', 0.3); message = 'A hornbill follows you for a while. You hum a melody to it.'; }
+          else message = 'Just trees, light and quiet.';
+        }
+      });
+      if (minutes > 0) get().advanceClock(minutes);
+      return { ok: true, message };
     },
 
     travelCity: (city, price, hours) => {

@@ -99,6 +99,8 @@ export interface HudState {
   talk: string | null;
   /** The plot of open land whose card is showing (its id). */
   plot: string | null;
+  /** The forest camp or cabin whose card is showing (its id). */
+  camp: string | null;
   /** At The Stage's door in the evening: the open mic is on. */
   nearStage: boolean;
   gig: boolean;
@@ -109,7 +111,7 @@ export interface HudState {
   mapOpen: boolean;
 }
 
-let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null, talk: null, plot: null, nearStage: false, gig: false, shooting: false, inside: null, mapOpen: false };
+let hud: HudState = { mode: 'foot', prompt: null, speedKmh: 0, toast: null, talk: null, plot: null, camp: null, nearStage: false, gig: false, shooting: false, inside: null, mapOpen: false };
 const hudListeners = new Set<() => void>();
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 

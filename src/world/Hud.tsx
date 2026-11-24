@@ -20,8 +20,7 @@ import { radio, STATION, useRadio } from './radio';
 import { CarControls, Dashboard } from './CarControls';
 import { useDrivePrefs } from './drivePrefs';
 import { gpsState, waitingFor } from './gps';
-import { zoneAt, ZONES, currentCountry } from './layout';
-import { getCitiesByCountry } from '../data/locations';
+import { zoneAt, ZONES, currentCity } from './layout';
 import { live } from './sim';
 import { useUi } from './ui';
 import { MapOverlay, Minimap } from './MapView';
@@ -47,7 +46,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       const me = live.mode === 'car' ? live.car : live.p;
       if (hudStore.get().inside) return;
       const z = zoneAt(me.x, me.z);
-      if (zoneRef.current !== null && zoneRef.current !== z) hudStore.toast(`📍 ${getCitiesByCountry(currentCountry())[0]?.name ?? currentCountry()} · ${ZONES[z].name}`, 2600);
+      if (zoneRef.current !== null && zoneRef.current !== z) hudStore.toast(`📍 ${currentCity()} · ${ZONES[z].name}`, 2600);
       zoneRef.current = z;
     }, 600);
     return () => clearInterval(i);

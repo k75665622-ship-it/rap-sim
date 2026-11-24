@@ -177,12 +177,21 @@ export interface CityLayout {
 
 let cached: CityLayout | null = null;
 let worldCountry = 'Ghana';
+let worldCity = '';
 export const currentCountry = (): string => worldCountry;
-/** Which country's city the world is built as. Ghana is the original; every other country gets its own streets and palette. */
-export function setWorldCountry(c: string): void {
-  if (c && c !== worldCountry) { worldCountry = c; cached = null; }
+/** The capital (first listed city) is the country's main city; others are 'away' cities. */
+const mainCity = (c: string) => getCitiesByCountry(c)[0]?.name ?? c;
+/** The city you are in, inside the current country. */
+export const currentCity = (): string => worldCity || mainCity(worldCountry);
+/** A key for things owned in this world (land): the country, plus the city when it is not the main one. */
+export const worldKey = (): string => (worldCity && worldCity !== mainCity(worldCountry) ? `${worldCountry}/${worldCity}` : worldCountry);
+/** Which country's city the world is built as. Ghana's Accra is the original; every other country and city gets its own streets and palette. */
+export function setWorldCountry(c: string, city = ''): void {
+  const cc = city && city !== mainCity(c) ? city : '';
+  if (c && (c !== worldCountry || cc !== worldCity)) { worldCountry = c; worldCity = cc; cached = null; }
 }
-const seedFor = (c: string) => (c === 'Ghana' ? 1919 : [...c].reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 7) || 1);
+const hashStr = (s: string) => [...s].reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 7) || 1;
+const seedFor = (c: string) => (c === 'Ghana' && !worldCity ? 1919 : hashStr(c + (worldCity ? '/' + worldCity : '')));
 const THEMES: Record<string, string[]> = {
   Africa: ['#e3c9a0', '#d3a77a', '#c98f66', '#ecd9b5', '#b9a27f', '#f0e0c0'],
   Europe: ['#b8b2aa', '#a39a8f', '#c4a38a', '#8f8a86', '#d3cdc4', '#9a8f86'],
@@ -198,9 +207,9 @@ const NAMES: Record<string, Partial<Record<string, string>>> = {
 };
 /** The same places, named for where you are. Story-bound ones (the kitchen, Studio 9, the label) keep their names. */
 export function localPlace(p: Place, country = worldCountry): Place {
-  if (country === 'Ghana') return p;
+  if (country === 'Ghana' && !worldCity) return p;
   const r = regionOf(country);
-  const city = (getCitiesByCountry(country)[0]?.name ?? country).toUpperCase();
+  const city = (country === worldCountry ? currentCity() : mainCity(country)).toUpperCase();
   const c = country.toUpperCase();
   const name = p.id === 'airport' ? `${c} INTL AIRPORT` : p.id === 'stadium' ? `${c} NATIONAL STADIUM` : p.id === 'port' ? `${city} HARBOUR` : NAMES[p.id]?.[r] ?? p.name;
   return name === p.name ? p : { ...p, name };

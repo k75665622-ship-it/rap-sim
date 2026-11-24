@@ -394,3 +394,6 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 ### Local currency
 - Amounts show in the money of the country you're in (GH₵, ₦, £, €, ¥…; ~60 currencies, fixed game rates). Underneath, everything is still dollars.
 - `utils/currency.ts` (rates/symbols), money formatters convert, and `currencyDom.ts` converts any hard-coded "$1,234" text as it reaches the screen. Account → Money switches back to US dollars.
+
+### Cities inside a country
+- Each country's listed cities are playable: coach/train from the airport or ferry screen ("Other cities in …"). Every city has its own seeded streets/skyline, local place names, and its own plots (land keyed `Country/City`). Flying or sailing abroad resets you to that country's main city.

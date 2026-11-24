@@ -138,6 +138,9 @@ fs.writeFileSync('capacitor.config.json', JSON.stringify({
   android: { backgroundColor: BG, allowMixedContent: false, webContentsDebuggingEnabled: false },
 }, null, 2));
 
+log('Giving the offline page the game address (it retries until the server wakes)');
+fs.writeFileSync('www/offline.html', read('www/offline.html').replace(/var GAME = '[^']*'/, `var GAME = '${ok ? url : ''}'`));
+
 log('Drawing the app icon and splash screen');
 await makeArt();
 

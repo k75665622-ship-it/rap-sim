@@ -566,25 +566,47 @@ export const buildFlat = (bin: Bin) => buildRoom(bin, {
 export const VEN_X = 3200;
 
 export const buildStadium = (bin: Bin) => buildRoom(bin, {
-  id: 'stadium', name: 'National Stadium', x0: VEN_X, placeId: 'stadium', W: 9, D: 6.5, wall: '#cfd8c8', floor: '#3f7a3a', rug: [0, -0.5, 10, 6, '#4f9a45'], sign: 'NATIONAL STADIUM', signColor: '#7bd34d',
+  id: 'stadium', name: 'National Stadium', x0: VEN_X, placeId: 'stadium', W: 30, D: 20,
+  wall: '#cfd8c8', floor: '#3f7a3a', rug: [0, -1, 46, 30, '#4f9a45'], sign: 'NATIONAL STADIUM', signColor: '#7bd34d',
   boxes: [
-    [-8.8, 8.8, -6.4, -5.2, 1.6, '#8a8f98'], [-8.8, 8.8, -5.2, -4.6, 2.4, '#7b808a'],     // north stand
-    [-8.8, -7.4, -4.6, 4.8, 1.2, '#8a8f98'], [7.4, 8.8, -4.6, 4.8, 1.2, '#8a8f98'],        // side stands
-    [-0.15, 0.15, -3.6, 2.4, 0.03, '#ffffff', 0.02, false],                                // halfway line
-    [-1.0, 1.0, -3.6, -3.4, 0.03, '#ffffff', 0.02, false],
-    [-1.5, 1.5, -3.2, -3.0, 2.3, '#e8e8e8', 0, false],                                     // goal frame (north)
-    [-1.5, 1.5, 2.2, 2.4, 2.3, '#e8e8e8', 0, false],
-    [-8, -7.6, 5.0, 6.2, 0.8, '#222'], [7.6, 8, 5.0, 6.2, 0.8, '#222'],
+    // Full-size pitch: 46m x 30m play area with proper markings.
+    [-23, 23, -15, 15, 0.035, '#4f9a45', 0.02, false],
+    [-0.08, 0.08, -15, 15, 0.035, '#ffffff', 0.03, false],
+    [-23, 23, -0.08, 0.08, 0.035, '#ffffff', 0.03, false],
+    [-11, 11, -15, -14.92, 0.035, '#ffffff', 0.03, false],
+    [-11, 11, 14.92, 15, 0.035, '#ffffff', 0.03, false],
+    [-23, -22.92, -11, 11, 0.035, '#ffffff', 0.03, false],
+    [22.92, 23, -11, 11, 0.035, '#ffffff', 0.03, false],
+    // Penalty boxes.
+    [-23, -16, -6.5, 6.5, 0.035, '#ffffff', 0.03, false],
+    [16, 23, -6.5, 6.5, 0.035, '#ffffff', 0.03, false],
+    // Four large spectator stands.
+    [-30, 30, -20, -15.8, 4.8, '#777d88'],
+    [-30, 30, 15.8, 20, 4.8, '#777d88'],
+    [-30, -23.8, -15, 15, 4.2, '#858b95'],
+    [23.8, 30, -15, 15, 4.2, '#858b95'],
+    // Tiered upper stands.
+    [-28, 28, -19.5, -17.8, 2.4, '#9298a2'],
+    [-28, 28, 17.8, 19.5, 2.4, '#9298a2'],
+    [-28, -26.2, -14, 14, 2.0, '#9298a2'],
+    [26.2, 28, -14, 14, 2.0, '#9298a2'],
+    // Goals.
+    [-1.8, 1.8, -15.2, -15.0, 2.4, '#eeeeee', 0, false],
+    [-1.8, 1.8, 15.0, 15.2, 2.4, '#eeeeee', 0, false],
+    // Big entrance/concourse blocks.
+    [-26, -20, 18, 19.5, 1.0, '#30343b'],
+    [20, 26, 18, 19.5, 1.0, '#30343b'],
   ],
   npcs: [
-    { id: 'groundsman', who: 'Groundsman', seed: 'stad-g', x: -4.5, z: 3.2, rot: 0.6, work: true },
-    { id: 'steward', who: 'Steward', seed: 'stad-s', x: 5.5, z: 5.2, rot: Math.PI },
+    { id: 'groundsman', who: 'Groundsman', seed: 'stad-g', x: -18, z: 12, rot: 0.6, work: true },
+    { id: 'steward', who: 'Steward', seed: 'stad-s', x: 20, z: 17, rot: Math.PI, work: true },
   ],
   visitors: [],
   spots: [
-    { id: 'pitch', x: 0, z: -0.5, label: 'Centre circle · book the stadium', reach: 2.2, kind: 'act', act: 'screen:shows' },
+    { id: 'pitch', x: 0, z: -2, label: 'Pitch · watch / book the stadium', reach: 3.0, kind: 'act', act: 'screen:shows' },
+    { id: 'stands', x: 0, z: -18, label: 'Main stand · watch live football', reach: 3.0, kind: 'act', act: 'screen:shows' },
   ],
-  lights: [[-5, -2, '#ffffff'], [5, -2, '#ffffff'], [0, 3, '#fff7e6']],
+  lights: [[-22, -12, '#ffffff'], [22, -12, '#ffffff'], [-22, 12, '#ffffff'], [22, 12, '#fff7e6']],
 });
 
 export const buildArena = (bin: Bin) => buildRoom(bin, {

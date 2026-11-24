@@ -1,0 +1,21 @@
+{
+  "name": "rap-life-android",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Wraps the RAP LIFE web game as an Android app with Capacitor. GitHub Actions builds the APK; see README.md.",
+  "scripts": {
+    "setup": "node scripts/setup.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.2",
+    "sharp": "^0.35.5"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd24a"/>
+      <stop offset="1" stop-color="#ff9d00"/>
+    </linearGradient>
+  </defs>
+  <!-- A ring and the letters R L, drawn as strokes so no font is needed. Kept inside the middle 66% (adaptive icon safe zone). -->
+  <circle cx="512" cy="512" r="250" fill="none" stroke="url(#g)" stroke-width="34"/>
+  <g transform="translate(372 417)" fill="none" stroke="url(#g)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 190 L0 0 L70 0 Q128 0 128 48 Q128 96 70 96 L0 96 M62 96 L132 190"/>
+    <path d="M186 0 L186 190 L292 190"/>
+  </g>
+</svg>

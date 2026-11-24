@@ -529,11 +529,13 @@ function addResidentialFront(b: Building, root: THREE.Group, bin: Bin, markers: 
   // taller; houses get a warmer lower pair.
   const winMat = mat({ color: b.homeType === 'apartment' ? '#6c9fc5' : '#8fc1d4', emissive: '#8bc7e8', emissiveIntensity: 0.12 });
   glow.push({ mat: winMat, day: 0.08, night: 0.35 });
+  const windowHeight = b.homeType === 'apartment' ? 2.25 : 1.65;
+  const windowY = b.homeType === 'apartment' ? 2.35 : 1.85;
   for (const sx of [-2.65, 2.65]) {
-    const w = new THREE.Mesh(box(1.8, b.homeType === 'apartment' ? 2.25 : 1.65, 0.12), winMat);
-    w.position.set(sx, b.homeType === 'apartment' ? 2.35 : 1.85, 0.04); face.add(w);
-    const mullion = new THREE.Mesh(box(0.08, w.scale.y * 0 + (b.homeType === 'apartment' ? 2.25 : 1.65), 0.14), mat({ color: '#e7e1d6' }));
-    mullion.position.set(sx, b.homeType === 'apartment' ? 2.35 : 1.85, 0.12); face.add(mullion);
+    const w = new THREE.Mesh(box(1.8, windowHeight, 0.12), winMat);
+    w.position.set(sx, windowY, 0.04); face.add(w);
+    const mullion = new THREE.Mesh(box(0.08, windowHeight, 0.14), mat({ color: '#e7e1d6' }));
+    mullion.position.set(sx, windowY, 0.12); face.add(mullion);
   }
 
   // Small mailbox / number plate beside the door.

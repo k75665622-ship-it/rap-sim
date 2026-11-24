@@ -207,6 +207,9 @@ export interface Resident {
   hold: number;
   startle: number;
   lastPlan: number;
+  /** Ambient street behavior: keeps pedestrians from looking like synchronized robots. */
+  activity: 'walk' | 'idle' | 'phone';
+  activityTimer: number;
 }
 
 const LOCAL_NAMES = ['Kwame', 'Ama', 'Kojo', 'Efua', 'Yaw', 'Akosua', 'Kofi', 'Abena', 'Tunde', 'Ngozi', 'Chidi', 'Aisha', 'Femi', 'Esi', 'Kwabena', 'Adwoa', 'Emeka', 'Zainab'];
@@ -269,6 +272,7 @@ export function cast(): Resident[] {
       offset: Math.floor(rnd01(`off|${id}`) * 90) - 30,
       inside: -1, goal: -1, goalDoing: 'stroll', path: [], pathNodes: [],
       x: 0, z: 0, rot: 0, speed: 1.35 + rnd01(`spd|${id}`) * 0.5, phase: rnd01(`ph|${id}`) * 6, hold: 0, startle: 0, lastPlan: -1,
+      activity: 'walk', activityTimer: 0,
     };
   };
 
@@ -440,6 +444,20 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null): bo
     }
     if (r.inside >= 0) continue;
     if (r.hold > 0) { r.hold -= dt; continue; }
+
+    // At a junction, occasionally stop to check a phone or simply take in the
+    // street. These pauses are deterministic per NPC/day, so they feel varied
+    // without introducing random work every frame.
+    if (r.activityTimer > 0) {
+      r.activityTimer -= dt;
+      if (r.activityTimer <= 0) r.activity = 'walk';
+      continue;
+    }
+    if (r.path.length && r.path.length < 2 && rnd01(`${r.id}|pause|${day}|${Math.round(r.x)}|${Math.round(r.z)}`) < 0.18) {
+      r.activity = rnd01(`${r.id}|activity|${day}|${Math.round(r.x)}|${Math.round(r.z)}`) < 0.58 ? 'idle' : 'phone';
+      r.activityTimer = 1.8 + rnd01(`${r.id}|pauseLen|${day}|${Math.round(r.x)}|${Math.round(r.z)}`) * 3.4;
+      continue;
+    }
 
     const target = r.path[0];
     if (!target) {

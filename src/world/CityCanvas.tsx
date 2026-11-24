@@ -24,7 +24,7 @@ import { cityLayout, type Place } from './layout';
 import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
-import { buildTraffic, type TrafficSystem } from './traffic';
+import { buildTraffic } from './traffic';
 
 const SKY = '#9cc3e6';
 /** How close to a door marker counts as "at the door". */
@@ -182,8 +182,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const steps = Math.max(1, Math.ceil(frameDt / 0.034));
     const dt = frameDt / steps;
     const t = state.clock.elapsedTime;
-    traffic.update(frameDt, t);
     const { player, car, pShadow, cShadow, city, doors, ray, traffic } = built;
+    traffic.update(frameDt, t);
 
     // ── camera drag ─────────────────────────────────────────────────────
     const look = takeLook();

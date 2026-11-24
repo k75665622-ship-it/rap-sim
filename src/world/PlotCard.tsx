@@ -8,6 +8,7 @@ import { hudStore } from './input';
 import { cityLayout, currentCountry, ZONES } from './layout';
 import { landZoneOf, viewOf } from './land';
 import { LAND_TIERS, plotKey, plotPrice, takenBy } from '../sim/land';
+import { dateToSerial } from '../sim/gameClock';
 import { BUILDS, buildOf } from '../sim/realestate';
 
 export function PlotCard() {
@@ -42,13 +43,15 @@ export function PlotCard() {
   const mine = (st.devProjects ?? []).find((d) => d.id === v.projectId);
   const buy = (ids: string[]) => { const r = useGameStore.getState().buyWorldPlot(ids, lz); setMsg(r.message); };
   void takenBy;
+  const daysLeft = v.endSerial !== undefined ? Math.max(0, v.endSerial - dateToSerial(st.gameDate)) : 0;
+  const nextBid = Math.ceil(((v.bid ?? 0) * 1.1) / 100) * 100;
   return (
     <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center p-3 pointer-events-none">
       <div className="pointer-events-auto w-[min(94vw,440px)] rounded-[18px] bg-[#12141a]/95 backdrop-blur border border-white/10 p-4 text-[13px]">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-[11px] tracking-widest text-ink2 font-bold">{ZONES[plot.zone].name.toUpperCase()}</div>
-            <div className="text-[17px] font-black">{tier.emoji} {v.status === 'yours' ? 'Your land' : v.status === 'taken' ? 'Sold land' : 'Land for sale'}</div>
+            <div className="text-[17px] font-black">{tier.emoji} {v.status === 'yours' ? 'Your land' : v.status === 'taken' ? 'Sold land' : v.status === 'auction' ? 'Land auction' : 'Land for sale'}</div>
           </div>
           <button className="text-ink2 text-lg px-2" onClick={close} aria-label="Close">✕</button>
         </div>
@@ -58,6 +61,15 @@ export function PlotCard() {
           <p className="mt-2">
             {mine.stage === 'land' ? 'Empty — ready to build on.' : mine.stage === 'building' ? `Under construction: ${mine.build ? buildOf(mine.build).name : ''}.` : `Finished: ${mine.build ? buildOf(mine.build).name : ''}${mine.estate ? ' · part of your estate' : ''}.`}
           </p>
+        ) : null}
+        {v.status === 'auction' ? (
+          <div className="mt-3 grid gap-2">
+            <div>Top bid <b>{money(v.bid ?? 0)}</b> · {v.bidder === 'You' ? <b className="text-amber">you</b> : v.bidder} · {daysLeft} day{daysLeft === 1 ? '' : 's'} left</div>
+            <button className="h-11 rounded-xl bg-[#b57bff] text-black font-black" onClick={() => { const r = useGameStore.getState().bidOnPlot(plot.id); setMsg(r.message); }}>
+              {v.bidder === 'You' ? 'You are leading' : `Bid ${money(nextBid)}`}
+            </button>
+            <div className="text-ink2 text-[12px]">You pay only if you win, when the hammer falls. Keep the cash.</div>
+          </div>
         ) : null}
         {v.status === 'sale' ? (
           <div className="mt-3 grid gap-2">
@@ -73,6 +85,7 @@ export function PlotCard() {
             <button className="h-11 rounded-xl bg-amber text-black font-black" onClick={() => { close(); useGameStore.getState().setScreen('investments'); }}>
               {mine?.stage === 'land' ? 'Choose what to build' : 'Open Property'}
             </button>
+            {mine?.stage === 'land' ? <button className="h-10 rounded-xl bg-white/10 border border-white/15 font-bold" onClick={() => { const r = useGameStore.getState().sellProject(mine.id); setMsg(r.message); }}>Sell the land back</button> : null}
             {mine?.stage === 'land' ? <div className="text-ink2 text-[12px]">{BUILDS.map((b) => `${b.emoji} ${b.name}`).join(' · ')}</div> : null}
           </div>
         ) : null}

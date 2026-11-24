@@ -882,6 +882,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         ventures: state.ventures,
         devProjects: state.devProjects,
         landTaken: state.landTaken,
+        landAuctions: state.landAuctions,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -1364,6 +1365,7 @@ function getInitialState(): GameState {
     ventures: [],
     devProjects: [],
     landTaken: {},
+    landAuctions: [],
     wealthHistory: [],
     pendingDMs: [],
     appointments: [],
@@ -3217,7 +3219,7 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
-  bookFlight: (country: string, price: number, hours: number) => FeatureActionResult;
+  bookFlight: (country: string, price: number, hours: number, by?: 'ferry') => FeatureActionResult;
   /** Open mic at The Stage (the city): a 0–100 set pays fans and tips, once a day. */
   performStreetGig: (score: number) => FeatureActionResult;
   markDMRead: (npcId: string) => void;
@@ -3525,6 +3527,8 @@ interface GameActions {
   buyPlot: (zone: Zone) => FeatureActionResult;
   /** Buy one plot of open land, or (with several ids) a whole block as an estate. */
   buyWorldPlot: (ids: string[], landZone: LandZone) => FeatureActionResult;
+  /** Raise your bid on a plot that is up for auction. */
+  bidOnPlot: (plotId: string) => FeatureActionResult;
   startBuild: (projectId: string, build: BuildType) => FeatureActionResult;
   payOverrun: (projectId: string) => FeatureActionResult;
   setRenting: (projectId: string, on: boolean) => FeatureActionResult;
@@ -9528,6 +9532,7 @@ export function monthlyBurnOf(state: Pick<GameState, 'home' | 'homes' | 'ownedAs
 
 /** Rent renewals, the landlord's patience, and the monthly bills. */
 /** Out in the open world, other buyers are moving too: a plot you wait on can be gone tomorrow. */
+const ZONES_NAME = (z: string) => ({ plots: 'Sunrise Plots', wilds: 'Ridge Wilds', farms: 'Meadow Farms', lakeside: 'Lakeside' }[z] ?? 'the new districts');
 function landTick(state: GameState, days: number, serial: number): void {
   const country = currentCountry();
   const L = cityLayout();
@@ -9539,11 +9544,51 @@ function landTick(state: GameState, days: number, serial: number): void {
     if (!taken[k]) taken[k] = { by: NPC_OWNERS[Math.floor(roll(k + serial) * NPC_OWNERS.length)], serial };
   }
   const own = new Set(mine.filter((d) => d.stage !== 'sold').map((d) => d.plotId!));
+  const idx = state.market?.propertyIndex ?? 100;
+  const zoneOfPlot = (id: string) => { const z = L.plots.find((x) => x.id === id)?.zone; return (z && ['plots', 'wilds', 'farms', 'lakeside'].includes(z) ? z : 'plots') as LandZone; };
+  // The hammer falls.
+  const live = (state.landAuctions ??= []).filter((a) => a.country === country);
+  for (const a of live) {
+    if (serial < a.endSerial) {
+      // Other bidders push the price up while the clock runs.
+      for (let i = 0; i < days; i++) if (a.bidder === 'You' && Math.random() < 0.3) { a.bid = Math.ceil((a.bid * (1.06 + Math.random() * 0.08)) / 100) * 100; a.bidder = NPC_OWNERS[Math.floor(Math.random() * NPC_OWNERS.length)]; if (Math.random() < 0.7) pushNotification(state, { kind: 'business', title: '🔨 You were outbid', body: `${a.bidder} went to $${a.bid.toLocaleString()} on the plot you were bidding for.`, artSeed: `auc|${a.plotId}` }); }
+      continue;
+    }
+    state.landAuctions = state.landAuctions!.filter((x) => x !== a);
+    const k = plotKey(country, a.plotId);
+    const p = state.player;
+    if (a.bidder === 'You' && p && p.career.money >= a.bid) {
+      p.career.money -= a.bid;
+      (state.devProjects ??= []).push({
+        id: uuidv4(), zone: LAND_TIERS[zoneOfPlot(a.plotId)].zone, stage: 'land', landCost: a.bid, buildCost: 0, spent: a.bid, boughtSerial: serial, indexAtBuy: idx,
+        quality: Math.round(45 + (p.stats.businessKnowledge ?? 40) / 5), renting: false, owed: 0, totalRent: 0, plotId: a.plotId, country, estate: false,
+        log: [`Won the auction for $${a.bid.toLocaleString()}.`],
+      });
+      own.add(a.plotId);
+      pushNotification(state, { kind: 'business', title: '🔨 You won the auction', body: `The plot is yours for $${a.bid.toLocaleString()}.`, artSeed: `auc|${a.plotId}` });
+    } else {
+      taken[k] = { by: a.bidder === 'You' ? 'Zenith Land Co.' : a.bidder, serial };
+      if (a.bidder === 'You') pushNotification(state, { kind: 'business', title: '🔨 Auction lost', body: `You led, but couldn't cover $${a.bid.toLocaleString()} when the hammer fell. The plot went to the next bidder.`, artSeed: `auc|${a.plotId}` });
+    }
+  }
+  // Sometimes a good plot goes to auction.
+  const open = (state.landAuctions ?? []).filter((a) => a.country === country);
+  if (open.length < 3 && Math.random() < 1 - Math.pow(1 - 0.1, days)) {
+    const pool = L.plots.filter((x) => !own.has(x.id) && !takenBy(taken, plotKey(country, x.id)) && !open.some((a) => a.plotId === x.id));
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    if (pick) {
+      const lz = zoneOfPlot(pick.id);
+      const start = Math.round(plotPrice(lz, plotKey(country, pick.id), idx, 0) * 0.65 / 100) * 100;
+      state.landAuctions!.push({ plotId: pick.id, country, endSerial: serial + 3 + Math.floor(Math.random() * 3), bid: start, bidder: 'Opening bid' });
+      pushNotification(state, { kind: 'business', title: '🔨 Land auction', body: `A plot in ${ZONES_NAME(pick.zone)} goes to auction from $${start.toLocaleString()}. Ends in a few days.`, artSeed: `auc|${pick.id}` });
+    }
+  }
   const chance = snapChance(days, state.market?.propertyIndex ?? 100);
   for (const pl of L.plots) {
     if (own.has(pl.id)) continue;
     const k = plotKey(country, pl.id);
     if (takenBy(taken, k)) continue;
+    if ((state.landAuctions ?? []).some((a) => a.country === country && a.plotId === pl.id)) continue;
     if (Math.random() >= chance) continue;
     const by = NPC_OWNERS[Math.floor(Math.random() * NPC_OWNERS.length)];
     taken[k] = { by, serial };
@@ -13974,7 +14019,7 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    bookFlight: (country, price, hours) => {
+    bookFlight: (country, price, hours, by) => {
       const before = get();
       const p = before.player;
       if (!p) return { ok: false, message: 'There is no career open.' };
@@ -13985,10 +14030,10 @@ export const useGameStore = create<GameState & GameActions>()(
         state.player.career.money -= price;
         state.player.energy = Math.max(0, state.player.energy - Math.min(25, 4 + hours * 1.5));
         state.story.flags['abroad'] = home ? '' : country;
-        remember(state, 'life', home ? `Flew home to ${country}.` : `Flew to ${country}.`, { weight: 2 });
+        remember(state, 'life', home ? (by ? `Sailed home to ${country}.` : `Flew home to ${country}.`) : (by ? `Took the boat to ${country}.` : `Flew to ${country}.`), { weight: 2 });
       });
       get().advanceClock(hours * 60);
-      return { ok: true, message: home ? 'Welcome home.' : `Landed in ${country}.` };
+      return { ok: true, message: home ? 'Welcome home.' : by ? `Docked in ${country}.` : `Landed in ${country}.` };
     },
 
     eatMeal: (price, energy, minutes, name) => {
@@ -18560,6 +18605,7 @@ export const useGameStore = create<GameState & GameActions>()(
         if (mine.length + ids.length > 20) { result.message = 'Twenty properties at once is the limit.'; return; }
         const gone = ids.filter((id) => takenBy(state.landTaken, plotKey(country, id)) || mine.some((d) => d.plotId === id && d.country === country));
         if (gone.length) { result.message = ids.length > 1 ? 'Part of that block is already taken — someone got there first.' : 'Too late — someone else just bought it.'; return; }
+        if ((state.landAuctions ?? []).some((a) => a.country === country && ids.includes(a.plotId))) { result.message = 'That plot is going to auction — bid on it instead.'; return; }
         const estate = ids.length > 1;
         const disc = dealDiscount(state) + (estate ? 0.1 : 0);
         const prices = ids.map((id) => plotPrice(landZone, plotKey(country, id), m.propertyIndex, disc));
@@ -18576,6 +18622,23 @@ export const useGameStore = create<GameState & GameActions>()(
           });
         });
         result = { ok: true, message: estate ? `${tier.emoji} Estate started — ${ids.length} plots for $${total.toLocaleString()} (10% off). Open Property to build.` : `${tier.emoji} Plot is yours: $${total.toLocaleString()}. Open Property to build on it.` };
+      });
+      return result;
+    },
+
+    bidOnPlot: (plotId) => {
+      let result: FeatureActionResult = { ok: false, message: 'No auction for that plot.' };
+      set((state) => {
+        const p = state.player;
+        const country = currentCountry();
+        const a = (state.landAuctions ?? []).find((x) => x.plotId === plotId && x.country === country);
+        if (!p || !a) return;
+        if (a.bidder === 'You') { result.message = 'You are already the top bidder.'; return; }
+        const next = Math.ceil((a.bid * 1.1) / 100) * 100;
+        if (p.career.money < next) { result.message = `You need $${next.toLocaleString()} in hand to bid. Winners pay when the hammer falls.`; return; }
+        a.bid = next;
+        a.bidder = 'You';
+        result = { ok: true, message: `You lead at $${next.toLocaleString()}. Ends in ${Math.max(0, a.endSerial - dateToSerial(state.gameDate))} days — keep cash ready.` };
       });
       return result;
     },

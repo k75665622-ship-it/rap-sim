@@ -376,3 +376,6 @@ Story `where` now accepts any walkable place (stadium, arena, lots, mall, airpor
 
 ### Overhaul slice 14 — tenants
 `tenantOf(home)` gives each let flat a stable person (name, job) whose mood follows your asking rent (happy ≤105% of market, uneasy ≤125%, angry above). Apartment lobby doors now map to your first three owned flats (A/B/C) with the tenant's name and mood on the prompt; inside, the tenant stands in the flat and talks to you (their line, then the lease screen). Lifestyle shows the tenant. Next: tenants moving out / late rent events, more than three units, furnishing upgrades.
+
+### Slice 14b — tenant events
+Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goes empty and the next tenant is someone new (`lettings` counter). A happy tenant occasionally means a repair bill (30% of a month's rent). Log lines and a memory mark each.

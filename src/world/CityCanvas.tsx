@@ -25,6 +25,7 @@ import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJu
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
 import { buildTraffic } from './traffic';
+import { buildTransport } from './transport';
 
 const SKY = '#9cc3e6';
 /** How close to a door marker counts as "at the door". */
@@ -72,6 +73,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const player = buildPlayer(lookRef.current, bin);
     const car = buildCar('#ffb800', bin);
     const traffic = buildTraffic(bin);
+    const transport = buildTransport(bin);
     const blob = blobTexture(bin);
     const shadowMat = bin.add(new THREE.MeshBasicMaterial({ map: blob, transparent: true, depthWrite: false }));
     const plane = bin.add(new THREE.PlaneGeometry(1, 1));
@@ -119,11 +121,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin), apts: buildApts(bin), flat: buildFlat(bin), airport: buildAirport(bin), stadium: buildStadium(bin), arena: buildArena(bin), lots: buildLot(bin), mall: buildMall(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
-    scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
+    scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, homeType: b.homeType, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, poses, ray: new THREE.Raycaster() };
+    return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, transport, poses, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => {
@@ -182,8 +184,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const steps = Math.max(1, Math.ceil(frameDt / 0.034));
     const dt = frameDt / steps;
     const t = state.clock.elapsedTime;
-    const { player, car, pShadow, cShadow, city, doors, ray, traffic } = built;
+    const { player, car, pShadow, cShadow, city, doors, ray, traffic, transport } = built;
     traffic.update(frameDt, t);
+    const transportNight = daylightAt(tmp.minute).night;
+    transport.update(frameDt, t, transportNight);
 
     // ── camera drag ─────────────────────────────────────────────────────
     const look = takeLook();

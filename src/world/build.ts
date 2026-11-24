@@ -734,7 +734,10 @@ export interface CrowdPerson {
   scale: number;
 }
 
-export interface CrowdPose { visible: boolean; x: number; y: number; z: number; rot: number; phase: number; moving: boolean; arms?: number }
+export interface CrowdPose {
+  visible: boolean; x: number; y: number; z: number; rot: number; phase: number; moving: boolean;
+  arms?: number; activity?: 'walk' | 'idle' | 'phone'; startle?: number;
+}
 
 export interface Crowd {
   group: THREE.Group;
@@ -804,19 +807,29 @@ export function buildCrowd(people: CrowdPerson[], bin: Bin): Crowd {
         continue;
       }
       const s = people[i].scale;
-      const bob = p.moving ? Math.abs(Math.sin(p.phase)) * 0.05 : 0;
-      base.compose(pos.set(p.x, p.y + bob, p.z), q.setFromAxisAngle(up, p.rot), scl.set(s, s, s));
+      const activity = p.activity ?? (p.moving ? 'walk' : 'idle');
+      const bob = p.moving ? Math.abs(Math.sin(p.phase)) * 0.055 : Math.sin(p.phase * 0.7) * 0.012;
+      // A tiny side-to-side weight shift gives idle pedestrians a pulse instead
+      // of making them look frozen. Keep it in the matrix so there are still
+      // only the same instanced draw calls.
+      const lean = activity === 'idle' ? Math.sin(p.phase * 0.7) * 0.025 : activity === 'phone' ? -0.035 : 0;
+      base.compose(pos.set(p.x, p.y + bob, p.z), q.setFromAxisAngle(up, p.rot + lean), scl.set(s, s, s));
       torso.setMatrixAt(i, base);
-      heads.setMatrixAt(i, base);
-      eyes.setMatrixAt(i, base);
-      hair.setMatrixAt(i, people[i].colors.bald ? zero : base);
-      const swing = p.moving ? Math.sin(p.phase) * 0.6 : 0;
+      // Heads subtly scan the street while idle; phone users look down.
+      const headYaw = activity === 'idle' ? Math.sin(p.phase * 0.55) * 0.22 : activity === 'phone' ? -0.18 : 0;
+      const headQ = q.setFromAxisAngle(up, p.rot + headYaw);
+      const headBase = tmp.compose(pos.set(p.x, p.y + bob, p.z), headQ, scl.set(s, s, s));
+      heads.setMatrixAt(i, headBase);
+      eyes.setMatrixAt(i, headBase);
+      hair.setMatrixAt(i, people[i].colors.bald ? zero : headBase);
+      const swing = p.moving ? Math.sin(p.phase) * 0.62 : activity === 'idle' ? Math.sin(p.phase * 0.7) * 0.08 : 0;
       const l = limbM;
       limb(0.13, 0.92, swing, l); legs.setMatrixAt(i * 2, l); shoes.setMatrixAt(i * 2, l);
       limb(-0.13, 0.92, -swing, l); legs.setMatrixAt(i * 2 + 1, l); shoes.setMatrixAt(i * 2 + 1, l);
       const arm = p.arms ?? 0;
-      limb(0.38, 1.56, arm ? -arm : -swing * 0.9, l); sleeves.setMatrixAt(i * 2, l); forearms.setMatrixAt(i * 2, l);
-      limb(-0.38, 1.56, arm ? -arm : swing * 0.9, l); sleeves.setMatrixAt(i * 2 + 1, l); forearms.setMatrixAt(i * 2 + 1, l);
+      const phonePose = activity === 'phone';
+      limb(0.38, 1.56, arm ? -arm : phonePose ? -1.05 : -swing * 0.9, l); sleeves.setMatrixAt(i * 2, l); forearms.setMatrixAt(i * 2, l);
+      limb(-0.38, 1.56, arm ? -arm : phonePose ? -0.25 : swing * 0.9, l); sleeves.setMatrixAt(i * 2 + 1, l); forearms.setMatrixAt(i * 2 + 1, l);
       shadows.setMatrixAt(i, m.makeTranslation(p.x, p.y + 0.02, p.z));
     }
     for (const im of [legs, shoes, torso, sleeves, forearms, heads, hair, eyes, shadows]) im.instanceMatrix.needsUpdate = true;

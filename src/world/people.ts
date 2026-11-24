@@ -387,6 +387,7 @@ function setGoal(r: Resident, node: number, doing: Doing) {
   }
   r.goal = node;
   r.goalDoing = doing;
+  r.arrivalHold = 0;
   const nodes = from === node ? [node] : [from, ...route(from, node)];
   r.pathNodes = nodes;
   r.path = nodes.map((i) => ({ x: N.nodes[i].x, z: N.nodes[i].z }));

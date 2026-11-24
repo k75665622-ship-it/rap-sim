@@ -221,27 +221,26 @@ export function buildCity(bin: Bin): CityObjects {
 
   // Pavements and the park, merged into two meshes.
   const pave = pavementTexture(bin);
-  const paveGeos: THREE.BufferGeometry[] = [];
-  const grassGeos: THREE.BufferGeometry[] = [];
+  const paveGeos = new Map<string, THREE.BufferGeometry[]>();
+  const grassGeos = new Map<string, THREE.BufferGeometry[]>();
+  const into = (m: Map<string, THREE.BufferGeometry[]>, k: string, g: THREE.BufferGeometry) => { if (!m.has(k)) m.set(k, []); m.get(k)!.push(g); };
   for (const b of L.blocks) {
     // A block's slab runs out to the kerb, except at the edge of the world.
     const grow = (v: number, dir: number) => (v <= WORLD.x0 + 0.01 || v >= WORLD.x1 - 0.01 ? v + dir * 40 : v + dir * SIDEWALK);
     const x0 = grow(b.minX, -1), x1 = grow(b.maxX, 1), z0 = grow(b.minZ, -1), z1 = grow(b.maxZ, 1);
     const g = tiledBox(x1 - x0, KERB_H, z1 - z0, 2);
     g.translate((x0 + x1) / 2, KERB_H / 2, (z0 + z1) / 2);
-    paveGeos.push(g);
+    into(paveGeos, chunkOf((x0 + x1) / 2, (z0 + z1) / 2), g);
     if (b.park) {
       const gg = new THREE.BoxGeometry(b.maxX - b.minX - 1, 0.04, b.maxZ - b.minZ - 1);
       gg.translate((b.minX + b.maxX) / 2, KERB_H + 0.02, (b.minZ + b.maxZ) / 2);
-      grassGeos.push(gg);
+      into(grassGeos, chunkOf((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2), gg);
     }
   }
-  root.add(new THREE.Mesh(geo(mergeGeometries(paveGeos)), lambert({ map: pave })));
-  paveGeos.forEach((g) => g.dispose());
-  if (grassGeos.length) {
-    root.add(new THREE.Mesh(geo(mergeGeometries(grassGeos)), lambert({ color: '#5b8f45' })));
-    grassGeos.forEach((g) => g.dispose());
-  }
+  const paveMat = lambert({ map: pave });
+  const grassMat = lambert({ color: '#5b8f45' });
+  for (const list of paveGeos.values()) { root.add(new THREE.Mesh(geo(mergeGeometries(list)), paveMat)); list.forEach((g) => g.dispose()); }
+  for (const list of grassGeos.values()) { root.add(new THREE.Mesh(geo(mergeGeometries(list)), grassMat)); list.forEach((g) => g.dispose()); }
 
   // Road paint: dashed centre lines and zebra crossings.
   const paintY = 0.012;
@@ -266,8 +265,8 @@ export function buildCity(bin: Bin): CityObjects {
       }
     }
   }
-  root.add(instanced(geo(new THREE.BoxGeometry(0.2, 0.02, 2.6)), lambert({ color: '#f2c230' }), dashes));
-  root.add(instanced(geo(new THREE.BoxGeometry(0.6, 0.02, 3.2)), lambert({ color: '#e9e9e9' }), zebra));
+  root.add(instancedChunked(geo(new THREE.BoxGeometry(0.2, 0.02, 2.6)), lambert({ color: '#f2c230' }), dashes));
+  root.add(instancedChunked(geo(new THREE.BoxGeometry(0.6, 0.02, 3.2)), lambert({ color: '#e9e9e9' }), zebra));
 
   // Barriers where the roads leave town.
   const barriers: THREE.Matrix4[] = [];
@@ -277,7 +276,7 @@ export function buildCity(bin: Bin): CityObjects {
       barriers.push(m.clone().compose(new THREE.Vector3(e, 0.5, c), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1)));
     }
   }
-  root.add(instanced(geo(new THREE.BoxGeometry(ROAD_HALF * 2, 1, 0.6)), lambert({ color: '#d8432f' }), barriers));
+  root.add(instancedChunked(geo(new THREE.BoxGeometry(ROAD_HALF * 2, 1, 0.6)), lambert({ color: '#d8432f' }), barriers));
 
   // Buildings.
   const windows = windowsTexture(bin);
@@ -294,7 +293,7 @@ export function buildCity(bin: Bin): CityObjects {
     return mat;
   };
   let bi = 0;
-  const roofBits: THREE.BufferGeometry[] = [];
+  const roofBits = new Map<string, THREE.BufferGeometry[]>();
   // Walls are merged per colour, so the whole skyline is a dozen draw calls.
   const wallGeos = new Map<string, THREE.BufferGeometry[]>();
   const flatten = (g: THREE.BufferGeometry) => { const n = g.toNonIndexed(); g.dispose(); return n; };
@@ -307,28 +306,29 @@ export function buildCity(bin: Bin): CityObjects {
     box.translate(cx, KERB_H + b.height / 2, cz);
     const [walls, top] = splitBox(box);
     box.dispose();
-    if (!wallGeos.has(b.color)) wallGeos.set(b.color, []);
-    wallGeos.get(b.color)!.push(walls);
-    roofBits.push(top);
+    const ck = chunkOf(cx, cz);
+    const wk = `${ck}|${b.color}`;
+    if (!wallGeos.has(wk)) wallGeos.set(wk, []);
+    wallGeos.get(wk)!.push(walls);
+    into(roofBits, ck, top);
     // Parapet round the roof edge.
     const lip = new THREE.BoxGeometry(w + 0.3, 0.6, d + 0.3);
     lip.translate(cx, KERB_H + b.height + 0.3, cz);
-    roofBits.push(flatten(lip));
+    into(roofBits, ck, flatten(lip));
     for (const t of b.rooftop) {
       const g = new THREE.BoxGeometry(t.maxX - t.minX, t.h, t.maxZ - t.minZ);
       g.translate((t.minX + t.maxX) / 2, KERB_H + b.height + t.h / 2, (t.minZ + t.maxZ) / 2);
-      roofBits.push(flatten(g));
+      into(roofBits, ck, flatten(g));
     }
     if (b.place && b.door) addShopfront(b, root, bin, markers, glow);
   }
-  for (const [color, list] of wallGeos) {
-    const mesh = new THREE.Mesh(geo(mergeGeometries(list)), wallFor(color));
+  for (const [wk, list] of wallGeos) {
+    const mesh = new THREE.Mesh(geo(mergeGeometries(list)), wallFor(wk.split('|')[1]));
     root.add(mesh);
     occluders.push(mesh);
     list.forEach((g) => g.dispose());
   }
-  root.add(new THREE.Mesh(geo(mergeGeometries(roofBits)), roof));
-  roofBits.forEach((g) => g.dispose());
+  for (const list of roofBits.values()) { root.add(new THREE.Mesh(geo(mergeGeometries(list)), roof)); list.forEach((g) => g.dispose()); }
 
   // Trees and street lamps.
   const trunks: THREE.Matrix4[] = [];
@@ -348,9 +348,9 @@ export function buildCity(bin: Bin): CityObjects {
       heads.push(m.clone().compose(new THREE.Vector3(p.x + off.x, KERB_H + 5.15, p.z + off.z), hq, new THREE.Vector3(1, 1, 1)));
     }
   }
-  root.add(instanced(geo(new THREE.CylinderGeometry(0.16, 0.22, 2.2, 6)), lambert({ color: '#6b4a32' }), trunks));
-  root.add(instanced(geo(new THREE.IcosahedronGeometry(1.6, 0)), lambert({ color: '#4f8a3c', flatShading: true }), crowns));
-  root.add(instanced(geo(new THREE.CylinderGeometry(0.09, 0.12, 5.2, 6)), lambert({ color: '#2c2f36' }), poles));
+  root.add(instancedChunked(geo(new THREE.CylinderGeometry(0.16, 0.22, 2.2, 6)), lambert({ color: '#6b4a32' }), trunks));
+  root.add(instancedChunked(geo(new THREE.IcosahedronGeometry(1.6, 0)), lambert({ color: '#4f8a3c', flatShading: true }), crowns));
+  root.add(instancedChunked(geo(new THREE.CylinderGeometry(0.09, 0.12, 5.2, 6)), lambert({ color: '#2c2f36' }), poles));
   const lampMat = lambert({ color: '#2c2f36', emissive: '#fff3c4', emissiveIntensity: 0.15 });
   glow.push({ mat: lampMat, day: 0.15, night: 2.6 });
   root.add(instanced(geo(new THREE.BoxGeometry(0.45, 0.18, 2.4)), lampMat, heads));
@@ -366,8 +366,8 @@ export function buildCity(bin: Bin): CityObjects {
   const pools = bin.add(new THREE.MeshBasicMaterial({
     map: lightPoolTexture(bin), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
   }));
-  const poolMesh = instanced(geo(new THREE.PlaneGeometry(10, 10)), pools, poolMats);
-  poolMesh.renderOrder = 1;
+  const poolMesh = instancedChunked(geo(new THREE.PlaneGeometry(10, 10)), pools, poolMats);
+  poolMesh.children.forEach((c) => { c.renderOrder = 1; });
   root.add(poolMesh);
 
   // Parked cars.
@@ -401,6 +401,25 @@ function splitBox(g: THREE.BufferGeometry): [THREE.BufferGeometry, THREE.BufferG
   const parts: [THREE.BufferGeometry, THREE.BufferGeometry] = [take([0, 1, 4, 5]), take([2])];
   ng.dispose();
   return parts;
+}
+
+/** The world is cut into square chunks so the phone only draws what is in front of it. */
+const CHUNK = 120;
+const chunkOf = (x: number, z: number) => `${Math.floor((x - WORLD.x0) / CHUNK)}_${Math.floor((z - WORLD.z0) / CHUNK)}`;
+
+/** Instances split by chunk: each piece gets its own bounds, so off-screen ones are skipped. */
+function instancedChunked(g: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Matrix4[]): THREE.Group {
+  const out = new THREE.Group();
+  const by = new Map<string, THREE.Matrix4[]>();
+  const v = new THREE.Vector3();
+  for (const mm of mats) {
+    v.setFromMatrixPosition(mm);
+    const k = chunkOf(v.x, v.z);
+    if (!by.has(k)) by.set(k, []);
+    by.get(k)!.push(mm);
+  }
+  for (const list of by.values()) out.add(instanced(g, mat, list));
+  return out;
 }
 
 function instanced(g: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Matrix4[]): THREE.InstancedMesh {

@@ -67,6 +67,36 @@ export function ensureSpawned(): void {
   live.ready = true;
 }
 
+// A grid over the solids: with a 900 m city there are thousands of boxes, and
+// a footstep only needs the handful beside it.
+const CELL = 24;
+let gridFor: Box[] | null = null;
+let grid = new Map<number, Box[]>();
+const cellKey = (ix: number, iz: number) => (ix + 512) * 2048 + (iz + 512);
+function nearSolids(x: number, z: number, r: number): Box[] {
+  const all = cityLayout().solids;
+  if (gridFor !== all) {
+    gridFor = all; grid = new Map();
+    for (const b of all) {
+      for (let ix = Math.floor(b.minX / CELL); ix <= Math.floor(b.maxX / CELL); ix++) {
+        for (let iz = Math.floor(b.minZ / CELL); iz <= Math.floor(b.maxZ / CELL); iz++) {
+          const k = cellKey(ix, iz);
+          const l = grid.get(k);
+          if (l) l.push(b); else grid.set(k, [b]);
+        }
+      }
+    }
+  }
+  const out: Box[] = [];
+  for (let ix = Math.floor((x - r) / CELL); ix <= Math.floor((x + r) / CELL); ix++) {
+    for (let iz = Math.floor((z - r) / CELL); iz <= Math.floor((z + r) / CELL); iz++) {
+      const l = grid.get(cellKey(ix, iz));
+      if (l) for (const b of l) if (!out.includes(b)) out.push(b);
+    }
+  }
+  return out;
+}
+
 /** Land at a place's front door in whichever city is now built (a flight, say). */
 export function arriveAt(placeId: string): void {
   const L = cityLayout();
@@ -126,7 +156,7 @@ export function resolveCircle(x: number, z: number, r: number, withCar: boolean)
     const cx = Math.max(B.minX + r, Math.min(B.maxX - r, x)), cz = Math.max(B.minZ + r, Math.min(B.maxZ - r, z));
     return { x: cx, z: cz, hit: hit || cx !== x || cz !== z };
   }
-  const solids = cityLayout().solids;
+  const solids = nearSolids(x, z, r + 1);
   let hit = false;
   for (let pass = 0; pass < 2; pass++) {
     for (const b of solids) {

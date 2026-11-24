@@ -385,3 +385,8 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 - Walk onto a plot and press E/✋: buy it, or buy the whole block (4 plots, 10% off) to start an **estate** (+10% rent). Plots become normal Property projects, so the existing building process (apartments/villas/plaza/hotel, delays, overruns) applies, and the build rises on the plot in the world.
 - **Competition**: ~25% of plots are sold at start, and every day each free plot has a chance of being bought by an NPC buyer (`landTick`); sold buildings go to new owners. Neighbours' plots show houses.
 - Next: forest props (cabins, logging), plot pricing by road frontage, selling land, rival bidding/auctions.
+
+### Ferries, land auctions, selling land
+- Harbour door opens a **Ferry screen**: cheap 12 h ferries to countries on your continent, freighter berths (40 h) further; arrive at the destination's port.
+- **Land auctions**: up to 3 plots at a time go to auction (purple board); bid +10%, rivals outbid you, you pay only if you win when the hammer falls (can't cover it = lost).
+- **Sell the land back** from the plot card (existing sell flow; plot returns to NPC owners).

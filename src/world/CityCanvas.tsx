@@ -304,7 +304,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       const plot = !door && !person && !nearCar ? plotAt(live.p.x, live.p.z) : null;
       if (plot) {
         const pv = viewOf(plot);
-        prompt = pv.status === 'sale' ? 'Land for sale · look at it' : pv.status === 'yours' ? 'Your land · manage' : `Land owned by ${pv.owner}`;
+        prompt = pv.status === 'auction' ? '🔨 Land auction · bid' : pv.status === 'sale' ? 'Land for sale · look at it' : pv.status === 'yours' ? 'Your land · manage' : `Land owned by ${pv.owner}`;
       }
 
       if (action) {

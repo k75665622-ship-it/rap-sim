@@ -107,7 +107,7 @@ export const PLACES: Place[] = [
   { id: 'arena', name: 'IRON RING ARENA', tagline: 'Wrestling · Concerts', accent: '#ff6b6b', glyph: 'W' },
   { id: 'heights', name: 'SKYLINE HEIGHTS', tagline: 'Luxury towers', accent: '#74c0fc', glyph: 'K' },
   { id: 'estate', name: 'PALM ESTATES', tagline: 'Houses for sale', accent: '#b2f2bb', glyph: 'E' },
-  { id: 'port', name: 'TEMA HARBOUR', tagline: 'Ports · Ferries · Cargo', accent: '#4dabf7', glyph: 'P' },
+  { id: 'port', name: 'TEMA HARBOUR', tagline: 'Ports · Ferries · Cargo', screen: 'ferry', accent: '#4dabf7', glyph: 'P' },
   { id: 'airport', name: 'GOLD COAST AIRPORT', tagline: 'Flights abroad', accent: '#e599f7', glyph: '✈' },
 ];
 const LANDMARKS: Partial<Record<ZoneId, string[]>> = {

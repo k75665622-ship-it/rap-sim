@@ -8,8 +8,8 @@ import { dateToSerial } from '../sim/gameClock';
 import { BUILDS } from '../sim/realestate';
 import type { Bin } from './build';
 
-export type PlotStatus = 'sale' | 'yours' | 'taken';
-export interface PlotView { plot: Plot; status: PlotStatus; owner?: string; projectId?: string }
+export type PlotStatus = 'sale' | 'yours' | 'taken' | 'auction';
+export interface PlotView { plot: Plot; status: PlotStatus; owner?: string; projectId?: string; bid?: number; bidder?: string; endSerial?: number }
 
 /** The plot under a point, if it is on open land. */
 export function plotAt(x: number, z: number, pad = 2): Plot | null {
@@ -23,6 +23,8 @@ export function viewOf(p: Plot): PlotView {
   const country = currentCountry();
   const mine = (st.devProjects ?? []).find((d) => d.plotId === p.id && d.country === country && d.stage !== 'sold');
   if (mine) return { plot: p, status: 'yours', projectId: mine.id };
+  const au = (st.landAuctions ?? []).find((a) => a.plotId === p.id && a.country === country);
+  if (au) return { plot: p, status: 'auction', bid: au.bid, bidder: au.bidder, endSerial: au.endSerial };
   const t = takenBy(st.landTaken, plotKey(country, p.id));
   return t ? { plot: p, status: 'taken', owner: t.by } : { plot: p, status: 'sale' };
 }
@@ -63,7 +65,7 @@ export function buildLand(bin: Bin) {
     const st = useGameStore.getState();
     const serial = dateToSerial(st.gameDate);
     const country = currentCountry();
-    const s = `${country}|${(st.devProjects ?? []).map((d) => d.plotId ? d.plotId + d.stage : '').join(',')}|${Object.keys(st.landTaken ?? {}).length}|${Math.floor(serial / 10)}`;
+    const s = `${country}|${(st.devProjects ?? []).map((d) => d.plotId ? d.plotId + d.stage : '').join(',')}|${Object.keys(st.landTaken ?? {}).length}|${(st.landAuctions ?? []).map((a) => a.plotId + a.bidder).join(',')}|${Math.floor(serial / 10)}`;
     if (s === sig) return;
     sig = s;
     let gi = 0, bi = 0, si = 0;
@@ -71,10 +73,10 @@ export function buildLand(bin: Bin) {
       const v = viewOf(p);
       const w = p.maxX - p.minX, d = p.maxZ - p.minZ, cx = (p.minX + p.maxX) / 2, cz = (p.minZ + p.maxZ) / 2;
       m.compose(new THREE.Vector3(cx, 0.19, cz), q, new THREE.Vector3(w - 1, 1, d - 1));
-      ground.setMatrixAt(gi, m); ground.setColorAt(gi, c.set(v.status === 'yours' ? '#6fa95a' : v.status === 'taken' ? '#9c9486' : '#b99f72')); gi++;
+      ground.setMatrixAt(gi, m); ground.setColorAt(gi, c.set(v.status === 'yours' ? '#6fa95a' : v.status === 'taken' ? '#9c9486' : v.status === 'auction' ? '#a58ab8' : '#b99f72')); gi++;
       // Board at the front corner, facing the road side of the plot.
       m.compose(new THREE.Vector3(p.minX + 1.4, 0.15, p.minZ + 1.4), q, new THREE.Vector3(1, 1, 1));
-      signs.setMatrixAt(si, m); signs.setColorAt(si, c.set(v.status === 'yours' ? '#2ed573' : v.status === 'taken' ? '#d6453d' : '#ffc21a')); si++;
+      signs.setMatrixAt(si, m); signs.setColorAt(si, c.set(v.status === 'yours' ? '#2ed573' : v.status === 'taken' ? '#d6453d' : v.status === 'auction' ? '#b57bff' : '#ffc21a')); si++;
       // What stands on it.
       let h = 0, color = '#ddd', foot = 0.55;
       if (v.status === 'taken') {

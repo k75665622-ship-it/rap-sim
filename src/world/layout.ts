@@ -59,6 +59,8 @@ export interface Building extends Box {
   height: number;
   color: string;
   place?: Place;
+  /** Residential buildings get a real front door without becoming businesses. */
+  homeType?: 'house' | 'apartment';
   door?: { side: Side; x: number; z: number; nx: number; nz: number };
   rooftop: Array<Box & { h: number }>;
 }
@@ -239,6 +241,7 @@ export function cityLayout(): CityLayout {
     .sort((a, b) => a.centreDist - b.centreDist || a.minX - b.minX || a.minZ - b.minZ)
     .slice(0, core.length);
   const placeOf = new Map<Lot, Place>();
+  const homeOf = new Map<Lot, { place: Place; type: 'house' | 'apartment' }>();
   named.forEach((l, i) => placeOf.set(l, core[i]));
   // Each wider district gets its landmark on the lot nearest its own middle.
   for (const [zn, ids] of Object.entries(LANDMARKS) as Array<[ZoneId, string[]]>) {
@@ -248,9 +251,27 @@ export function cityLayout(): CityLayout {
     ids.forEach((id, i) => { if (free[i * 2]) placeOf.set(free[i * 2], PLACES.find((p) => p.id === id)!); });
   }
 
+  // Give the residential districts real homes: these are not menu markers;
+  // they have doors, a physical front entrance and can be entered on foot.
+  // Keep the count deliberately capped so the mobile scene stays cheap.
+  let homeIndex = 0;
+  const residential = lots
+    .filter((l) => l.roads.length && !placeOf.has(l))
+    .filter((l) => ['flats', 'suburb'].includes(zoneAt((l.minX + l.maxX) / 2, (l.minZ + l.maxZ) / 2)))
+    .sort((a, b) => a.centreDist - b.centreDist || a.minX - b.minX || a.minZ - b.minZ);
+  for (const lot of residential) {
+    if (homeIndex >= 18) break;
+    // Alternate house/apartment fronts to make the neighbourhood feel mixed.
+    const id = `home-${homeIndex + 1}`;
+    const type: 'house' | 'apartment' = zoneAt((lot.minX + lot.maxX) / 2, (lot.minZ + lot.maxZ) / 2) === 'suburb' ? 'house' : (homeIndex % 3 === 0 ? 'house' : 'apartment');
+    homeOf.set(lot, { place: { id, name: type === 'house' ? `PALM HOME ${homeIndex + 1}` : `EASTGATE FLAT ${homeIndex + 1}`, tagline: type === 'house' ? 'Residential home' : 'Residential apartment', accent: type === 'house' ? '#8fd694' : '#74a7d8', glyph: '⌂' }, type });
+    homeIndex++;
+  }
+
   for (const lot of lots) {
     const place0 = placeOf.get(lot);
-    const place = place0 ? localPlace(place0) : undefined;
+    const home0 = homeOf.get(lot);
+    const place = place0 ? localPlace(place0) : home0?.place;
     const zn = zoneAt((lot.minX + lot.maxX) / 2, (lot.minZ + lot.maxZ) / 2);
     const sty = STYLE[zn];
     // Pull back from the pavement a little on sides with no road, so alleys read.
@@ -261,7 +282,7 @@ export function cityLayout(): CityLayout {
       ? (place ? 11 + r() * 5 : edge ? 26 + r() * 40 : 12 + r() * 30)
       : place ? Math.max(sty.h[0], Math.min(sty.h[1], 14 + r() * 4)) : sty.h[0] + r() * (sty.h[1] - sty.h[0]);
     const palette = sty.walls.length ? sty.walls : wallsForWorld();
-    const b: Building = { ...bx, height, color: palette[Math.floor(r() * palette.length)], place, rooftop: [] };
+    const b: Building = { ...bx, height, color: palette[Math.floor(r() * palette.length)], place, homeType: home0?.type, rooftop: [] };
 
     if (place) {
       // The door faces whichever road runs closest to the middle of town.

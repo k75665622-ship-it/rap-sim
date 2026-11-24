@@ -24,7 +24,7 @@ import { cityLayout, type Place } from './layout';
 import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
-import { buildTraffic, type TrafficSystem } from './traffic';
+import { buildTraffic } from './traffic';
 
 const SKY = '#9cc3e6';
 /** How close to a door marker counts as "at the door". */
@@ -122,7 +122,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group);
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
-      .map((b) => ({ place: b.place!, door: b.door!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
+      .map((b) => ({ place: b.place!, door: b.door!, homeType: b.homeType, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
     return { interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, poses, ray: new THREE.Raycaster() };
   }, []);
 
@@ -182,8 +182,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const steps = Math.max(1, Math.ceil(frameDt / 0.034));
     const dt = frameDt / steps;
     const t = state.clock.elapsedTime;
-    traffic.update(frameDt, t);
     const { player, car, pShadow, cShadow, city, doors, ray, traffic } = built;
+    traffic.update(frameDt, t);
 
     // ── camera drag ─────────────────────────────────────────────────────
     const look = takeLook();
@@ -275,7 +275,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       // The Stage's open mic runs in the evening.
       const hr = (useGameStore.getState().clockMinute ?? 0) / 60;
       hudStore.set({ nearStage: door?.place.id === 'stage' && (hr >= 19 || hr < 3) });
-      if (door) prompt = door.place.screen || Object.values(built.interiors).some((i) => i.placeId === door.place.id) ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
+      if (door) prompt = door.homeType || door.place.screen || Object.values(built.interiors).some((i) => i.placeId === door.place.id) ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
       else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
 
@@ -292,7 +292,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
             live.cam.yaw = live.p.rot + Math.PI - 0.75;
             live.cam.pitch = 0.3;
           }
-          const room = Object.values(built.interiors).find((i) => i.placeId === door.place.id);
+          // Named businesses use their dedicated interiors. Residential doors
+          // use the furnished Crib interior as a lightweight reusable home.
+          // The world still has many physical homes without duplicating a room
+          // for every house, which keeps mobile memory and draw calls sane.
+          const room = door.homeType ? built.interiors.crib : Object.values(built.interiors).find((i) => i.placeId === door.place.id);
           if (room) enterInterior(room.id, door.door.nx, door.door.nz, door.x, door.z); else enterRef.current(door.place);
         } else if (person) {
           // They stop and turn to you; you turn to them.

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { buildCar, Bin } from './build';
 import { ROAD_CENTRES, ROAD_HALF, WORLD } from './layout';
+import { signalState } from './signals';
 
 type Axis = 'x' | 'z';
 type VehicleKind = 'car' | 'suv' | 'taxi' | 'motorcycle' | 'bike';
@@ -94,18 +95,6 @@ function signal(bin: Bin, x: number, z: number, axis: Axis, road: number): Signa
   green.position.copy(base).add(new THREE.Vector3(0, -0.62, 0));
   group.add(red, yellow, green);
   return { group, red, yellow, green, axis, road };
-}
-
-function signalState(axis: Axis, road: number, now: number): 'red' | 'yellow' | 'green' {
-  const p = ((now + road * 0.011) % 14 + 14) % 14;
-  if (axis === 'x') {
-    if (p < 6.1) return 'green';
-    if (p < 7.0) return 'yellow';
-    return 'red';
-  }
-  if (p < 7.0) return 'red';
-  if (p < 7.9) return 'yellow';
-  return 'green';
 }
 
 function nearestRoad(v: number): number {

@@ -346,7 +346,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
 
     // ── everybody else ──────────────────────────────────────────────────
     const c0 = live.car;
-    const scared = stepPeople(frameDt, useGameStore.getState().clockMinute ?? 720, { x: c0.x, z: c0.z, heading: c0.heading, v: c0.v, halfW: CAR.halfW, halfL: CAR.halfL });
+    const scared = stepPeople(frameDt, useGameStore.getState().clockMinute ?? 720, { x: c0.x, z: c0.z, heading: c0.heading, v: c0.v, halfW: CAR.halfW, halfL: CAR.halfL }, t);
     if (scared && t - tmp.lastScare > 6 && live.mode === 'car') {
       tmp.lastScare = t;
       hudStore.toast(['"Hey! Watch where you\'re driving!"', '"Ei! You want to kill me?!"', '"Slow down, superstar!"', '"This is a pavement, not a road!"'][Math.floor(Math.random() * 4)], 2200);

@@ -20,6 +20,7 @@ import { portraitFor } from '../components/avatar/usePortrait';
 import { SKIN, lookFor, type Look } from '../sim/look';
 import { dateToSerial } from '../sim/gameClock';
 import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD } from './layout';
+import { pedestrianCanCross, type SignalAxis } from './signals';
 import type { NPC } from '../types/game';
 
 const LANE = ROAD_HALF + SIDEWALK / 2;   // 7.5 m from a road's centre
@@ -396,6 +397,26 @@ function strollOn(r: Resident) {
   setGoal(r, c, 'stroll');
 }
 
+function crossingAhead(r: Resident, target: { x: number; z: number }): { axis: SignalAxis; road: number; stopAt: number } | null {
+  const dx = target.x - r.x;
+  const dz = target.z - r.z;
+  if (Math.abs(dx) > 0.5 && Math.abs(dz) < 0.5) {
+    const road = ROAD_CENTRES.find((c) => (r.x - c) * (target.x - c) <= 0);
+    if (road !== undefined) {
+      const dir = Math.sign(dx) || 1;
+      return { axis: 'z', road, stopAt: road - dir * (ROAD_HALF + 0.9) };
+    }
+  }
+  if (Math.abs(dz) > 0.5 && Math.abs(dx) < 0.5) {
+    const road = ROAD_CENTRES.find((c) => (r.z - c) * (target.z - c) <= 0);
+    if (road !== undefined) {
+      const dir = Math.sign(dz) || 1;
+      return { axis: 'x', road, stopAt: road - dir * (ROAD_HALF + 0.9) };
+    }
+  }
+  return null;
+}
+
 /** Put everyone where they'd be right now — some indoors, some on their way. */
 function placeEveryone() {
   const N = network();
@@ -428,7 +449,7 @@ export interface CarShape { x: number; z: number; heading: number; v: number; ha
  * One step of everybody's day. Returns true if somebody had to jump out of
  * the way of your car this step.
  */
-export function stepPeople(dt: number, minute: number, car: CarShape | null): boolean {
+export function stepPeople(dt: number, minute: number, car: CarShape | null, now = 0): boolean {
   let scared = false;
   const N = network();
   const day = dayOf();
@@ -467,6 +488,24 @@ export function stepPeople(dt: number, minute: number, car: CarShape | null): bo
     }
     const dx = target.x - r.x, dz = target.z - r.z;
     const d = Math.hypot(dx, dz);
+    const crossing = crossingAhead(r, target);
+    if (crossing && !pedestrianCanCross(crossing.axis, crossing.road, now)) {
+      const dir = crossing.axis === 'z' ? Math.sign(dx) || 1 : Math.sign(dz) || 1;
+      const along = crossing.axis === 'z' ? r.x : r.z;
+      const distanceToStop = Math.abs(crossing.stopAt - along);
+      if (distanceToStop <= 0.55) {
+        r.activity = 'idle';
+        r.activityTimer = Math.max(r.activityTimer, 0.35);
+        continue;
+      }
+      if (distanceToStop < d) {
+        const move = Math.min(r.speed * (r.startle > 0 ? 1.8 : 1) * dt, Math.max(0, distanceToStop - 0.08));
+        if (crossing.axis === 'z') r.x += dir * move; else r.z += dir * move;
+        r.rot = crossing.axis === 'z' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
+        r.phase += dt * (2.2 + r.speed * 1.35);
+        continue;
+      }
+    }
     const step = r.speed * (r.startle > 0 ? 1.8 : 1) * dt;
     if (d <= step) {
       r.x = target.x; r.z = target.z;

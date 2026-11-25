@@ -884,6 +884,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         landTaken: state.landTaken,
         landAuctions: state.landAuctions,
         forestDay: state.forestDay,
+        bizDay: state.bizDay,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -3220,6 +3221,8 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Use a shop in town. `owner` is the NPC who runs it (their bond grows a little). */
+  bizAct: (kind: 'restaurant' | 'barber' | 'studio' | 'boutique' | 'juice', name: string, owner?: string) => FeatureActionResult;
   /** Things to do in the forest: sit by the fire, write, walk, or stay in a cabin. */
   forestAct: (kind: 'sit' | 'write' | 'walk' | 'cabin') => FeatureActionResult;
   /** Travel to another city in the country you are in. */
@@ -14022,6 +14025,33 @@ export const useGameStore = create<GameState & GameActions>()(
         result = { ok: true, message: `${first} +${delta}` };
       });
       return result;
+    },
+
+    bizAct: (kind, name, owner) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      if (kind === 'restaurant') return get().eatMeal(12, 24, 40, `A plate at ${name}`);
+      if (kind === 'juice') return get().eatMeal(6, 9, 15, `A cold one at ${name}`);
+      const price = kind === 'barber' ? 25 : kind === 'studio' ? 60 : 80;
+      if (p.career.money < price) return { ok: false, message: `${name} wants $${price}.` };
+      const today = dateToSerial(before.gameDate);
+      if (before.bizDay?.[kind] === today) return { ok: false, message: kind === 'studio' ? 'You already booked a session today. Let it breathe.' : "You're already looking sharp today." };
+      let message = '';
+      set((state) => {
+        const q = state.player;
+        if (!q) return;
+        q.career.money -= price;
+        (state.bizDay ??= {})[kind] = today;
+        const bump = (k: keyof typeof q.stats, n: number) => { q.stats[k] = Math.min(100, (q.stats[k] ?? 0) + n); };
+        if (kind === 'barber') { bump('charisma', 0.3); q.career.fanbase += 8; message = 'Fresh lines. People notice. +8 fans.'; }
+        else if (kind === 'studio') { bump('songwriting', 0.5); bump('creativity', 0.3); message = 'Two hours in somebody else’s room. You leave with a verse you did not have.'; }
+        else { bump('stagePresence', 0.3); q.career.fanbase += 20; message = 'New fit, new walk. +20 fans.'; }
+        const n = owner ? (state.npcs as NPC[]).find((x) => x.id === owner) : undefined;
+        if (n) n.relationshipScore = Math.max(-100, Math.min(100, n.relationshipScore + 3));
+      });
+      get().advanceClock(kind === 'studio' ? 120 : 45);
+      return { ok: true, message };
     },
 
     forestAct: (kind) => {

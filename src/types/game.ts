@@ -2646,6 +2646,8 @@ export interface GameState {
   landTaken?: Record<string, { by: string; serial: number }>;
   /** Last day you wrote or slept in the forest for the creative boost. */
   forestDay?: number;
+  /** Day you last used each kind of shop (the daily bonus). */
+  bizDay?: Record<string, number>;
   /** Plots currently going under the hammer. */
   landAuctions?: Array<{ plotId: string; country: string; endSerial: number; bid: number; bidder: string }>;
   casino?: CasinoState;

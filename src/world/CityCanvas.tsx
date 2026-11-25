@@ -3,6 +3,7 @@
 // The 3D view. Builds the city once, then every frame: read input, move the
 // player or the car, pose the models, and put the camera behind them.
 
+import { BIZ_STYLE } from './layout';
 import { buildLand, plotAt, viewOf } from './land';
 import { shootCam } from './shootcam';
 import { useEffect, useMemo, useRef } from 'react';
@@ -125,10 +126,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
     scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, land.group, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group);
+    const bizDoors = cityLayout().buildings.filter((b) => b.biz && b.door).map((b) => ({ biz: b.biz!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, homeType: b.homeType, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
-    return { land, interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, transport, poses, ray: new THREE.Raycaster() };
+    return { bizDoors, land, interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, transport, poses, ray: new THREE.Raycaster() };
   }, []);
 
   useEffect(() => () => {
@@ -187,7 +189,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const steps = Math.max(1, Math.ceil(frameDt / 0.034));
     const dt = frameDt / steps;
     const t = state.clock.elapsedTime;
-    const { player, car, pShadow, cShadow, city, doors, ray, traffic, transport } = built;
+    const { player, car, pShadow, cShadow, city, doors, bizDoors, ray, traffic, transport } = built;
     traffic.update(frameDt, t);
     const transportNight = daylightAt(tmp.minute).night;
     transport.update(frameDt, t, transportNight);
@@ -285,6 +287,8 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
         if (dist < best) { best = dist; door = d; }
       }
       const nearCar = distToCar() < CAR_REACH;
+      let shop: (typeof bizDoors)[number] | null = null;
+      if (!door) for (const d of bizDoors) if (Math.hypot(live.p.x - d.x, live.p.z - d.z) < DOOR_REACH + 0.6) { shop = d; break; }
       // Somebody close enough to talk to (and facing-ish doesn't matter).
       let person: Resident | null = null;
       let pd = 2.1;
@@ -298,10 +302,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       // The Stage's open mic runs in the evening.
       const hr = (useGameStore.getState().clockMinute ?? 0) / 60;
       hudStore.set({ nearStage: door?.place.id === 'stage' && (hr >= 19 || hr < 3) });
-      if (door) prompt = door.homeType || door.place.screen || Object.values(built.interiors).some((i) => i.placeId === door.place.id) ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
+      if (shop && !door) prompt = `${BIZ_STYLE[shop.biz.kind].emoji} ${shop.biz.name} · step in`;
+      else if (door) prompt = door.homeType || door.place.screen || Object.values(built.interiors).some((i) => i.placeId === door.place.id) ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
       else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
-      const knock = !door && !person && !nearCar ? homeDoorNear(live.p.x, live.p.z) : null;
+      const knock = !door && !shop && !person && !nearCar ? homeDoorNear(live.p.x, live.p.z) : null;
       if (knock && knock.residents.length) prompt = knock.home ? `Knock · ${knock.home.name}'s place` : `Knock · ${knock.residents[0].name}'s place`;
       else if (knock) prompt = 'Knock on the door';
       const plot = !door && !person && !nearCar && !knock ? plotAt(live.p.x, live.p.z) : null;
@@ -313,7 +318,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       }
 
       if (action) {
-        if (knock && !camp) {
+        if (shop && !door && !person) {
+          live.p.speed = 0;
+          hudStore.set({ biz: shop.biz.id });
+        } else if (knock && !camp) {
           if (knock.home) {
             const r = knock.home;
             r.inside = -1;

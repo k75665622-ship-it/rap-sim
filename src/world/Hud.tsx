@@ -16,6 +16,7 @@ import { useUnread } from './Phone';
 import { TalkCard } from './TalkCard';
 import { PlotCard } from './PlotCard';
 import { ForestCard } from './ForestCard';
+import { BizCard } from './BizCard';
 import { StageOverlays } from './Stage';
 import { radio, STATION, useRadio } from './radio';
 import { CarControls, Dashboard } from './CarControls';
@@ -126,7 +127,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {/* Interaction prompt */}
-      {hud.prompt && !phoneOut && !hud.talk && !hud.plot && !hud.camp ? (
+      {hud.prompt && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz ? (
         <div className={`absolute left-1/2 -translate-x-1/2 ${touch ? 'bottom-44' : 'bottom-10'} flex items-center gap-2 h-10 pl-1.5 pr-4 rounded-full bg-black/70 backdrop-blur border border-amber/40 text-[14px] font-semibold rl-fade`}>
           <span className="w-7 h-7 rounded-full bg-amber text-black font-black text-[13px] flex items-center justify-center">{touch ? '✋' : 'E'}</span>
           {hud.prompt}
@@ -144,13 +145,13 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {hud.mode === 'car' && !phoneOut && cockpit ? <Dashboard kmh={hud.speedKmh} /> : null}
-      {touch && !phoneOut && !hud.talk && !hud.plot && !hud.camp ? <TouchButtons mode={hud.mode} cockpit={cockpit} /> : null}
-      {hud.mode === 'car' && !phoneOut && !hud.talk && !hud.plot && !hud.camp ? <CarControls /> : null}
+      {touch && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz ? <TouchButtons mode={hud.mode} cockpit={cockpit} /> : null}
+      {hud.mode === 'car' && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz ? <CarControls /> : null}
 
       {hud.mode === 'car' && !phoneOut && !touch ? <RadioPill touch={touch} /> : null}
 
       {/* Open mic and video shoot, on foot. */}
-      {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.gig && !hud.shooting ? (
+      {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz && !hud.gig && !hud.shooting ? (
         <div className={`absolute ${touch ? 'left-[104px] top-14' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
           {hud.nearStage ? (
             <button onClick={() => hudStore.set({ gig: true })} className="pointer-events-auto h-10 px-4 rounded-full bg-re text-white text-[13px] font-bold shadow-lg">🎤 Open mic{touch ? '' : ' · G'}</button>
@@ -162,6 +163,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       <TalkCard />
       <PlotCard />
       <ForestCard />
+      <BizCard />
       <StageOverlays />
 
       {help ? (

@@ -74,9 +74,21 @@ export interface Building extends Box {
   place?: Place;
   /** Residential buildings get a real front door without becoming businesses. */
   homeType?: 'house' | 'apartment';
+  /** A shop, studio or café run by someone in town. You can step up to its door and use it. */
+  biz?: { id: string; kind: BizKind; name: string };
   door?: { side: Side; x: number; z: number; nx: number; nz: number };
   rooftop: Array<Box & { h: number }>;
 }
+
+export type BizKind = 'restaurant' | 'barber' | 'studio' | 'boutique' | 'juice';
+export const BIZ_STYLE: Record<BizKind, { names: string[]; color: string; emoji: string; label: string }> = {
+  restaurant: { names: ["ABENA'S CHOP BAR", 'SPICE ROUTE GRILL', 'LAGOON KITCHEN', 'THE HOT POT'], color: '#ff6b4a', emoji: '🍲', label: 'Restaurant' },
+  barber: { names: ['CUTS & CO', 'SHARP LINES', 'THE FADE ROOM'], color: '#4dabf7', emoji: '💈', label: 'Barber' },
+  studio: { names: ['BASEMENT SOUNDS', 'NIGHT OWL STUDIO', 'RED DOOR RECORDS'], color: '#b57bff', emoji: '🎚️', label: 'Recording studio' },
+  boutique: { names: ['KENTE & CO', 'STREET ROYAL', 'THREAD HOUSE'], color: '#ff8fb8', emoji: '👗', label: 'Boutique' },
+  juice: { names: ['FRESH PRESS', 'PALM JUICE BAR', 'SUNSHINE SIPS'], color: '#7bd34d', emoji: '🥤', label: 'Juice bar' },
+};
+const BIZ_KINDS: BizKind[] = ['restaurant', 'barber', 'studio', 'boutique', 'juice'];
 
 export interface Prop { kind: 'tree' | 'lamp'; x: number; z: number; rot: number }
 
@@ -322,6 +334,7 @@ export function cityLayout(): CityLayout {
     homeIndex++;
   }
 
+  let bizN = 0, bizSeed = 0;
   for (const lot of lots) {
     const place0 = placeOf.get(lot);
     const home0 = homeOf.get(lot);
@@ -338,6 +351,14 @@ export function cityLayout(): CityLayout {
     const palette = sty.walls.length ? sty.walls : wallsForWorld();
     const b: Building = { ...bx, height, color: palette[Math.floor(r() * palette.length)], place, homeType: home0?.type, rooftop: [] };
 
+    if (!place && lot.roads.length && ['market', 'flats', 'hollywood', 'downtown'].includes(zn) && bizN < 20 && bizSeed++ % 5 === 2) {
+      const kind = BIZ_KINDS[bizN % BIZ_KINDS.length];
+      const names = BIZ_STYLE[kind].names;
+      b.biz = { id: `biz${bizN}`, kind, name: names[Math.floor(bizN / BIZ_KINDS.length) % names.length] };
+      const side = [...lot.roads].sort((s1, s2) => sideCentreDist(bx, s1) - sideCentreDist(bx, s2))[0];
+      b.door = doorOn(bx, side);
+      bizN++;
+    }
     if (place) {
       // The door faces whichever road runs closest to the middle of town.
       const side = [...lot.roads].sort((s1, s2) => sideCentreDist(bx, s1) - sideCentreDist(bx, s2))[0];

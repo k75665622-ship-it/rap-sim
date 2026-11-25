@@ -104,6 +104,7 @@ function Card({ r }: { r: Resident }) {
               >
                 Catch up
               </button>
+              <button className={`${btn} border-line hover:border-amber/60`} onClick={() => { const res = useGameStore.getState().hangOut(npc.id); hudStore.toast(res.ok ? `🍲 ${res.message}` : res.message, 3200); }}>Grab food · $30</button>
               <button className={`${btn} border-line hover:border-amber/60`} onClick={() => { selectNPC(npc.id); close(); phone.launch('pingchat'); }}>Message</button>
               <button className={`${btn} border-line hover:border-amber/60`} onClick={() => { selectNPC(npc.id); close(); phone.launch('npc_profile'); }}>Profile</button>
               {top ? (

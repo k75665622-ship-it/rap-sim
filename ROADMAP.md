@@ -431,3 +431,6 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 
 ### Bet on tonight's match
 - Pick home / draw / away with a stake ($20/$100/$500) before kick-off; watching the live match (stands or TV) settles it. One bet a night.
+
+### Grab food with people
+- Talk card gets "Grab food · $30": a meal for two, an hour, +6 bond; once a day per person.

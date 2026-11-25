@@ -3234,6 +3234,8 @@ interface GameActions {
   quitTvRole: () => FeatureActionResult;
   /** Stadium, arena and TV lot: watch, perform, audition. */
   eventAct: (kind: 'watch' | 'ringside' | 'promo' | 'audition' | 'sofa', idx?: number) => FeatureActionResult;
+  /** Take someone out for food: a bond, a meal, an hour. Once a day each. */
+  hangOut: (npcId: string) => FeatureActionResult;
   /** Buy a shop in town from its owner and run it as one of your businesses. */
   buyShop: (shopId: string, type: VentureType, name: string) => FeatureActionResult;
   /** Use a shop in town. `owner` is the NPC who runs it (their bond grows a little). */
@@ -14179,6 +14181,24 @@ export const useGameStore = create<GameState & GameActions>()(
       });
       get().advanceClock(minutes);
       return { ok: true, message };
+    },
+
+    hangOut: (npcId) => {
+      const before = get();
+      const p = before.player;
+      const n = (before.npcs as NPC[]).find((x) => x.id === npcId);
+      if (!p || !n) return { ok: false, message: 'Nobody to take out.' };
+      const today = dateToSerial(before.gameDate);
+      const key = `hang:${npcId}`;
+      if (before.bizDay?.[key] === today) return { ok: false, message: `You already ate with ${n.name.split(' ')[0]} today.` };
+      if (p.career.money < 30) return { ok: false, message: 'Food for two is $30. You are short.' };
+      set((state) => {
+        (state.bizDay ??= {})[key] = today;
+        const m = (state.npcs as NPC[]).find((x) => x.id === npcId);
+        if (m) m.relationshipScore = Math.max(-100, Math.min(100, m.relationshipScore + 6));
+      });
+      const r = get().eatMeal(30, 20, 60, `Food with ${n.name.split(' ')[0]}`);
+      return r.ok ? { ok: true, message: `${r.message} Your bond with ${n.name.split(' ')[0]} grows.` } : r;
     },
 
     buyShop: (shopId, type, name) => {

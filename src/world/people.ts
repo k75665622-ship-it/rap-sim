@@ -609,3 +609,9 @@ export function whereIs(r: Resident): string {
 
 /** Dev/test: where a resident's front door is. */
 export function homeDoorOf(r: Resident): { x: number; z: number } | null { const n = network().nodes[r.home]; return n?.door ?? null; }
+
+/** Who runs a shop: a stable pick from the people you know in town. */
+export function bizOwner(bizId: string): Resident | null {
+  const pool = residents.filter((r) => !r.local);
+  return pool.length ? pool[h32(`biz|${bizId}`) % pool.length] : null;
+}

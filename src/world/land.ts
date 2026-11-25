@@ -1,7 +1,7 @@
 // The plots out past the city edge: bare ground, "for sale" boards, what
 // neighbours have built, and whatever you are putting up on your own land.
 import * as THREE from 'three';
-import { cityLayout, worldKey, LAND_ZONES, type Plot } from './layout';
+import { BIZ_STYLE, cityLayout, worldKey, LAND_ZONES, type BizKind, type Plot } from './layout';
 import { useGameStore } from '../store/gameStore';
 import { npcBuilding, plotKey, takenBy, type LandZone } from '../sim/land';
 import { dateToSerial } from '../sim/gameClock';
@@ -136,6 +136,17 @@ export function buildLand(bin: Bin) {
   fixed(new THREE.BoxGeometry(1, 1, 1), '#8a6240', cabW);
   fixed(new THREE.ConeGeometry(4.6, 2.2, 4), '#5b3a26', cabR);
   fixed(new THREE.BoxGeometry(0.9, 1, 1), '#3a281c', doors);
+  // Shop awnings over each business door, coloured by what they are.
+  const awn: Record<string, THREE.Matrix4[]> = {}, boards: Record<string, THREE.Matrix4[]> = {};
+  for (const b of L.buildings) {
+    if (!b.biz || !b.door) continue;
+    const d = b.door, ew = d.nx !== 0;
+    awn[b.biz.kind] ??= []; boards[b.biz.kind] ??= [];
+    awn[b.biz.kind].push(new THREE.Matrix4().compose(new THREE.Vector3(d.x + d.nx * 0.9, 3.4, d.z + d.nz * 0.9), new THREE.Quaternion(), new THREE.Vector3(ew ? 1.8 : 5, 0.25, ew ? 5 : 1.8)));
+    boards[b.biz.kind].push(new THREE.Matrix4().compose(new THREE.Vector3(d.x + d.nx * 0.2, 4.6, d.z + d.nz * 0.2), new THREE.Quaternion(), new THREE.Vector3(ew ? 0.2 : 4.2, 1.1, ew ? 4.2 : 0.2)));
+  }
+  for (const k of Object.keys(awn) as BizKind[]) { fixed(new THREE.BoxGeometry(1, 1, 1), BIZ_STYLE[k].color, awn[k]); fixed(new THREE.BoxGeometry(1, 1, 1), '#f4efe4', boards[k]); }
+
   // Boats in the harbour basin, and a jetty-side crane-ish mast for flavour.
   const hulls: THREE.Matrix4[] = [], cabins: THREE.Matrix4[] = [], masts: THREE.Matrix4[] = [];
   for (const b of L.blocks) {

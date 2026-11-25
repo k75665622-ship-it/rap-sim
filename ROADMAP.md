@@ -408,3 +408,7 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 ### Water & no more "opening soon"
 - Harbour basin with boats (port district), a lake in Lakeside, and a river through the southern woods; water blocks are solid and show blue on the map. Roads cross the river as bridges.
 - Skyline Heights and Palm Estates doors now open Property / Lifestyle instead of "opening soon".
+
+### Shops run by people in town
+- 20 businesses (restaurants, barbers, rival recording studios, boutiques, juice bars) with awnings and signs, each run by someone you know. Step up and use them: meals, a cut, studio sessions (daily writing boost + a bond with the owner), fits; or talk to the owner.
+- Next: buy a shop outright, hire staff, owners reacting to your fame.

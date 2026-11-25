@@ -888,6 +888,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         eventDay: state.eventDay,
         tvRole: state.tvRole,
         ringHeat: state.ringHeat,
+        townBet: state.townBet,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -3224,6 +3225,9 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Bet on tonight's match in town; settled when the match ends. */
+  betTown: (pick: 'home' | 'draw' | 'away', stake: number, odds: number) => FeatureActionResult;
+  settleTown: (final: [number, number]) => FeatureActionResult;
   /** Settle a wrestling match you fought in the arena screen (rounds won out of 3). */
   ringMatch: (wins: number, opponent: string) => FeatureActionResult;
   /** Walk away from your recurring TV role. */
@@ -14060,6 +14064,27 @@ export const useGameStore = create<GameState & GameActions>()(
         result = { ok: true, message: `${first} +${delta}` };
       });
       return result;
+    },
+
+    betTown: (pick, stake, odds) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      const today = dateToSerial(before.gameDate);
+      if (before.townBet && before.townBet.day === today) return { ok: false, message: 'You already have money on tonight\'s match.' };
+      if (p.career.money < stake) return { ok: false, message: `You need $${stake} for that stake.` };
+      set((state) => { if (!state.player) return; state.player.career.money -= stake; state.townBet = { day: today, pick, stake, odds }; });
+      return { ok: true, message: `$${stake} on ${pick === 'draw' ? 'a draw' : pick === 'home' ? 'the home side' : 'the away side'} at ${odds.toFixed(2)}. Now watch it.` };
+    },
+
+    settleTown: (final) => {
+      const b = get().townBet;
+      if (!b) return { ok: false, message: '' };
+      const result = final[0] > final[1] ? 'home' : final[0] < final[1] ? 'away' : 'draw';
+      const won = result === b.pick;
+      const pay = won ? Math.round(b.stake * b.odds) : 0;
+      set((state) => { if (state.player && won) state.player.career.money += pay; state.townBet = undefined; });
+      return { ok: true, message: won ? `Your bet landed. $${pay.toLocaleString()} back.` : `Your $${b.stake} bet went down with the match.` };
     },
 
     ringMatch: (wins, opponent) => {

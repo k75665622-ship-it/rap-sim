@@ -102,6 +102,13 @@ export function EventsScreen() {
   const [live, setLive] = useState<'football' | 'wrestling' | null>(null);
   const [liveWhere, setLiveWhere] = useState<'stand' | 'sofa'>('stand');
   const awayName = pick(CLUBS.filter((c) => c !== homeName), seed * 5 + 2);
+  const townBet = useGameStore((s) => s.townBet);
+  const bet = useGameStore((s) => s.betTown);
+  const settleBet = useGameStore((s) => s.settleTown);
+  const [stake, setStake] = useState(20);
+  const fm = footballMatch(seed, homeName, awayName);
+  const odds = { home: 2 + ((seed * 3) % 10) / 10, draw: 3.1 + ((seed * 7) % 6) / 10, away: 2.2 + ((seed * 5) % 12) / 10 };
+  const finishFootball = (sofa: boolean) => { const r = act(sofa ? 'sofa' : 'watch', 0).message; const sb = townBet ? settleBet(fm.final).message : ''; setMsg(`${r}${sb ? ' ' + sb : ''}`); };
   const startLive = (sport: 'football' | 'wrestling', where: 'stand' | 'sofa') => { setMsg(''); setLiveWhere(where); setLive(sport); };
   const run = (kind: Parameters<typeof act>[0], idx?: number) => setMsg(act(kind, idx).message);
   const btn = 'w-full min-h-11 rounded-[12px] border border-line px-3 py-2 text-left text-[13px] font-semibold text-ink active:bg-white/10';
@@ -125,10 +132,23 @@ export function EventsScreen() {
             <div className="text-[22px] font-black text-ink mt-1">{homeName} <span className="text-ink3">vs</span> {pick(CLUBS.filter((c) => c !== homeName), seed * 5 + 2)}</div>
             <div className="text-[12px] text-ink2 mt-1">Kick-off at 19:00 · the whole city is talking about it.</div>
           </div>
+          {!live ? (
+            <div className="rounded-[12px] border border-line px-3 py-2 space-y-2">
+              <div className="text-[11px] tracking-widest text-ink3 font-bold">PUT MONEY ON IT {townBet ? '· YOUR BET IS IN' : ''}</div>
+              {townBet ? <div className="text-[12px] text-ink2">{money(townBet.stake)} on {townBet.pick === 'draw' ? 'a draw' : townBet.pick === 'home' ? homeName : awayName} at {townBet.odds.toFixed(2)}. Watch the match to settle it.</div> : (
+                <>
+                  <div className="flex gap-2">{[20, 100, 500].map((n) => <button key={n} onClick={() => setStake(n)} className={`flex-1 h-9 rounded-full text-[12px] font-bold border ${stake === n ? 'bg-amber text-black border-amber' : 'border-line text-ink'}`}>{money(n)}</button>)}</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['home', 'draw', 'away'] as const).map((k) => <button key={k} onClick={() => setMsg(bet(k, stake, odds[k]).message)} className="h-12 rounded-[12px] border border-line text-[12px] font-bold text-ink active:bg-white/10">{k === 'home' ? homeName : k === 'away' ? awayName : 'Draw'}<span className="block text-[11px] text-amber">{odds[k].toFixed(2)}</span></button>)}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
           {live === 'football' ? (
-            <Ticker title={liveWhere === 'stand' ? 'LIVE · IN THE STANDS' : 'LIVE ON TV'} unit="min" beats={footballMatch(seed, homeName, awayName).beats} onDone={() => setMsg(act(liveWhere === 'stand' ? 'watch' : 'sofa', 0).message)} />
+            <Ticker title={liveWhere === 'stand' ? 'LIVE · IN THE STANDS' : 'LIVE ON TV'} unit="min" beats={fm.beats} onDone={() => finishFootball(liveWhere !== 'stand')} />
           ) : <button className={btn} onClick={() => startLive('football', 'stand')}>🎟️ Watch it live from the stands · free</button>}
-          <button className={btn} onClick={() => setScreen('investments')}>⚽ Put money on it (Money → Betting)</button>
+          
         </div>
       ) : null}
       {tab === 'wrestling' ? (
@@ -156,7 +176,7 @@ export function EventsScreen() {
           <div className="text-[12px] text-ink2">Home, the TV on, nobody asking you for anything. Tonight's game is on every channel.</div>
           {live ? (
             live === 'football'
-              ? <Ticker title="LIVE ON TV" unit="min" beats={footballMatch(seed, homeName, awayName).beats} onDone={() => setMsg(act('sofa', 0).message)} />
+              ? <Ticker title="LIVE ON TV" unit="min" beats={fm.beats} onDone={() => finishFootball(true)} />
               : <Ticker title="LIVE ON TV" unit="bout" beats={wrestlingCard(seed, RINGNAMES)} onDone={() => setMsg(act('sofa', 1).message)} />
           ) : (
             <>

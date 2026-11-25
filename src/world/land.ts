@@ -1,15 +1,15 @@
 // The plots out past the city edge: bare ground, "for sale" boards, what
 // neighbours have built, and whatever you are putting up on your own land.
 import * as THREE from 'three';
-import { cityLayout, currentCountry, LAND_ZONES, type Plot } from './layout';
+import { cityLayout, worldKey, LAND_ZONES, type Plot } from './layout';
 import { useGameStore } from '../store/gameStore';
 import { npcBuilding, plotKey, takenBy, type LandZone } from '../sim/land';
 import { dateToSerial } from '../sim/gameClock';
 import { BUILDS } from '../sim/realestate';
 import type { Bin } from './build';
 
-export type PlotStatus = 'sale' | 'yours' | 'taken';
-export interface PlotView { plot: Plot; status: PlotStatus; owner?: string; projectId?: string }
+export type PlotStatus = 'sale' | 'yours' | 'taken' | 'auction';
+export interface PlotView { plot: Plot; status: PlotStatus; owner?: string; projectId?: string; bid?: number; bidder?: string; endSerial?: number }
 
 /** The plot under a point, if it is on open land. */
 export function plotAt(x: number, z: number, pad = 2): Plot | null {
@@ -20,9 +20,11 @@ export function plotAt(x: number, z: number, pad = 2): Plot | null {
 
 export function viewOf(p: Plot): PlotView {
   const st = useGameStore.getState();
-  const country = currentCountry();
+  const country = worldKey();
   const mine = (st.devProjects ?? []).find((d) => d.plotId === p.id && d.country === country && d.stage !== 'sold');
   if (mine) return { plot: p, status: 'yours', projectId: mine.id };
+  const au = (st.landAuctions ?? []).find((a) => a.plotId === p.id && a.country === country);
+  if (au) return { plot: p, status: 'auction', bid: au.bid, bidder: au.bidder, endSerial: au.endSerial };
   const t = takenBy(st.landTaken, plotKey(country, p.id));
   return t ? { plot: p, status: 'taken', owner: t.by } : { plot: p, status: 'sale' };
 }
@@ -62,8 +64,8 @@ export function buildLand(bin: Bin) {
   const refresh = () => {
     const st = useGameStore.getState();
     const serial = dateToSerial(st.gameDate);
-    const country = currentCountry();
-    const s = `${country}|${(st.devProjects ?? []).map((d) => d.plotId ? d.plotId + d.stage : '').join(',')}|${Object.keys(st.landTaken ?? {}).length}|${Math.floor(serial / 10)}`;
+    const country = worldKey();
+    const s = `${country}|${(st.devProjects ?? []).map((d) => d.plotId ? d.plotId + d.stage : '').join(',')}|${Object.keys(st.landTaken ?? {}).length}|${(st.landAuctions ?? []).map((a) => a.plotId + a.bidder).join(',')}|${Math.floor(serial / 10)}`;
     if (s === sig) return;
     sig = s;
     let gi = 0, bi = 0, si = 0;
@@ -71,10 +73,10 @@ export function buildLand(bin: Bin) {
       const v = viewOf(p);
       const w = p.maxX - p.minX, d = p.maxZ - p.minZ, cx = (p.minX + p.maxX) / 2, cz = (p.minZ + p.maxZ) / 2;
       m.compose(new THREE.Vector3(cx, 0.19, cz), q, new THREE.Vector3(w - 1, 1, d - 1));
-      ground.setMatrixAt(gi, m); ground.setColorAt(gi, c.set(v.status === 'yours' ? '#6fa95a' : v.status === 'taken' ? '#9c9486' : '#b99f72')); gi++;
+      ground.setMatrixAt(gi, m); ground.setColorAt(gi, c.set(v.status === 'yours' ? '#6fa95a' : v.status === 'taken' ? '#9c9486' : v.status === 'auction' ? '#a58ab8' : '#b99f72')); gi++;
       // Board at the front corner, facing the road side of the plot.
       m.compose(new THREE.Vector3(p.minX + 1.4, 0.15, p.minZ + 1.4), q, new THREE.Vector3(1, 1, 1));
-      signs.setMatrixAt(si, m); signs.setColorAt(si, c.set(v.status === 'yours' ? '#2ed573' : v.status === 'taken' ? '#d6453d' : '#ffc21a')); si++;
+      signs.setMatrixAt(si, m); signs.setColorAt(si, c.set(v.status === 'yours' ? '#2ed573' : v.status === 'taken' ? '#d6453d' : v.status === 'auction' ? '#b57bff' : '#ffc21a')); si++;
       // What stands on it.
       let h = 0, color = '#ddd', foot = 0.55;
       if (v.status === 'taken') {
@@ -102,6 +104,53 @@ export function buildLand(bin: Bin) {
     }
   };
   refresh();
+
+  // Forest: tents, campfires and cabins (built once).
+  const fixed = (g: THREE.BufferGeometry, color: string, mats: THREE.Matrix4[], basic = false) => {
+    if (!mats.length) return;
+    const mat = bin.add(basic ? new THREE.MeshBasicMaterial({ color }) : new THREE.MeshLambertMaterial({ color }));
+    const im = new THREE.InstancedMesh(bin.add(g), mat, mats.length);
+    mats.forEach((mm, i) => im.setMatrixAt(i, mm));
+    im.frustumCulled = false;
+    group.add(im);
+  };
+  const tents: THREE.Matrix4[] = [], fires: THREE.Matrix4[] = [], logs: THREE.Matrix4[] = [], cabW: THREE.Matrix4[] = [], cabR: THREE.Matrix4[] = [], doors: THREE.Matrix4[] = [];
+  const one = new THREE.Vector3(1, 1, 1);
+  for (const c of L.camps) {
+    const rq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), c.rot);
+    if (c.kind === 'camp') {
+      const off = new THREE.Vector3(2.6, 0, 0).applyQuaternion(rq);
+      tents.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + off.x, 0.19 + 1.1, c.z + off.z), rq.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4)), one));
+      fires.push(new THREE.Matrix4().makeTranslation(c.x, 0.19 + 0.45, c.z));
+      logs.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0.19 + 0.12, c.z), rq, new THREE.Vector3(1, 1, 1)));
+    } else {
+      cabW.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0.19 + 1.7, c.z), rq, new THREE.Vector3(6, 3.4, 4.6)));
+      cabR.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0.19 + 3.4 + 1.1, c.z), rq.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4)), new THREE.Vector3(1, 1, 1)));
+      const d = new THREE.Vector3(0, 0, 2.31).applyQuaternion(rq);
+      doors.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + d.x, 0.19 + 1.0, c.z + d.z), rq, new THREE.Vector3(1, 2, 0.1)));
+    }
+  }
+  fixed(new THREE.ConeGeometry(1.9, 2.2, 4), '#c9703a', tents);
+  fixed(new THREE.ConeGeometry(0.38, 0.9, 6), '#ff8a1f', fires, true);
+  fixed(new THREE.BoxGeometry(1.5, 0.22, 0.3), '#4a3222', logs);
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#8a6240', cabW);
+  fixed(new THREE.ConeGeometry(4.6, 2.2, 4), '#5b3a26', cabR);
+  fixed(new THREE.BoxGeometry(0.9, 1, 1), '#3a281c', doors);
+  // Boats in the harbour basin, and a jetty-side crane-ish mast for flavour.
+  const hulls: THREE.Matrix4[] = [], cabins: THREE.Matrix4[] = [], masts: THREE.Matrix4[] = [];
+  for (const b of L.blocks) {
+    if (!b.water || (b.minZ + b.maxZ) / 2 > 750 || (b.minZ + b.maxZ) / 2 < 600) continue;
+    for (let i = 0; i < 2; i++) {
+      const bx = b.minX + 10 + i * 20 + ((b.minX * 7 + i * 5) % 5), bz = b.minZ + 14 + ((b.minZ * 3 + i * 11) % 14);
+      const q2 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ((b.minX + i * 40) % 6) * 0.5);
+      hulls.push(new THREE.Matrix4().compose(new THREE.Vector3(bx, 0.15 + 0.35, bz), q2, new THREE.Vector3(2.4, 0.9, 7.5)));
+      cabins.push(new THREE.Matrix4().compose(new THREE.Vector3(bx, 0.15 + 1.2, bz), q2, new THREE.Vector3(1.6, 1, 2.6)));
+      masts.push(new THREE.Matrix4().compose(new THREE.Vector3(bx, 0.15 + 3, bz - 1), q2, new THREE.Vector3(0.12, 4.5, 0.12)));
+    }
+  }
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#e8e4d8', hulls);
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#2b5d8a', cabins);
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#d9d4c8', masts);
   return { group, refresh };
 }
 

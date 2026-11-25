@@ -228,6 +228,7 @@ export function buildCity(bin: Bin): CityObjects {
   const paveGeos = new Map<string, THREE.BufferGeometry[]>();
   const grassGeos = new Map<string, THREE.BufferGeometry[]>();
   const into = (m: Map<string, THREE.BufferGeometry[]>, k: string, g: THREE.BufferGeometry) => { if (!m.has(k)) m.set(k, []); m.get(k)!.push(g); };
+  const waterGeos: THREE.BufferGeometry[] = [];
   for (const b of L.blocks) {
     // A block's slab runs out to the kerb, except at the edge of the world.
     const grow = (v: number, dir: number) => (v <= WORLD.x0 + 0.01 || v >= WORLD.x1 - 0.01 ? v + dir * 40 : v + dir * SIDEWALK);
@@ -235,11 +236,22 @@ export function buildCity(bin: Bin): CityObjects {
     const g = tiledBox(x1 - x0, KERB_H, z1 - z0, 2);
     g.translate((x0 + x1) / 2, KERB_H / 2, (z0 + z1) / 2);
     into(paveGeos, chunkOf((x0 + x1) / 2, (z0 + z1) / 2), g);
+    if (b.water) {
+      const wg = new THREE.PlaneGeometry(b.maxX - b.minX - 3, b.maxZ - b.minZ - 3);
+      wg.rotateX(-Math.PI / 2);
+      wg.translate((b.minX + b.maxX) / 2, KERB_H + 0.02, (b.minZ + b.maxZ) / 2);
+      waterGeos.push(wg);
+    }
     if (b.park) {
       const gg = new THREE.BoxGeometry(b.maxX - b.minX - 1, 0.04, b.maxZ - b.minZ - 1);
       gg.translate((b.minX + b.maxX) / 2, KERB_H + 0.02, (b.minZ + b.maxZ) / 2);
       into(grassGeos, chunkOf((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2), gg);
     }
+  }
+  if (waterGeos.length) {
+    const waterMat = bin.add(new THREE.MeshLambertMaterial({ color: '#2f7fb8', emissive: '#0b2c4a', emissiveIntensity: 0.35, transparent: true, opacity: 0.93 }));
+    root.add(new THREE.Mesh(geo(mergeGeometries(waterGeos)), waterMat));
+    waterGeos.forEach((g) => g.dispose());
   }
   const paveMat = lambert({ map: pave });
   const grassMat = lambert({ color: '#5b8f45' });

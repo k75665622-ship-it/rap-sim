@@ -2307,6 +2307,8 @@ export type GameScreen =
   | 'city'
   | 'kitchen'
   | 'airport'
+  | 'ferry'
+  | 'intercity'
   | 'studio'
   | 'social_chirp'
   | 'social_snapgram'
@@ -2642,6 +2644,10 @@ export interface GameState {
   devProjects?: DevProject[];
   /** Plots in the open world that someone else has bought, by `country:plot`. */
   landTaken?: Record<string, { by: string; serial: number }>;
+  /** Last day you wrote or slept in the forest for the creative boost. */
+  forestDay?: number;
+  /** Plots currently going under the hammer. */
+  landAuctions?: Array<{ plotId: string; country: string; endSerial: number; bid: number; bidder: string }>;
   casino?: CasinoState;
   /** Net worth, once a week, for the chart. */
   wealthHistory?: { serial: number; net: number }[];

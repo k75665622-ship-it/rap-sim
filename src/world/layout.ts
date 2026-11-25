@@ -82,7 +82,9 @@ export interface Prop { kind: 'tree' | 'lamp'; x: number; z: number; rot: number
 
 export interface ParkedCar { x: number; z: number; heading: number; color: string }
 
-export interface Block extends Box { park: boolean }
+export interface Block extends Box { park: boolean; water?: boolean }
+/** A campsite (tent + fire) or a cabin in the forest. */
+export interface Camp { id: string; kind: 'camp' | 'cabin'; x: number; z: number; rot: number }
 /** One buyable parcel of land (about 19 m square). */
 export interface Plot extends Box { id: string; zone: ZoneId; block: string }
 /** A whole block of four plots: the unit you buy to start an estate. */
@@ -105,9 +107,9 @@ export const PLACES: Place[] = [
   { id: 'mall', name: 'MARKET SQUARE', tagline: 'Shops · Food court', accent: '#4dd4ac', glyph: 'M' },
   { id: 'stadium', name: 'NATIONAL STADIUM', tagline: 'Football', accent: '#7bd34d', glyph: 'B' },
   { id: 'arena', name: 'IRON RING ARENA', tagline: 'Wrestling · Concerts', accent: '#ff6b6b', glyph: 'W' },
-  { id: 'heights', name: 'SKYLINE HEIGHTS', tagline: 'Luxury towers', accent: '#74c0fc', glyph: 'K' },
-  { id: 'estate', name: 'PALM ESTATES', tagline: 'Houses for sale', accent: '#b2f2bb', glyph: 'E' },
-  { id: 'port', name: 'TEMA HARBOUR', tagline: 'Ports · Ferries · Cargo', accent: '#4dabf7', glyph: 'P' },
+  { id: 'heights', name: 'SKYLINE HEIGHTS', tagline: 'Luxury towers', screen: 'investments', accent: '#74c0fc', glyph: 'K' },
+  { id: 'estate', name: 'PALM ESTATES', tagline: 'Houses for sale', screen: 'lifestyle', accent: '#b2f2bb', glyph: 'E' },
+  { id: 'port', name: 'TEMA HARBOUR', tagline: 'Ports · Ferries · Cargo', screen: 'ferry', accent: '#4dabf7', glyph: 'P' },
   { id: 'airport', name: 'GOLD COAST AIRPORT', tagline: 'Flights abroad', accent: '#e599f7', glyph: '✈' },
 ];
 const LANDMARKS: Partial<Record<ZoneId, string[]>> = {
@@ -169,6 +171,7 @@ export interface CityLayout {
   parked: ParkedCar[];
   plots: Plot[];
   landBlocks: LandBlock[];
+  camps: Camp[];
   /** Everything solid, for the player and the car. */
   solids: Box[];
   spawn: { x: number; z: number; rot: number };
@@ -177,12 +180,21 @@ export interface CityLayout {
 
 let cached: CityLayout | null = null;
 let worldCountry = 'Ghana';
+let worldCity = '';
 export const currentCountry = (): string => worldCountry;
-/** Which country's city the world is built as. Ghana is the original; every other country gets its own streets and palette. */
-export function setWorldCountry(c: string): void {
-  if (c && c !== worldCountry) { worldCountry = c; cached = null; }
+/** The capital (first listed city) is the country's main city; others are 'away' cities. */
+const mainCity = (c: string) => getCitiesByCountry(c)[0]?.name ?? c;
+/** The city you are in, inside the current country. */
+export const currentCity = (): string => worldCity || mainCity(worldCountry);
+/** A key for things owned in this world (land): the country, plus the city when it is not the main one. */
+export const worldKey = (): string => (worldCity && worldCity !== mainCity(worldCountry) ? `${worldCountry}/${worldCity}` : worldCountry);
+/** Which country's city the world is built as. Ghana's Accra is the original; every other country and city gets its own streets and palette. */
+export function setWorldCountry(c: string, city = ''): void {
+  const cc = city && city !== mainCity(c) ? city : '';
+  if (c && (c !== worldCountry || cc !== worldCity)) { worldCountry = c; worldCity = cc; cached = null; }
 }
-const seedFor = (c: string) => (c === 'Ghana' ? 1919 : [...c].reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 7) || 1);
+const hashStr = (s: string) => [...s].reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 7) || 1;
+const seedFor = (c: string) => (c === 'Ghana' && !worldCity ? 1919 : hashStr(c + (worldCity ? '/' + worldCity : '')));
 const THEMES: Record<string, string[]> = {
   Africa: ['#e3c9a0', '#d3a77a', '#c98f66', '#ecd9b5', '#b9a27f', '#f0e0c0'],
   Europe: ['#b8b2aa', '#a39a8f', '#c4a38a', '#8f8a86', '#d3cdc4', '#9a8f86'],
@@ -198,9 +210,9 @@ const NAMES: Record<string, Partial<Record<string, string>>> = {
 };
 /** The same places, named for where you are. Story-bound ones (the kitchen, Studio 9, the label) keep their names. */
 export function localPlace(p: Place, country = worldCountry): Place {
-  if (country === 'Ghana') return p;
+  if (country === 'Ghana' && !worldCity) return p;
   const r = regionOf(country);
-  const city = (getCitiesByCountry(country)[0]?.name ?? country).toUpperCase();
+  const city = (country === worldCountry ? currentCity() : mainCity(country)).toUpperCase();
   const c = country.toUpperCase();
   const name = p.id === 'airport' ? `${c} INTL AIRPORT` : p.id === 'stadium' ? `${c} NATIONAL STADIUM` : p.id === 'port' ? `${city} HARBOUR` : NAMES[p.id]?.[r] ?? p.name;
   return name === p.name ? p : { ...p, name };
@@ -230,6 +242,10 @@ export function cityLayout(): CityLayout {
 
   B.forEach(([x0, x1, xLowRoad, xHighRoad], ix) => {
     B.forEach(([z0, z1, zLowRoad, zHighRoad], iz) => {
+      const cxb = (x0 + x1) / 2, czb = (z0 + z1) / 2;
+      // Water: a harbour basin in the port district, a lake in Lakeside, and a river through the southern woods.
+      const water = (czb >= 680 && czb <= 700 && cxb >= 200 && cxb <= 400) || (cxb >= 210 && cxb <= 390 && czb >= 800 && czb <= 940 && !(cxb < 230 || cxb > 370)) || (Math.abs(cxb - 450) < 6 && czb >= 750);
+      if (water) { blocks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, park: false, water: true }); return; }
       const park = isPark(ix, iz);
       blocks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, park });
       if (park) {
@@ -386,6 +402,19 @@ export function cityLayout(): CityLayout {
     }
   }
 
+  // Clearings in the forest: a campsite here, a cabin there.
+  const camps: Camp[] = [];
+  for (const b of blocks) {
+    if (!b.park) continue;
+    const zk = zoneAt((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2);
+    if (!FOREST_ZONES.includes(zk)) continue;
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const k = Math.round(cx * 7 + cz * 13);
+    if (k % 3 === 0) camps.push({ id: `camp${camps.length}`, kind: 'camp', x: cx, z: cz, rot: (k % 8) * 0.7 });
+    else if (k % 4 === 0) camps.push({ id: `cabin${camps.length}`, kind: 'cabin', x: cx, z: cz, rot: (k % 4) * Math.PI / 2 });
+  }
+  for (let i = props.length - 1; i >= 0; i--) if (camps.some((c) => Math.hypot(props[i].x - c.x, props[i].z - c.z) < (c.kind === 'cabin' ? 9 : 6.5))) props.splice(i, 1);
+
   // ─── parked cars along kerbs ───────────────────────────────────────────
   const paints = ['#c0392b', '#2c3e50', '#ecf0f1', '#16a085', '#7f8c8d', '#2980b9', '#111318', '#d35400'];
   const parked: ParkedCar[] = [];
@@ -406,6 +435,8 @@ export function cityLayout(): CityLayout {
     const h = p.kind === 'tree' ? 0.25 : 0.15;
     solids.push({ minX: p.x - h, maxX: p.x + h, minZ: p.z - h, maxZ: p.z + h });
   }
+  for (const b of blocks) if (b.water) solids.push({ minX: b.minX + 1.4, maxX: b.maxX - 1.4, minZ: b.minZ + 1.4, maxZ: b.maxZ - 1.4 });
+  for (const c of camps) if (c.kind === 'cabin') solids.push({ minX: c.x - 3.2, maxX: c.x + 3.2, minZ: c.z - 2.7, maxZ: c.z + 2.7 });
   for (const c of parked) {
     const along = Math.abs(Math.sin(c.heading)) > 0.5; // east-west
     const hw = along ? 2.2 : 1.0;
@@ -424,7 +455,7 @@ export function cityLayout(): CityLayout {
     ? { x: d.x + d.nx * toLane, z: d.z - 6, heading: d.nx > 0 ? 0 : Math.PI }
     : { x: d.x - 6, z: d.z + d.nz * toLane, heading: d.nz > 0 ? -Math.PI / 2 : Math.PI / 2 };
 
-  cached = { blocks, buildings, props, parked, plots, landBlocks, solids, spawn, carSpawn };
+  cached = { blocks, buildings, props, parked, plots, landBlocks, camps, solids, spawn, carSpawn };
   return cached;
 }
 

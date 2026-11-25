@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Bin, blobTexture, buildCar, buildCity, buildCrowd, buildPlayer, buildSky, type CrowdPose } from './build';
-import { cast, isOut, stepPeople, type Resident } from './people';
+import { cast, homeDoorNear, isOut, stepPeople, whereIs, type Resident } from './people';
 import { radio } from './radio';
 import { drivePrefs } from './drivePrefs';
 import { gpsState, refreshGps } from './gps';
@@ -301,14 +301,38 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       if (door) prompt = door.homeType || door.place.screen || Object.values(built.interiors).some((i) => i.placeId === door.place.id) ? `Enter ${door.place.name}` : `${door.place.name} · opening soon`;
       else if (person) prompt = person.local ? `Say hi to ${person.name}` : `Talk to ${person.name}`;
       else if (nearCar) prompt = 'Get in your car';
-      const plot = !door && !person && !nearCar ? plotAt(live.p.x, live.p.z) : null;
+      const knock = !door && !person && !nearCar ? homeDoorNear(live.p.x, live.p.z) : null;
+      if (knock && knock.residents.length) prompt = knock.home ? `Knock · ${knock.home.name}'s place` : `Knock · ${knock.residents[0].name}'s place`;
+      else if (knock) prompt = 'Knock on the door';
+      const plot = !door && !person && !nearCar && !knock ? plotAt(live.p.x, live.p.z) : null;
+      const camp = !door && !person && !nearCar && !plot ? cityLayout().camps.find((c) => Math.hypot(c.x - live.p.x, c.z - live.p.z) < (c.kind === 'cabin' ? 5.2 : 4.2)) : undefined;
+      if (camp) prompt = camp.kind === 'cabin' ? 'Forest cabin · stay' : 'Campfire · sit down';
       if (plot) {
         const pv = viewOf(plot);
-        prompt = pv.status === 'sale' ? 'Land for sale · look at it' : pv.status === 'yours' ? 'Your land · manage' : `Land owned by ${pv.owner}`;
+        prompt = pv.status === 'auction' ? '🔨 Land auction · bid' : pv.status === 'sale' ? 'Land for sale · look at it' : pv.status === 'yours' ? 'Your land · manage' : `Land owned by ${pv.owner}`;
       }
 
       if (action) {
-        if (plot && !door && !person && !nearCar) {
+        if (knock && !camp) {
+          if (knock.home) {
+            const r = knock.home;
+            r.inside = -1;
+            r.x = knock.x + knock.ox * 1.4; r.z = knock.z + knock.oz * 1.4;
+            r.path = []; r.pathNodes = [];
+            r.hold = 1e6;
+            r.rot = Math.atan2(live.p.x - r.x, live.p.z - r.z);
+            live.p.rot = Math.atan2(r.x - live.p.x, r.z - live.p.z);
+            live.p.speed = 0;
+            tmp.talking = r;
+            hudStore.toast(`🚪 ${r.name} opens the door.`, 2200);
+            hudStore.set({ talk: r.id });
+          } else if (knock.residents.length) {
+            hudStore.toast(`🚪 No answer. ${knock.residents[0].name} is ${whereIs(knock.residents[0])}.`, 3200);
+          } else hudStore.toast('🚪 Nobody answers.', 2200);
+        } else if (camp) {
+          live.p.speed = 0;
+          hudStore.set({ camp: camp.id });
+        } else if (plot && !door && !person && !nearCar) {
           live.p.speed = 0;
           hudStore.set({ plot: plot.id });
         } else if (door) {

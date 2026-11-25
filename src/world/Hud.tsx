@@ -15,13 +15,13 @@ import { phone, usePhoneOpen } from './phone';
 import { useUnread } from './Phone';
 import { TalkCard } from './TalkCard';
 import { PlotCard } from './PlotCard';
+import { ForestCard } from './ForestCard';
 import { StageOverlays } from './Stage';
 import { radio, STATION, useRadio } from './radio';
 import { CarControls, Dashboard } from './CarControls';
 import { useDrivePrefs } from './drivePrefs';
 import { gpsState, waitingFor } from './gps';
-import { zoneAt, ZONES, currentCountry } from './layout';
-import { getCitiesByCountry } from '../data/locations';
+import { zoneAt, ZONES, currentCity } from './layout';
 import { live } from './sim';
 import { useUi } from './ui';
 import { MapOverlay, Minimap } from './MapView';
@@ -47,7 +47,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       const me = live.mode === 'car' ? live.car : live.p;
       if (hudStore.get().inside) return;
       const z = zoneAt(me.x, me.z);
-      if (zoneRef.current !== null && zoneRef.current !== z) hudStore.toast(`📍 ${getCitiesByCountry(currentCountry())[0]?.name ?? currentCountry()} · ${ZONES[z].name}`, 2600);
+      if (zoneRef.current !== null && zoneRef.current !== z) hudStore.toast(`📍 ${currentCity()} · ${ZONES[z].name}`, 2600);
       zoneRef.current = z;
     }, 600);
     return () => clearInterval(i);
@@ -126,7 +126,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {/* Interaction prompt */}
-      {hud.prompt && !phoneOut && !hud.talk && !hud.plot ? (
+      {hud.prompt && !phoneOut && !hud.talk && !hud.plot && !hud.camp ? (
         <div className={`absolute left-1/2 -translate-x-1/2 ${touch ? 'bottom-44' : 'bottom-10'} flex items-center gap-2 h-10 pl-1.5 pr-4 rounded-full bg-black/70 backdrop-blur border border-amber/40 text-[14px] font-semibold rl-fade`}>
           <span className="w-7 h-7 rounded-full bg-amber text-black font-black text-[13px] flex items-center justify-center">{touch ? '✋' : 'E'}</span>
           {hud.prompt}
@@ -144,13 +144,13 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {hud.mode === 'car' && !phoneOut && cockpit ? <Dashboard kmh={hud.speedKmh} /> : null}
-      {touch && !phoneOut && !hud.talk && !hud.plot ? <TouchButtons mode={hud.mode} cockpit={cockpit} /> : null}
-      {hud.mode === 'car' && !phoneOut && !hud.talk && !hud.plot ? <CarControls /> : null}
+      {touch && !phoneOut && !hud.talk && !hud.plot && !hud.camp ? <TouchButtons mode={hud.mode} cockpit={cockpit} /> : null}
+      {hud.mode === 'car' && !phoneOut && !hud.talk && !hud.plot && !hud.camp ? <CarControls /> : null}
 
       {hud.mode === 'car' && !phoneOut && !touch ? <RadioPill touch={touch} /> : null}
 
       {/* Open mic and video shoot, on foot. */}
-      {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.plot && !hud.gig && !hud.shooting ? (
+      {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.gig && !hud.shooting ? (
         <div className={`absolute ${touch ? 'left-[104px] top-14' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
           {hud.nearStage ? (
             <button onClick={() => hudStore.set({ gig: true })} className="pointer-events-auto h-10 px-4 rounded-full bg-re text-white text-[13px] font-bold shadow-lg">🎤 Open mic{touch ? '' : ' · G'}</button>
@@ -161,6 +161,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
 
       <TalkCard />
       <PlotCard />
+      <ForestCard />
       <StageOverlays />
 
       {help ? (

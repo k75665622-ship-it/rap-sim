@@ -32,6 +32,7 @@ function paint(g: CanvasRenderingContext2D, w: number, h: number, o: PaintOpts) 
     g.fillRect(X(c - ROAD_HALF), Z(WORLD.z0), ROAD_HALF * 2 * s, (WORLD.z1 - WORLD.z0) * s);
     g.fillRect(X(WORLD.x0), Z(c - ROAD_HALF), (WORLD.x1 - WORLD.x0) * s, ROAD_HALF * 2 * s);
   }
+  for (const b of L.blocks) if (b.water) { g.fillStyle = '#2f7fb8'; g.fillRect(X(b.minX), Z(b.minZ), (b.maxX - b.minX) * s, (b.maxZ - b.minZ) * s); }
   for (const b of L.blocks) if (b.park) { g.fillStyle = '#4c7a3b'; g.fillRect(X(b.minX), Z(b.minZ), (b.maxX - b.minX) * s, (b.maxZ - b.minZ) * s); }
   for (const b of L.buildings) {
     g.fillStyle = b.place ? b.place.accent : '#3b3f4b';

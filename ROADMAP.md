@@ -385,3 +385,26 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 - Walk onto a plot and press E/✋: buy it, or buy the whole block (4 plots, 10% off) to start an **estate** (+10% rent). Plots become normal Property projects, so the existing building process (apartments/villas/plaza/hotel, delays, overruns) applies, and the build rises on the plot in the world.
 - **Competition**: ~25% of plots are sold at start, and every day each free plot has a chance of being bought by an NPC buyer (`landTick`); sold buildings go to new owners. Neighbours' plots show houses.
 - Next: forest props (cabins, logging), plot pricing by road frontage, selling land, rival bidding/auctions.
+
+### Ferries, land auctions, selling land
+- Harbour door opens a **Ferry screen**: cheap 12 h ferries to countries on your continent, freighter berths (40 h) further; arrive at the destination's port.
+- **Land auctions**: up to 3 plots at a time go to auction (purple board); bid +10%, rivals outbid you, you pay only if you win when the hammer falls (can't cover it = lost).
+- **Sell the land back** from the plot card (existing sell flow; plot returns to NPC owners).
+
+### Local currency
+- Amounts show in the money of the country you're in (GH₵, ₦, £, €, ¥…; ~60 currencies, fixed game rates). Underneath, everything is still dollars.
+- `utils/currency.ts` (rates/symbols), money formatters convert, and `currencyDom.ts` converts any hard-coded "$1,234" text as it reaches the screen. Account → Money switches back to US dollars.
+
+### Cities inside a country
+- Each country's listed cities are playable: coach/train from the airport or ferry screen ("Other cities in …"). Every city has its own seeded streets/skyline, local place names, and its own plots (land keyed `Country/City`). Flying or sailing abroad resets you to that country's main city.
+
+### Forest life
+- 82 clearings across the three forests: campfires with tents (sit/write/walk) and 10 rentable cabins (night stay, full rest). Daily creativity/songwriting boost (`forestDay`), and trail walks with small finds, fans and quiet moments.
+
+### People living in the world
+- Every front door can be knocked on. If a resident is home they open up and you talk (Catch up / Message / Profile); if not, you hear where they are ("on their way to work", "out for the night"). Doors with nobody behind them say so.
+- Next: NPC-owned businesses and studios you can visit, inviting people over, scheduled meetups.
+
+### Water & no more "opening soon"
+- Harbour basin with boats (port district), a lake in Lakeside, and a river through the southern woods; water blocks are solid and show blue on the map. Roads cross the river as bridges.
+- Skyline Heights and Palm Estates doors now open Property / Lifestyle instead of "opening soon".

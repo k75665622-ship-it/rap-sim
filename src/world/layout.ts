@@ -82,7 +82,7 @@ export interface Prop { kind: 'tree' | 'lamp'; x: number; z: number; rot: number
 
 export interface ParkedCar { x: number; z: number; heading: number; color: string }
 
-export interface Block extends Box { park: boolean }
+export interface Block extends Box { park: boolean; water?: boolean }
 /** A campsite (tent + fire) or a cabin in the forest. */
 export interface Camp { id: string; kind: 'camp' | 'cabin'; x: number; z: number; rot: number }
 /** One buyable parcel of land (about 19 m square). */
@@ -107,8 +107,8 @@ export const PLACES: Place[] = [
   { id: 'mall', name: 'MARKET SQUARE', tagline: 'Shops · Food court', accent: '#4dd4ac', glyph: 'M' },
   { id: 'stadium', name: 'NATIONAL STADIUM', tagline: 'Football', accent: '#7bd34d', glyph: 'B' },
   { id: 'arena', name: 'IRON RING ARENA', tagline: 'Wrestling · Concerts', accent: '#ff6b6b', glyph: 'W' },
-  { id: 'heights', name: 'SKYLINE HEIGHTS', tagline: 'Luxury towers', accent: '#74c0fc', glyph: 'K' },
-  { id: 'estate', name: 'PALM ESTATES', tagline: 'Houses for sale', accent: '#b2f2bb', glyph: 'E' },
+  { id: 'heights', name: 'SKYLINE HEIGHTS', tagline: 'Luxury towers', screen: 'investments', accent: '#74c0fc', glyph: 'K' },
+  { id: 'estate', name: 'PALM ESTATES', tagline: 'Houses for sale', screen: 'lifestyle', accent: '#b2f2bb', glyph: 'E' },
   { id: 'port', name: 'TEMA HARBOUR', tagline: 'Ports · Ferries · Cargo', screen: 'ferry', accent: '#4dabf7', glyph: 'P' },
   { id: 'airport', name: 'GOLD COAST AIRPORT', tagline: 'Flights abroad', accent: '#e599f7', glyph: '✈' },
 ];
@@ -242,6 +242,10 @@ export function cityLayout(): CityLayout {
 
   B.forEach(([x0, x1, xLowRoad, xHighRoad], ix) => {
     B.forEach(([z0, z1, zLowRoad, zHighRoad], iz) => {
+      const cxb = (x0 + x1) / 2, czb = (z0 + z1) / 2;
+      // Water: a harbour basin in the port district, a lake in Lakeside, and a river through the southern woods.
+      const water = (czb >= 680 && czb <= 700 && cxb >= 200 && cxb <= 400) || (cxb >= 210 && cxb <= 390 && czb >= 800 && czb <= 940 && !(cxb < 230 || cxb > 370)) || (Math.abs(cxb - 450) < 6 && czb >= 750);
+      if (water) { blocks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, park: false, water: true }); return; }
       const park = isPark(ix, iz);
       blocks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, park });
       if (park) {
@@ -431,6 +435,7 @@ export function cityLayout(): CityLayout {
     const h = p.kind === 'tree' ? 0.25 : 0.15;
     solids.push({ minX: p.x - h, maxX: p.x + h, minZ: p.z - h, maxZ: p.z + h });
   }
+  for (const b of blocks) if (b.water) solids.push({ minX: b.minX + 1.4, maxX: b.maxX - 1.4, minZ: b.minZ + 1.4, maxZ: b.maxZ - 1.4 });
   for (const c of camps) if (c.kind === 'cabin') solids.push({ minX: c.x - 3.2, maxX: c.x + 3.2, minZ: c.z - 2.7, maxZ: c.z + 2.7 });
   for (const c of parked) {
     const along = Math.abs(Math.sin(c.heading)) > 0.5; // east-west

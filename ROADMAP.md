@@ -404,3 +404,7 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 ### People living in the world
 - Every front door can be knocked on. If a resident is home they open up and you talk (Catch up / Message / Profile); if not, you hear where they are ("on their way to work", "out for the night"). Doors with nobody behind them say so.
 - Next: NPC-owned businesses and studios you can visit, inviting people over, scheduled meetups.
+
+### Water & no more "opening soon"
+- Harbour basin with boats (port district), a lake in Lakeside, and a river through the southern woods; water blocks are solid and show blue on the map. Roads cross the river as bridges.
+- Skyline Heights and Palm Estates doors now open Property / Lifestyle instead of "opening soon".

@@ -136,6 +136,21 @@ export function buildLand(bin: Bin) {
   fixed(new THREE.BoxGeometry(1, 1, 1), '#8a6240', cabW);
   fixed(new THREE.ConeGeometry(4.6, 2.2, 4), '#5b3a26', cabR);
   fixed(new THREE.BoxGeometry(0.9, 1, 1), '#3a281c', doors);
+  // Boats in the harbour basin, and a jetty-side crane-ish mast for flavour.
+  const hulls: THREE.Matrix4[] = [], cabins: THREE.Matrix4[] = [], masts: THREE.Matrix4[] = [];
+  for (const b of L.blocks) {
+    if (!b.water || (b.minZ + b.maxZ) / 2 > 750 || (b.minZ + b.maxZ) / 2 < 600) continue;
+    for (let i = 0; i < 2; i++) {
+      const bx = b.minX + 10 + i * 20 + ((b.minX * 7 + i * 5) % 5), bz = b.minZ + 14 + ((b.minZ * 3 + i * 11) % 14);
+      const q2 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ((b.minX + i * 40) % 6) * 0.5);
+      hulls.push(new THREE.Matrix4().compose(new THREE.Vector3(bx, 0.15 + 0.35, bz), q2, new THREE.Vector3(2.4, 0.9, 7.5)));
+      cabins.push(new THREE.Matrix4().compose(new THREE.Vector3(bx, 0.15 + 1.2, bz), q2, new THREE.Vector3(1.6, 1, 2.6)));
+      masts.push(new THREE.Matrix4().compose(new THREE.Vector3(bx, 0.15 + 3, bz - 1), q2, new THREE.Vector3(0.12, 4.5, 0.12)));
+    }
+  }
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#e8e4d8', hulls);
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#2b5d8a', cabins);
+  fixed(new THREE.BoxGeometry(1, 1, 1), '#d9d4c8', masts);
   return { group, refresh };
 }
 

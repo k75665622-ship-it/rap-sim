@@ -2,7 +2,7 @@
 // Match day, wrestling night, and the casting desk at Gold Coast Studios.
 
 import { useState } from 'react';
-import { useGameStore } from '../../store/gameStore';
+import { useGameStore, heatNow } from '../../store/gameStore';
 import { dateToSerial } from '../../sim/gameClock';
 import { currentCountry } from '../../world/layout';
 import { money } from '@/utils/format';
@@ -21,6 +21,42 @@ const SHOWS = [
 ];
 const pick = <T,>(a: T[], n: number) => a[Math.abs(n) % a.length];
 
+type Move = 'strike' | 'grapple' | 'taunt';
+const BEATS: Record<Move, Move> = { strike: 'grapple', grapple: 'taunt', taunt: 'strike' };
+const ICON: Record<Move, string> = { strike: '👊 Strike', grapple: '🤼 Grapple', taunt: '📣 Taunt' };
+
+/** Best of three: Strike beats Grapple, Grapple beats Taunt, Taunt beats Strike. Your rival's body language gives away his move — usually. */
+function Bout({ opponent, seed, onDone }: { opponent: string; seed: number; onDone: (wins: number) => void }) {
+  const [round, setRound] = useState(0);
+  const [wins, setWins] = useState(0);
+  const [log, setLog] = useState<string[]>([]);
+  const moves: Move[] = ['strike', 'grapple', 'taunt'];
+  const theirs = (r: number): Move => moves[Math.abs(seed * 3 + r * 5 + r * r) % 3];
+  const tell = (r: number): Move => (Math.abs(seed + r * 7) % 10 < 7 ? theirs(r) : moves[(moves.indexOf(theirs(r)) + 1) % 3]);
+  const hint: Record<Move, string> = { strike: 'He is winding up his arm.', grapple: 'He is crouching low, hands open.', taunt: 'He is playing to the crowd.' };
+  const play = (m: Move) => {
+    const t = theirs(round);
+    const w = BEATS[m] === t ? 1 : 0;
+    const l = BEATS[t] === m ? 1 : 0;
+    const nw = wins + w;
+    setLog((x) => [...x, `Round ${round + 1}: you used ${ICON[m].slice(3)}, ${opponent} used ${ICON[t].slice(3)} — ${w ? 'you take it' : l ? 'he takes it' : 'a draw, nobody scores'}.`]);
+    setWins(nw);
+    if (round === 2) onDone(nw); else setRound(round + 1);
+  };
+  return (
+    <div className="rounded-[14px] border border-line p-4 space-y-2">
+      <div className="text-[11px] tracking-widest text-ink3 font-bold">BOUT · ROUND {Math.min(3, round + 1)} OF 3 · YOU {wins}</div>
+      {round <= 2 && log.length === round ? (
+        <>
+          <div className="text-[13px] text-ink2">{hint[tell(round)]}</div>
+          <div className="grid grid-cols-3 gap-2">{moves.map((m) => <button key={m} onClick={() => play(m)} className="h-12 rounded-[12px] border border-line text-[13px] font-bold text-ink active:bg-white/10">{ICON[m]}</button>)}</div>
+        </>
+      ) : null}
+      {log.map((l) => <div key={l} className="text-[12px] text-ink2">{l}</div>)}
+    </div>
+  );
+}
+
 export function EventsScreen() {
   const [tab, setTab] = useState<EventsTab>(tab0);
   const [msg, setMsg] = useState('');
@@ -33,6 +69,9 @@ export function EventsScreen() {
   const homeName = home === away ? pick(CLUBS, seed + 1) : home;
   const role = useGameStore((s) => s.tvRole);
   const quit = useGameStore((s) => s.quitTvRole);
+  const heat = useGameStore((s) => heatNow(s.ringHeat, dateToSerial(s.gameDate)));
+  const settle = useGameStore((s) => s.ringMatch);
+  const [bout, setBout] = useState(false);
   const run = (kind: Parameters<typeof act>[0], idx?: number) => setMsg(act(kind, idx).message);
   const btn = 'w-full min-h-11 rounded-[12px] border border-line px-3 py-2 text-left text-[13px] font-semibold text-ink active:bg-white/10';
   return (
@@ -68,6 +107,13 @@ export function EventsScreen() {
           </div>
           <button className={btn} onClick={() => run('ringside')}>🪑 Ringside seats · {money(40)} · 2.5 h</button>
           <button className={btn} onClick={() => run('promo')}>🎤 Ask to cut a promo before the main event · risky, pays if the crowd loves it</button>
+          <div className="rounded-[12px] border border-line px-3 py-2">
+            <div className="flex justify-between text-[11px] text-ink3 font-bold"><span>YOUR HEAT WITH THE CROWD</span><span>{Math.round(heat)} / 100</span></div>
+            <div className="bg-line rounded-full h-1.5 mt-1"><div className="h-1.5 rounded-full bg-amber" style={{ width: `${heat}%` }} /></div>
+            <div className="text-[11px] text-ink3 mt-1">At 30 the promoter books you a bout. Win promos to build it; it fades a point a day.</div>
+          </div>
+          {heat >= 30 && !bout ? <button className={btn} onClick={() => setBout(true)}>🥊 Step through the ropes · vs {pick(RINGNAMES, seed * 11 + 3)}</button> : null}
+          {bout ? <Bout opponent={pick(RINGNAMES, seed * 11 + 3)} seed={seed} onDone={(w) => { setMsg(settle(w, pick(RINGNAMES, seed * 11 + 3)).message); setTimeout(() => setBout(false), 2500); }} /> : null}
         </div>
       ) : null}
       {tab === 'tv' ? (

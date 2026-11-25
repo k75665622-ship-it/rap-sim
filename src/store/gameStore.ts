@@ -887,6 +887,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         bizDay: state.bizDay,
         eventDay: state.eventDay,
         tvRole: state.tvRole,
+        ringHeat: state.ringHeat,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -3223,6 +3224,8 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Settle a wrestling match you fought in the arena screen (rounds won out of 3). */
+  ringMatch: (wins: number, opponent: string) => FeatureActionResult;
   /** Walk away from your recurring TV role. */
   quitTvRole: () => FeatureActionResult;
   /** Stadium, arena and TV lot: watch, perform, audition. */
@@ -9549,6 +9552,9 @@ export function monthlyBurnOf(state: Pick<GameState, 'home' | 'homes' | 'ownedAs
 /** Rent renewals, the landlord's patience, and the monthly bills. */
 /** Out in the open world, other buyers are moving too: a plot you wait on can be gone tomorrow. */
 const ZONES_NAME = (z: string) => ({ plots: 'Sunrise Plots', wilds: 'Ridge Wilds', farms: 'Meadow Farms', lakeside: 'Lakeside' }[z] ?? 'the new districts');
+/** Wrestling heat after fading. */
+export const heatNow = (h: { v: number; day: number } | undefined, today: number) => (h ? Math.min(100, Math.max(0, h.v - (today - h.day))) : 0);
+
 /** Your recurring TV role: an episode a week, a season at a time. */
 function tvTick(state: GameState, serial: number): void {
   const r = state.tvRole;
@@ -14056,6 +14062,40 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
+    ringMatch: (wins, opponent) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      const today = dateToSerial(before.gameDate);
+      if (before.eventDay?.match === today) return { ok: false, message: 'One bout a night. Your body says so.' };
+      if (heatNow(before.ringHeat, today) < 30) return { ok: false, message: 'The promoter wants more heat on your name first. Cut a promo.' };
+      if (p.energy < 20) return { ok: false, message: 'Too tired to step through the ropes.' };
+      const won = wins >= 2;
+      let message = '';
+      set((state) => {
+        const q = state.player;
+        if (!q) return;
+        q.energy = Math.max(0, q.energy - 20);
+        (state.eventDay ??= {}).match = today;
+        const h = heatNow(state.ringHeat, today);
+        if (won) {
+          const purse = 400 + wins * 150;
+          q.career.money += purse;
+          const f = Math.round(120 + q.career.fanbase * 0.004);
+          q.career.fanbase += f;
+          q.career.localFame = Math.min(100, q.career.localFame + 0.8);
+          state.ringHeat = { v: Math.min(100, h + 10), day: today };
+          message = `You beat ${opponent} ${wins}–${3 - wins}. The arena is on its feet. $${purse} purse, +${f} fans.`;
+        } else {
+          q.career.fanbase += 10;
+          state.ringHeat = { v: Math.max(0, h - 6), day: today };
+          message = `${opponent} took it ${3 - wins}–${wins}. The crowd respects the effort. +10 fans, and a grudge.`;
+        }
+      });
+      get().advanceClock(150);
+      return { ok: true, message };
+    },
+
     quitTvRole: () => {
       const r = get().tvRole;
       if (!r) return { ok: false, message: 'You have no TV contract.' };
@@ -14091,7 +14131,7 @@ export const useGameStore = create<GameState & GameActions>()(
           const skill = ((q.stats.charisma ?? 30) + (q.stats.stagePresence ?? 30) + (q.stats.freestyle ?? 30)) / 3;
           const ok = Math.random() < 0.3 + skill / 140;
           minutes = 90;
-          if (ok) { const f = Math.round(30 + skill * 2 + q.career.fanbase * 0.002); q.career.fanbase += f; q.career.money += 150; fame(0.5); message = `The crowd chants back. You cut a promo that makes the card. +${f} fans, $150 from the promoter.`; }
+          if (ok) { state.ringHeat = { v: Math.min(100, heatNow(state.ringHeat, today) + 14), day: today }; const f = Math.round(30 + skill * 2 + q.career.fanbase * 0.002); q.career.fanbase += f; q.career.money += 150; fame(0.5); message = `The crowd chants back. You cut a promo that makes the card. +${f} fans, $150 from the promoter.`; }
           else { q.career.fanbase += 3; message = 'You lose the mic mid-line. The crowd laughs — with you, mostly. +3 fans.'; }
         } else {
           const skill = ((q.stats.charisma ?? 30) + (q.stats.stagePresence ?? 30) + (q.stats.performance ?? 30)) / 3;

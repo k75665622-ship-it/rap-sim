@@ -397,6 +397,7 @@ export const buildCrib = (bin: Bin) => buildRoom(bin, {
     { id: 'wardrobe', x: 3.6, z: -2.6, label: 'Wardrobe · style', reach: 1.6, kind: 'act', act: 'screen:style' },
     { id: 'desk', x: 0.3, z: -2.5, label: 'Laptop · messages', reach: 1.6, kind: 'act', act: 'screen:pingchat' },
     { id: 'tv', x: -3.6, z: 2.1, label: 'Watch TV · streams', reach: 1.6, kind: 'act', act: 'screen:streams' },
+    { id: 'sport', x: -2.3, z: 2.4, label: 'Watch sport on TV', reach: 1.3, kind: 'act', act: 'screen:events:sofa' },
   ],
   lights: [[-2.5, -1.5, '#ffe3b0'], [2.5, 1.5, '#fff1d0']],
 });

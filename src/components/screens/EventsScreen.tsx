@@ -1,13 +1,14 @@
 // ─── STADIUM, ARENA AND THE TV LOT ─────────────────────────────────────────
 // Match day, wrestling night, and the casting desk at Gold Coast Studios.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGameStore, heatNow } from '../../store/gameStore';
 import { dateToSerial } from '../../sim/gameClock';
 import { currentCountry } from '../../world/layout';
+import { footballMatch, wrestlingCard, type Beat } from '../../sim/spectate';
 import { money } from '@/utils/format';
 
-export type EventsTab = 'football' | 'wrestling' | 'tv';
+export type EventsTab = 'football' | 'wrestling' | 'tv' | 'sofa';
 let tab0: EventsTab = 'football';
 export const setEventsTab = (t: EventsTab) => { tab0 = t; };
 
@@ -20,6 +21,32 @@ const SHOWS = [
   { name: 'Sunrise Special', role: 'Music segment on morning TV', fee: 1200 },
 ];
 const pick = <T,>(a: T[], n: number) => a[Math.abs(n) % a.length];
+
+/** A live ticker: the game plays out minute by minute while you watch. */
+function Ticker({ title, beats, unit, onDone }: { title: string; beats: Beat[]; unit: 'min' | 'bout'; onDone: () => void }) {
+  const [i, setI] = useState(0);
+  const [done, setDone] = useState(false);
+  const shown = beats.slice(0, i);
+  const last = [...shown].reverse().find((b) => b.score);
+  useEffect(() => {
+    if (done || i >= beats.length) { if (!done && i >= beats.length) { setDone(true); onDone(); } return; }
+    const t = setTimeout(() => setI((x) => x + 1), 1100);
+    return () => clearTimeout(t);
+  }, [i, done, beats.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const skip = () => { setI(beats.length); };
+  return (
+    <div className="rounded-[14px] border border-line p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] tracking-widest text-ink3 font-bold">{title} · {unit === 'min' ? (shown.length ? `${shown[shown.length - 1].at}'` : "0'") : ''}</div>
+        {last?.score ? <div className="text-[22px] font-black text-ink num">{last.score[0]} – {last.score[1]}</div> : null}
+      </div>
+      <div className="space-y-1 max-h-[46vh] overflow-y-auto">
+        {[...shown].reverse().map((b, k) => <div key={shown.length - k} className={`text-[13px] ${k === 0 ? 'text-ink font-semibold' : 'text-ink2'}`}>{unit === 'min' ? `${b.at}' ` : ''}{b.text}</div>)}
+      </div>
+      {!done && i < beats.length ? <button onClick={skip} className="text-[12px] text-ink3 underline">Skip to the end</button> : null}
+    </div>
+  );
+}
 
 type Move = 'strike' | 'grapple' | 'taunt';
 const BEATS: Record<Move, Move> = { strike: 'grapple', grapple: 'taunt', taunt: 'strike' };
@@ -72,6 +99,10 @@ export function EventsScreen() {
   const heat = useGameStore((s) => heatNow(s.ringHeat, dateToSerial(s.gameDate)));
   const settle = useGameStore((s) => s.ringMatch);
   const [bout, setBout] = useState(false);
+  const [live, setLive] = useState<'football' | 'wrestling' | null>(null);
+  const [liveWhere, setLiveWhere] = useState<'stand' | 'sofa'>('stand');
+  const awayName = pick(CLUBS.filter((c) => c !== homeName), seed * 5 + 2);
+  const startLive = (sport: 'football' | 'wrestling', where: 'stand' | 'sofa') => { setMsg(''); setLiveWhere(where); setLive(sport); };
   const run = (kind: Parameters<typeof act>[0], idx?: number) => setMsg(act(kind, idx).message);
   const btn = 'w-full min-h-11 rounded-[12px] border border-line px-3 py-2 text-left text-[13px] font-semibold text-ink active:bg-white/10';
   return (
@@ -81,8 +112,8 @@ export function EventsScreen() {
         <button onClick={() => setScreen('city')} className="h-10 px-4 rounded-full border border-line text-[13px] font-semibold text-ink">Back</button>
       </div>
       <div className="flex gap-2 mb-4">
-        {([['football', '⚽ Football'], ['wrestling', '🤼 Wrestling'], ['tv', '📺 TV auditions']] as const).map(([t, l]) => (
-          <button key={t} onClick={() => { setTab(t); setMsg(''); }} className={`flex-1 h-10 rounded-full text-[12px] font-bold border ${tab === t ? 'bg-amber text-black border-amber' : 'border-line text-ink'}`}>{l}</button>
+        {([['football', '⚽ Football'], ['wrestling', '🤼 Wrestling'], ['tv', '📺 Auditions'], ['sofa', '🛋️ On TV']] as const).map(([t, l]) => (
+          <button key={t} onClick={() => { setTab(t); setMsg(''); setLive(null); }} className={`flex-1 h-10 rounded-full text-[11px] font-bold border ${tab === t ? 'bg-amber text-black border-amber' : 'border-line text-ink'}`}>{l}</button>
         ))}
       </div>
       <div className="text-[12px] text-ink3 mb-3">Cash {money(cash)}</div>
@@ -94,7 +125,9 @@ export function EventsScreen() {
             <div className="text-[22px] font-black text-ink mt-1">{homeName} <span className="text-ink3">vs</span> {pick(CLUBS.filter((c) => c !== homeName), seed * 5 + 2)}</div>
             <div className="text-[12px] text-ink2 mt-1">Kick-off at 19:00 · the whole city is talking about it.</div>
           </div>
-          <button className={btn} onClick={() => run('watch')}>🎟️ Watch from the stands · 2 h · free</button>
+          {live === 'football' ? (
+            <Ticker title={liveWhere === 'stand' ? 'LIVE · IN THE STANDS' : 'LIVE ON TV'} unit="min" beats={footballMatch(seed, homeName, awayName).beats} onDone={() => setMsg(act(liveWhere === 'stand' ? 'watch' : 'sofa', 0).message)} />
+          ) : <button className={btn} onClick={() => startLive('football', 'stand')}>🎟️ Watch it live from the stands · free</button>}
           <button className={btn} onClick={() => setScreen('investments')}>⚽ Put money on it (Money → Betting)</button>
         </div>
       ) : null}
@@ -105,7 +138,9 @@ export function EventsScreen() {
             <div className="text-[17px] font-black text-ink mt-1">{pick(RINGNAMES, seed)} vs {pick(RINGNAMES, seed * 3 + 1)}</div>
             <div className="text-[12px] text-ink2 mt-1">Main event: {pick(RINGNAMES, seed * 7 + 2)} defends the belt.</div>
           </div>
-          <button className={btn} onClick={() => run('ringside')}>🪑 Ringside seats · {money(40)} · 2.5 h</button>
+          {live === 'wrestling' ? (
+            <Ticker title={liveWhere === 'stand' ? 'LIVE · RINGSIDE' : 'LIVE ON TV'} unit="bout" beats={wrestlingCard(seed, RINGNAMES)} onDone={() => setMsg(act(liveWhere === 'stand' ? 'ringside' : 'sofa', 1).message)} />
+          ) : <button className={btn} onClick={() => startLive('wrestling', 'stand')}>🪑 Ringside seats · {money(40)} · watch the whole card</button>}
           <button className={btn} onClick={() => run('promo')}>🎤 Ask to cut a promo before the main event · risky, pays if the crowd loves it</button>
           <div className="rounded-[12px] border border-line px-3 py-2">
             <div className="flex justify-between text-[11px] text-ink3 font-bold"><span>YOUR HEAT WITH THE CROWD</span><span>{Math.round(heat)} / 100</span></div>
@@ -114,6 +149,21 @@ export function EventsScreen() {
           </div>
           {heat >= 30 && !bout ? <button className={btn} onClick={() => setBout(true)}>🥊 Step through the ropes · vs {pick(RINGNAMES, seed * 11 + 3)}</button> : null}
           {bout ? <Bout opponent={pick(RINGNAMES, seed * 11 + 3)} seed={seed} onDone={(w) => { setMsg(settle(w, pick(RINGNAMES, seed * 11 + 3)).message); setTimeout(() => setBout(false), 2500); }} /> : null}
+        </div>
+      ) : null}
+      {tab === 'sofa' ? (
+        <div className="space-y-2">
+          <div className="text-[12px] text-ink2">Home, the TV on, nobody asking you for anything. Tonight's game is on every channel.</div>
+          {live ? (
+            live === 'football'
+              ? <Ticker title="LIVE ON TV" unit="min" beats={footballMatch(seed, homeName, awayName).beats} onDone={() => setMsg(act('sofa', 0).message)} />
+              : <Ticker title="LIVE ON TV" unit="bout" beats={wrestlingCard(seed, RINGNAMES)} onDone={() => setMsg(act('sofa', 1).message)} />
+          ) : (
+            <>
+              <button className={btn} onClick={() => startLive('football', 'sofa')}>⚽ {homeName} vs {awayName} · watch the match</button>
+              <button className={btn} onClick={() => startLive('wrestling', 'sofa')}>🤼 Iron Ring Arena · watch the card</button>
+            </>
+          )}
         </div>
       ) : null}
       {tab === 'tv' ? (

@@ -425,3 +425,6 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 
 ### Wrestling storyline
 - Promos build **heat** with the Iron Ring crowd (fades ~1/day). At 30 heat the promoter books a best-of-three bout: Strike/Grapple/Taunt, with your rival's body language as a (mostly honest) tell. Wins pay a purse, fans, fame and more heat; losses leave a grudge. One bout a night.
+
+### Watching sport — live, in the stands or on TV
+- Football and wrestling now play out as a live ticker (minute by minute / bout by bout, goals with scorers and scoreline), same result in the stadium, at the arena and on your sofa (a TV spot in the Crib + an "On TV" tab). Stadium/ringside watching gives fans; the sofa restores a little energy. Results are deterministic per day.

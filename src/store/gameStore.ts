@@ -886,6 +886,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         forestDay: state.forestDay,
         bizDay: state.bizDay,
         eventDay: state.eventDay,
+        tvRole: state.tvRole,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -3222,6 +3223,8 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Walk away from your recurring TV role. */
+  quitTvRole: () => FeatureActionResult;
   /** Stadium, arena and TV lot: watch, perform, audition. */
   eventAct: (kind: 'watch' | 'ringside' | 'promo' | 'audition', idx?: number) => FeatureActionResult;
   /** Buy a shop in town from its owner and run it as one of your businesses. */
@@ -9546,6 +9549,27 @@ export function monthlyBurnOf(state: Pick<GameState, 'home' | 'homes' | 'ownedAs
 /** Rent renewals, the landlord's patience, and the monthly bills. */
 /** Out in the open world, other buyers are moving too: a plot you wait on can be gone tomorrow. */
 const ZONES_NAME = (z: string) => ({ plots: 'Sunrise Plots', wilds: 'Ridge Wilds', farms: 'Meadow Farms', lakeside: 'Lakeside' }[z] ?? 'the new districts');
+/** Your recurring TV role: an episode a week, a season at a time. */
+function tvTick(state: GameState, serial: number): void {
+  const r = state.tvRole;
+  const p = state.player;
+  if (!r || !p) return;
+  if ((serial - r.sinceSerial) % 7 !== 0 || serial === r.sinceSerial) return;
+  if (r.weeksLeft > 0) {
+    r.weeksLeft -= 1;
+    r.episodes += 1;
+    p.career.money += r.pay;
+    p.career.fanbase += Math.round(25 + p.career.fanbase * 0.002);
+    p.career.localFame = Math.min(100, p.career.localFame + 0.4);
+    pushNotification(state, { kind: 'business', title: `📺 ${r.show}`, body: `This week's episode aired. +$${r.pay.toLocaleString()} and a few thousand new viewers.`, artSeed: `tv|${r.show}|${r.episodes}` });
+  }
+  if (r.weeksLeft <= 0) {
+    const renew = Math.random() < 0.35 + Math.min(0.4, blendedFame(p) / 200);
+    if (renew) { r.weeksLeft = 8; r.seasons += 1; r.pay = Math.round(r.pay * 1.25); pushNotification(state, { kind: 'business', title: `📺 ${r.show} renewed`, body: `Season ${r.seasons} is a go, and your fee went up to $${r.pay.toLocaleString()} an episode.`, artSeed: `tv|renew|${r.seasons}` }); }
+    else { state.tvRole = undefined; pushNotification(state, { kind: 'business', title: `📺 ${r.show} ended`, body: 'The show was not renewed. The audition door is still open.', artSeed: `tv|end|${serial}` }); }
+  }
+}
+
 function landTick(state: GameState, days: number, serial: number): void {
   const country = currentCountry();
   const L = cityLayout();
@@ -14032,6 +14056,13 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
+    quitTvRole: () => {
+      const r = get().tvRole;
+      if (!r) return { ok: false, message: 'You have no TV contract.' };
+      set((state) => { state.tvRole = undefined; });
+      return { ok: true, message: `You walked away from ${r.show}. They will remember.` };
+    },
+
     eventAct: (kind, idx = 0) => {
       const before = get();
       const p = before.player;
@@ -14068,7 +14099,15 @@ export const useGameStore = create<GameState & GameActions>()(
           const ok = Math.random() < bar + skill / 160 + Math.min(0.2, blendedFame(q) / 400);
           minutes = 180;
           const fee = [800, 2500, 600, 1200][idx % 4];
-          if (ok) { q.career.money += fee; q.career.fanbase += Math.round(60 + fee / 20); fame(1.2); message = `You got it. $${fee.toLocaleString()} and a camera pointed at you. New fans are watching.`; }
+          if (ok) {
+            q.career.money += fee; q.career.fanbase += Math.round(60 + fee / 20); fame(1.2); message = `You got it. $${fee.toLocaleString()} and a camera pointed at you. New fans are watching.`;
+            const SHOWN = ['Rhythm Nation', 'Late Night with Kofi', 'Compound Life', 'Sunrise Special'];
+            const ROLES = ['Recurring guest judge', 'Weekly music slot', 'Recurring character', 'Weekly music segment'];
+            if (!state.tvRole && Math.random() < 0.45) {
+              state.tvRole = { show: SHOWN[idx % 4], role: ROLES[idx % 4], pay: Math.round(fee * 0.4), sinceSerial: today, weeksLeft: 8, seasons: 1, episodes: 0 };
+              message += ` And they want you back every week: ${ROLES[idx % 4].toLowerCase()} on ${SHOWN[idx % 4]}. Eight episodes.`;
+            }
+          }
           else { fame(0.1); message = 'The casting director smiles and says they will be in touch. They will not. Ask again in a few days.'; }
         }
       });
@@ -22476,6 +22515,7 @@ export const useGameStore = create<GameState & GameActions>()(
         // wants its payment whatever kind of month it was.
         homeTick(state, todaySerial, log);
         landTick(state, days, todaySerial);
+        tvTick(state, todaySerial);
         bankTick(state, todaySerial, log);
 
         // Monthly family obligation. It is an actual ledger expense, not flavour.

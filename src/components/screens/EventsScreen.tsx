@@ -31,6 +31,8 @@ export function EventsScreen() {
   const seed = day * 7 + [...currentCountry()].reduce((a, c) => a + c.charCodeAt(0), 0);
   const home = pick(CLUBS, seed), away = pick(CLUBS, seed * 3 + 5);
   const homeName = home === away ? pick(CLUBS, seed + 1) : home;
+  const role = useGameStore((s) => s.tvRole);
+  const quit = useGameStore((s) => s.quitTvRole);
   const run = (kind: Parameters<typeof act>[0], idx?: number) => setMsg(act(kind, idx).message);
   const btn = 'w-full min-h-11 rounded-[12px] border border-line px-3 py-2 text-left text-[13px] font-semibold text-ink active:bg-white/10';
   return (
@@ -70,6 +72,14 @@ export function EventsScreen() {
       ) : null}
       {tab === 'tv' ? (
         <div className="space-y-2">
+          {role ? (
+            <div className="rounded-[14px] border border-amber/40 bg-amber/5 p-3 mb-2">
+              <div className="text-[11px] tracking-widest text-amber font-bold">YOUR CONTRACT</div>
+              <div className="text-[15px] font-black text-ink">{role.show} · {role.role}</div>
+              <div className="text-[12px] text-ink2">Season {role.seasons} · {role.weeksLeft} episode{role.weeksLeft === 1 ? '' : 's'} left · {money(role.pay)} per episode · {role.episodes} aired</div>
+              <button className="mt-2 h-9 px-3 rounded-full border border-line text-[12px] font-semibold text-ink" onClick={() => setMsg(quit().message)}>Walk away</button>
+            </div>
+          ) : null}
           <div className="text-[12px] text-ink2 mb-1">Casting at Gold Coast Studios. Fame and stage presence get you in the room; luck gets you the part. One try per show every few days.</div>
           {SHOWS.map((s, i) => (
             <button key={s.name} className={btn} onClick={() => run('audition', i)}>

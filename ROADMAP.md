@@ -419,3 +419,6 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 ### Match day, wrestling night, TV auditions
 - Stadium, arena and TV lot spots open an Events screen: watch the day's match (or go to betting), ringside seats and a risky promo at the wrestling night, and four TV auditions (fee, fans and fame on success; skill + fame decide). Daily/3-day limits per event.
 - Next: real matches you can play/perform at, a wrestling storyline, a recurring TV role.
+
+### Recurring TV role
+- A successful audition can land a recurring role: a weekly episode (pay, fans, fame), 8-episode seasons, renewal odds from your fame with a raise each season. Shown as "Your contract" on the TV tab; you can walk away.

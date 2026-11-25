@@ -2653,6 +2653,8 @@ export interface GameState {
   eventDay?: Record<string, number>;
   /** A recurring TV role: weekly episodes, a season at a time. */
   /** Wrestling heat: how much the Iron Ring crowd cares about you (fades about a point a day). */
+  /** A bet on tonight's match in town. */
+  townBet?: { day: number; pick: 'home' | 'draw' | 'away'; stake: number; odds: number };
   ringHeat?: { v: number; day: number };
   tvRole?: { show: string; role: string; pay: number; sinceSerial: number; weeksLeft: number; seasons: number; episodes: number };
   /** Plots currently going under the hammer. */

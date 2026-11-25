@@ -412,3 +412,6 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 ### Shops run by people in town
 - 20 businesses (restaurants, barbers, rival recording studios, boutiques, juice bars) with awnings and signs, each run by someone you know. Step up and use them: meals, a cut, studio sessions (daily writing boost + a bond with the owner), fits; or talk to the owner.
 - Next: buy a shop outright, hire staff, owners reacting to your fame.
+
+### Buy a shop
+- Restaurants, barbers and boutiques in town can be bought from their owner (125% of a new venture's start cost, with regulars and a head-start reputation) and run as one of your businesses; the shop card then shows last month's profit and links to Money → Businesses.

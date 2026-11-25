@@ -7,7 +7,8 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { cityLayout, KERB_H, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD, type Building } from './layout';
+import { themeFor } from './theme';
+import { cityLayout, currentCountry, KERB_H, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD, type Building } from './layout';
 import { SKIN, defaultLook, type Look } from '../sim/look';
 
 type Disposable = { dispose: () => void };
@@ -254,7 +255,7 @@ export function buildCity(bin: Bin): CityObjects {
     waterGeos.forEach((g) => g.dispose());
   }
   const paveMat = lambert({ map: pave });
-  const grassMat = lambert({ color: '#5b8f45' });
+  const grassMat = lambert({ color: themeFor(currentCountry()).grass });
   for (const list of paveGeos.values()) { root.add(new THREE.Mesh(geo(mergeGeometries(list)), paveMat)); list.forEach((g) => g.dispose()); }
   for (const list of grassGeos.values()) { root.add(new THREE.Mesh(geo(mergeGeometries(list)), grassMat)); list.forEach((g) => g.dispose()); }
 
@@ -363,8 +364,8 @@ export function buildCity(bin: Bin): CityObjects {
       heads.push(m.clone().compose(new THREE.Vector3(p.x + off.x, KERB_H + 5.15, p.z + off.z), hq, new THREE.Vector3(1, 1, 1)));
     }
   }
-  statics.push({ g: new THREE.CylinderGeometry(0.16, 0.22, 2.2, 6), mats: trunks, color: '#6b4a32' });
-  statics.push({ g: new THREE.IcosahedronGeometry(1.6, 0), mats: crowns, color: '#4f8a3c' });
+  statics.push({ g: new THREE.CylinderGeometry(0.16, 0.22, 2.2, 6), mats: trunks, color: themeFor(currentCountry()).trunk });
+  statics.push({ g: new THREE.IcosahedronGeometry(1.6, 0), mats: crowns, color: themeFor(currentCountry()).crown });
   statics.push({ g: new THREE.CylinderGeometry(0.09, 0.12, 5.2, 6), mats: poles, color: '#2c2f36' });
   root.add(mergeStatics(statics, bin));
   const lampMat = lambert({ color: '#2c2f36', emissive: '#fff3c4', emissiveIntensity: 0.15 });

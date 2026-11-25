@@ -8,7 +8,7 @@ import { dateToSerial } from '../sim/gameClock';
 import { BUILDS } from '../sim/realestate';
 import type { Bin } from './build';
 
-export type PlotStatus = 'sale' | 'yours' | 'taken' | 'auction';
+export type PlotStatus = 'sale' | 'yours' | 'taken' | 'auction' | 'pending';
 export interface PlotView { plot: Plot; status: PlotStatus; owner?: string; projectId?: string; bid?: number; bidder?: string; endSerial?: number }
 
 /** The plot under a point, if it is on open land. */
@@ -23,6 +23,7 @@ export function viewOf(p: Plot): PlotView {
   const country = worldKey();
   const mine = (st.devProjects ?? []).find((d) => d.plotId === p.id && d.country === country && d.stage !== 'sold');
   if (mine) return { plot: p, status: 'yours', projectId: mine.id };
+  if ((st.deals ?? []).some((d) => d.world === country && d.ids.includes(p.id))) return { plot: p, status: 'pending' };
   const au = (st.landAuctions ?? []).find((a) => a.plotId === p.id && a.country === country);
   if (au) return { plot: p, status: 'auction', bid: au.bid, bidder: au.bidder, endSerial: au.endSerial };
   const t = takenBy(st.landTaken, plotKey(country, p.id));
@@ -65,7 +66,7 @@ export function buildLand(bin: Bin) {
     const st = useGameStore.getState();
     const serial = dateToSerial(st.gameDate);
     const country = worldKey();
-    const s = `${country}|${(st.devProjects ?? []).map((d) => d.plotId ? d.plotId + d.stage : '').join(',')}|${Object.keys(st.landTaken ?? {}).length}|${(st.landAuctions ?? []).map((a) => a.plotId + a.bidder).join(',')}|${Math.floor(serial / 10)}`;
+    const s = `${country}|${(st.devProjects ?? []).map((d) => d.plotId ? d.plotId + d.stage : '').join(',')}|${Object.keys(st.landTaken ?? {}).length}|${(st.deals ?? []).length}|${(st.landAuctions ?? []).map((a) => a.plotId + a.bidder).join(',')}|${Math.floor(serial / 10)}`;
     if (s === sig) return;
     sig = s;
     let gi = 0, bi = 0, si = 0;
@@ -73,10 +74,10 @@ export function buildLand(bin: Bin) {
       const v = viewOf(p);
       const w = p.maxX - p.minX, d = p.maxZ - p.minZ, cx = (p.minX + p.maxX) / 2, cz = (p.minZ + p.maxZ) / 2;
       m.compose(new THREE.Vector3(cx, 0.19, cz), q, new THREE.Vector3(w - 1, 1, d - 1));
-      ground.setMatrixAt(gi, m); ground.setColorAt(gi, c.set(v.status === 'yours' ? '#6fa95a' : v.status === 'taken' ? '#9c9486' : v.status === 'auction' ? '#a58ab8' : '#b99f72')); gi++;
+      ground.setMatrixAt(gi, m); ground.setColorAt(gi, c.set(v.status === 'yours' ? '#6fa95a' : v.status === 'taken' ? '#9c9486' : v.status === 'auction' ? '#a58ab8' : v.status === 'pending' ? '#8fb0a0' : '#b99f72')); gi++;
       // Board at the front corner, facing the road side of the plot.
       m.compose(new THREE.Vector3(p.minX + 1.4, 0.15, p.minZ + 1.4), q, new THREE.Vector3(1, 1, 1));
-      signs.setMatrixAt(si, m); signs.setColorAt(si, c.set(v.status === 'yours' ? '#2ed573' : v.status === 'taken' ? '#d6453d' : v.status === 'auction' ? '#b57bff' : '#ffc21a')); si++;
+      signs.setMatrixAt(si, m); signs.setColorAt(si, c.set(v.status === 'yours' ? '#2ed573' : v.status === 'taken' ? '#d6453d' : v.status === 'auction' ? '#b57bff' : v.status === 'pending' ? '#4dabf7' : '#ffc21a')); si++;
       // What stands on it.
       let h = 0, color = '#ddd', foot = 0.55;
       if (v.status === 'taken') {
@@ -146,6 +147,17 @@ export function buildLand(bin: Bin) {
     boards[b.biz.kind].push(new THREE.Matrix4().compose(new THREE.Vector3(d.x + d.nx * 0.2, 4.6, d.z + d.nz * 0.2), new THREE.Quaternion(), new THREE.Vector3(ew ? 0.2 : 4.2, 1.1, ew ? 4.2 : 0.2)));
   }
   for (const k of Object.keys(awn) as BizKind[]) { fixed(new THREE.BoxGeometry(1, 1, 1), BIZ_STYLE[k].color, awn[k]); fixed(new THREE.BoxGeometry(1, 1, 1), '#f4efe4', boards[k]); }
+
+  // The national monument: a banded tower in the country's colours, with a spire.
+  if (L.monument) {
+    const m0 = L.monument, [c1, c2, c3] = m0.colors;
+    const at = (y: number, w: number, h: number) => new THREE.Matrix4().compose(new THREE.Vector3(m0.x, 0.19 + y, m0.z), new THREE.Quaternion(), new THREE.Vector3(w, h, w));
+    fixed(new THREE.BoxGeometry(1, 1, 1), '#d6d2c8', [at(0.6, 6.5, 1.2)]);
+    fixed(new THREE.BoxGeometry(1, 1, 1), c1, [at(1.2 + 4, 3.6, 8)]);
+    fixed(new THREE.BoxGeometry(1, 1, 1), c2, [at(9.2 + 4, 3.0, 8)]);
+    fixed(new THREE.BoxGeometry(1, 1, 1), c3, [at(17.2 + 4, 2.4, 8)]);
+    fixed(new THREE.ConeGeometry(1.5, 7, 4), '#f0c000', [new THREE.Matrix4().makeTranslation(m0.x, 0.19 + 25.2 + 3.5, m0.z)]);
+  }
 
   // Boats in the harbour basin, and a jetty-side crane-ish mast for flavour.
   const hulls: THREE.Matrix4[] = [], cabins: THREE.Matrix4[] = [], masts: THREE.Matrix4[] = [];

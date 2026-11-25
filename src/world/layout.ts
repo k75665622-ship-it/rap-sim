@@ -9,6 +9,7 @@
 import type { GameScreen } from '../types/game';
 import { getCountry, getCitiesByCountry } from '../data/locations';
 import { regionOf } from '../story/region';
+import { flagOf, themeFor } from './theme';
 
 // The world is a 3×3 grid of 300 m districts. Downtown is the middle of the
 // top-left one; everything else grows out from it along the same road grid.
@@ -184,6 +185,8 @@ export interface CityLayout {
   plots: Plot[];
   landBlocks: LandBlock[];
   camps: Camp[];
+  /** A national monument in a downtown park. */
+  monument: { x: number; z: number; colors: string[] } | null;
   /** Everything solid, for the player and the car. */
   solids: Box[];
   spawn: { x: number; z: number; rot: number };
@@ -230,7 +233,7 @@ export function localPlace(p: Place, country = worldCountry): Place {
   return name === p.name ? p : { ...p, name };
 }
 export const placesNow = (): Place[] => PLACES.map((p) => localPlace(p));
-const wallsForWorld = (): string[] => (worldCountry === 'Ghana' ? WALLS : THEMES[getCountry(worldCountry)?.continent ?? ''] ?? WALLS);
+const wallsForWorld = (): string[] => (worldCountry === 'Ghana' ? WALLS : themeFor(worldCountry).walls ?? THEMES[getCountry(worldCountry)?.continent ?? ''] ?? WALLS);
 
 export function cityLayout(): CityLayout {
   if (cached) return cached;
@@ -345,9 +348,12 @@ export function cityLayout(): CityLayout {
     const inset = 0.6;
     const bx: Box = { minX: lot.minX + inset, maxX: lot.maxX - inset, minZ: lot.minZ + inset, maxZ: lot.maxZ - inset };
     const edge = !lot.inner;
-    const height = zn === 'downtown'
+    const hs = themeFor(worldCountry).hScale;
+    const height0 = zn === 'downtown'
       ? (place ? 11 + r() * 5 : edge ? 26 + r() * 40 : 12 + r() * 30)
       : place ? Math.max(sty.h[0], Math.min(sty.h[1], 14 + r() * 4)) : sty.h[0] + r() * (sty.h[1] - sty.h[0]);
+    // Each country builds to its own height — but the places you walk into keep their size.
+    const height = place ? height0 : Math.max(4, Math.min(130, height0 * hs));
     const palette = sty.walls.length ? sty.walls : wallsForWorld();
     const b: Building = { ...bx, height, color: palette[Math.floor(r() * palette.length)], place, homeType: home0?.type, rooftop: [] };
 
@@ -436,6 +442,12 @@ export function cityLayout(): CityLayout {
   }
   for (let i = props.length - 1; i >= 0; i--) if (camps.some((c) => Math.hypot(props[i].x - c.x, props[i].z - c.z) < (c.kind === 'cabin' ? 9 : 6.5))) props.splice(i, 1);
 
+  // A national monument on the downtown park closest to the middle of the map.
+  const dpark = blocks.filter((b) => b.park && zoneAt((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2) === 'downtown')
+    .sort((a, b) => Math.hypot((a.minX + a.maxX) / 2 - 60, (a.minZ + a.maxZ) / 2 - 60) - Math.hypot((b.minX + b.maxX) / 2 - 60, (b.minZ + b.maxZ) / 2 - 60))[0];
+  const monument = dpark ? { x: (dpark.minX + dpark.maxX) / 2, z: (dpark.minZ + dpark.maxZ) / 2, colors: flagOf(worldCountry) } : null;
+  for (let i = props.length - 1; i >= 0; i--) if (monument && Math.hypot(props[i].x - monument.x, props[i].z - monument.z) < 7) props.splice(i, 1);
+
   // ─── parked cars along kerbs ───────────────────────────────────────────
   const paints = ['#c0392b', '#2c3e50', '#ecf0f1', '#16a085', '#7f8c8d', '#2980b9', '#111318', '#d35400'];
   const parked: ParkedCar[] = [];
@@ -457,6 +469,7 @@ export function cityLayout(): CityLayout {
     solids.push({ minX: p.x - h, maxX: p.x + h, minZ: p.z - h, maxZ: p.z + h });
   }
   for (const b of blocks) if (b.water) solids.push({ minX: b.minX + 1.4, maxX: b.maxX - 1.4, minZ: b.minZ + 1.4, maxZ: b.maxZ - 1.4 });
+  if (monument) solids.push({ minX: monument.x - 2.2, maxX: monument.x + 2.2, minZ: monument.z - 2.2, maxZ: monument.z + 2.2 });
   for (const c of camps) if (c.kind === 'cabin') solids.push({ minX: c.x - 3.2, maxX: c.x + 3.2, minZ: c.z - 2.7, maxZ: c.z + 2.7 });
   for (const c of parked) {
     const along = Math.abs(Math.sin(c.heading)) > 0.5; // east-west
@@ -476,7 +489,7 @@ export function cityLayout(): CityLayout {
     ? { x: d.x + d.nx * toLane, z: d.z - 6, heading: d.nx > 0 ? 0 : Math.PI }
     : { x: d.x - 6, z: d.z + d.nz * toLane, heading: d.nz > 0 ? -Math.PI / 2 : Math.PI / 2 };
 
-  cached = { blocks, buildings, props, parked, plots, landBlocks, camps, solids, spawn, carSpawn };
+  cached = { blocks, buildings, props, parked, plots, landBlocks, camps, monument, solids, spawn, carSpawn };
   return cached;
 }
 

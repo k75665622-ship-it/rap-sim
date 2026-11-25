@@ -2653,6 +2653,8 @@ export interface GameState {
   eventDay?: Record<string, number>;
   /** A recurring TV role: weekly episodes, a season at a time. */
   /** Wrestling heat: how much the Iron Ring crowd cares about you (fades about a point a day). */
+  /** Land bought abroad: paperwork in progress, and it can go wrong. */
+  deals?: LandDeal[];
   /** A bet on tonight's match in town. */
   townBet?: { day: number; pick: 'home' | 'draw' | 'away'; stake: number; odds: number };
   ringHeat?: { v: number; day: number };
@@ -2947,4 +2949,28 @@ export interface TeamChatMsg {
   at: string;
   /** What kind of update it was, so the same one isn't posted every week. */
   key?: string;
+}
+
+/** Buying land in a country that is not yours: title search, contract, registration — and the risk of a fraud. */
+export interface LandDeal {
+  id: string;
+  /** Where (country, or country/city). */
+  world: string;
+  /** Plots in the open world, when it was bought in the 3D world. */
+  ids: string[];
+  /** Plot kind, for world plots. */
+  landZone?: string;
+  /** For zone-based land bought from the Property screen. */
+  zone?: string;
+  prices: number[];
+  estate: boolean;
+  how: 'diy' | 'lawyer' | 'agent';
+  startSerial: number;
+  doneSerial: number;
+  risk: number;
+  /** Decided when you sign: this one is a fraud. */
+  scam?: boolean;
+  stage: number;
+  paid: number;
+  indexAtBuy: number;
 }

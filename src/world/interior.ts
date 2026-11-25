@@ -604,8 +604,8 @@ export const buildStadium = (bin: Bin) => buildRoom(bin, {
   ],
   visitors: ALL_VISITORS,
   spots: [
-    { id: 'pitch', x: 0, z: -2, label: 'Pitch · watch / book the stadium', reach: 3.0, kind: 'act', act: 'screen:shows' },
-    { id: 'stands', x: 0, z: -18, label: 'Main stand · watch live football', reach: 3.0, kind: 'act', act: 'screen:shows' },
+    { id: 'pitch', x: 0, z: -2, label: 'Pitch · match day', reach: 3.0, kind: 'act', act: 'screen:events:football' },
+    { id: 'stands', x: 0, z: -18, label: 'Main stand · watch the match', reach: 3.0, kind: 'act', act: 'screen:events:football' },
   ],
   lights: [[-22, -12, '#ffffff'], [22, -12, '#ffffff'], [-22, 12, '#ffffff'], [22, 12, '#fff7e6']],
 });
@@ -621,7 +621,7 @@ export const buildArena = (bin: Bin) => buildRoom(bin, {
   ],
   npcs: [{ id: 'ref', who: 'Referee', seed: 'arena-ref', x: 3.2, z: 0.2, rot: -Math.PI / 2 }],
   visitors: ALL_VISITORS,
-  spots: [{ id: 'ring', x: 0, z: 2.6, label: 'Ringside · book a night', reach: 2.0, kind: 'act', act: 'screen:shows' }],
+  spots: [{ id: 'ring', x: 0, z: 2.6, label: 'Ringside · wrestling night', reach: 2.0, kind: 'act', act: 'screen:events:wrestling' }],
   lights: [[0, -0.5, '#ffffff'], [-5, 0, '#ff6b6b'], [5, 0, '#6bb0ff']],
 });
 
@@ -647,6 +647,7 @@ export const buildLot = (bin: Bin) => buildRoom(bin, {
   spots: [
     { id: 'set', x: -1.0, z: -1.5, label: 'Soundstage · shoot a video', reach: 2.2, kind: 'act', act: 'video' },
     { id: 'tv', x: 5.5, z: -1.5, label: 'Newsroom set · interviews', reach: 2.0, kind: 'act', act: 'screen:interviews' },
+    { id: 'casting', x: -6.0, z: 3.4, label: 'Casting desk · TV auditions', reach: 2.2, kind: 'act', act: 'screen:events:tv' },
   ],
   lights: [[-4, -2, '#ffd9a0'], [5, -2, '#b9dcff'], [0, 3, '#ffffff']],
 });

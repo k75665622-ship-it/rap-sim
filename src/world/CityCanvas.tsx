@@ -4,6 +4,7 @@
 // player or the car, pose the models, and put the camera behind them.
 
 import { BIZ_STYLE } from './layout';
+import { setEventsTab, type EventsTab } from '../components/screens/EventsScreen';
 import { buildLand, plotAt, viewOf } from './land';
 import { shootCam } from './shootcam';
 import { useEffect, useMemo, useRef } from 'react';
@@ -265,7 +266,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
               else if (sp.kind === 'exit') exitInterior();
               else if (sp.kind === 'counter') useGameStore.getState().setScreen('kitchen');
               else if (sp.kind === 'act') {
-                if (sp.act?.startsWith('screen:')) useGameStore.getState().setScreen(sp.act.slice(7) as never);
+                if (sp.act?.startsWith('screen:')) {
+                  const [scr, sub] = sp.act.slice(7).split(':');
+                  if (scr === 'events') setEventsTab((sub as EventsTab) ?? 'football');
+                  useGameStore.getState().setScreen(scr as never);
+                }
                 else if (sp.act === 'video') useGameStore.getState().setScreen('create_video');
                 else { setStudioIntent(sp.act as 'record'); useGameStore.getState().setScreen('studio'); }
               }

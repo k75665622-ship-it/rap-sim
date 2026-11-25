@@ -885,6 +885,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         landAuctions: state.landAuctions,
         forestDay: state.forestDay,
         bizDay: state.bizDay,
+        eventDay: state.eventDay,
         casino: state.casino ? { ...state.casino, blackjack: state.casino.blackjack?.done === false ? state.casino.blackjack : null } : undefined,
         wealthHistory: state.wealthHistory,
         pendingDMs: state.pendingDMs,
@@ -3221,6 +3222,8 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Stadium, arena and TV lot: watch, perform, audition. */
+  eventAct: (kind: 'watch' | 'ringside' | 'promo' | 'audition', idx?: number) => FeatureActionResult;
   /** Buy a shop in town from its owner and run it as one of your businesses. */
   buyShop: (shopId: string, type: VentureType, name: string) => FeatureActionResult;
   /** Use a shop in town. `owner` is the NPC who runs it (their bond grows a little). */
@@ -14027,6 +14030,50 @@ export const useGameStore = create<GameState & GameActions>()(
         result = { ok: true, message: `${first} +${delta}` };
       });
       return result;
+    },
+
+    eventAct: (kind, idx = 0) => {
+      const before = get();
+      const p = before.player;
+      if (!p) return { ok: false, message: 'There is no career open.' };
+      const today = dateToSerial(before.gameDate);
+      const key = kind === 'audition' ? `tv${idx}` : kind;
+      const last = before.eventDay?.[key];
+      const gap = kind === 'audition' ? 3 : 1;
+      if (last !== undefined && today - last < gap) return { ok: false, message: kind === 'audition' ? 'They have seen you this week. Come back in a few days.' : 'You did that today already. Come back tomorrow.' };
+      const cost = kind === 'ringside' ? 40 : 0;
+      if (p.career.money < cost) return { ok: false, message: `Ringside seats are $${cost}.` };
+      const need = kind === 'audition' ? 15 : kind === 'promo' ? 12 : 4;
+      if (p.energy < need) return { ok: false, message: 'Too tired for that. Rest first.' };
+      let message = '';
+      let minutes = 120;
+      set((state) => {
+        const q = state.player;
+        if (!q) return;
+        q.career.money -= cost;
+        q.energy = Math.max(0, q.energy - need);
+        (state.eventDay ??= {})[key] = today;
+        const fame = (n: number) => { q.career.localFame = Math.min(100, q.career.localFame + n); };
+        if (kind === 'watch') { fame(0.15); q.career.fanbase += 4; message = 'A great match. Somebody in the stands films you cheering. +4 fans.'; }
+        else if (kind === 'ringside') { q.career.fanbase += 6; message = 'Ringside, close enough to feel the ropes shake. A promoter nods at you. +6 fans.'; minutes = 150; }
+        else if (kind === 'promo') {
+          const skill = ((q.stats.charisma ?? 30) + (q.stats.stagePresence ?? 30) + (q.stats.freestyle ?? 30)) / 3;
+          const ok = Math.random() < 0.3 + skill / 140;
+          minutes = 90;
+          if (ok) { const f = Math.round(30 + skill * 2 + q.career.fanbase * 0.002); q.career.fanbase += f; q.career.money += 150; fame(0.5); message = `The crowd chants back. You cut a promo that makes the card. +${f} fans, $150 from the promoter.`; }
+          else { q.career.fanbase += 3; message = 'You lose the mic mid-line. The crowd laughs — with you, mostly. +3 fans.'; }
+        } else {
+          const skill = ((q.stats.charisma ?? 30) + (q.stats.stagePresence ?? 30) + (q.stats.performance ?? 30)) / 3;
+          const bar = [0.18, 0.1, 0.32, 0.22][idx % 4];
+          const ok = Math.random() < bar + skill / 160 + Math.min(0.2, blendedFame(q) / 400);
+          minutes = 180;
+          const fee = [800, 2500, 600, 1200][idx % 4];
+          if (ok) { q.career.money += fee; q.career.fanbase += Math.round(60 + fee / 20); fame(1.2); message = `You got it. $${fee.toLocaleString()} and a camera pointed at you. New fans are watching.`; }
+          else { fame(0.1); message = 'The casting director smiles and says they will be in touch. They will not. Ask again in a few days.'; }
+        }
+      });
+      get().advanceClock(minutes);
+      return { ok: true, message };
     },
 
     buyShop: (shopId, type, name) => {

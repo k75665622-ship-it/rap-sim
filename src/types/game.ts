@@ -2309,6 +2309,7 @@ export type GameScreen =
   | 'airport'
   | 'ferry'
   | 'intercity'
+  | 'events'
   | 'studio'
   | 'social_chirp'
   | 'social_snapgram'
@@ -2648,6 +2649,8 @@ export interface GameState {
   forestDay?: number;
   /** Day you last used each kind of shop (the daily bonus). */
   bizDay?: Record<string, number>;
+  /** Day you last did each stadium / arena / TV event (daily limit). */
+  eventDay?: Record<string, number>;
   /** Plots currently going under the hammer. */
   landAuctions?: Array<{ plotId: string; country: string; endSerial: number; bid: number; bidder: string }>;
   casino?: CasinoState;

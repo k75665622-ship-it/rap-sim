@@ -54,6 +54,7 @@ import { CourtScreen } from './components/screens/CourtScreen';
 import { CityScreen } from './components/screens/CityScreen';
 import { AirportScreen } from './components/screens/AirportScreen';
 import { IntercityScreen } from './components/screens/IntercityScreen';
+import { EventsScreen } from './components/screens/EventsScreen';
 import { FerryScreen } from './components/screens/FerryScreen';
 import { KitchenScreen } from './components/screens/KitchenScreen';
 import { usePhoneOpen } from './world/phone';
@@ -144,6 +145,7 @@ export default function App() {
       case 'kitchen': return <KitchenScreen />;
       case 'airport': return <AirportScreen />;
       case 'ferry': return <FerryScreen />;
+      case 'events': return <EventsScreen />;
       case 'intercity': return <IntercityScreen />;
       case 'pingchat': return <PingChatScreen />;
       case 'mailbox': return <MailboxScreen />;

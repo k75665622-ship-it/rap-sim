@@ -415,3 +415,7 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 
 ### Buy a shop
 - Restaurants, barbers and boutiques in town can be bought from their owner (125% of a new venture's start cost, with regulars and a head-start reputation) and run as one of your businesses; the shop card then shows last month's profit and links to Money → Businesses.
+
+### Match day, wrestling night, TV auditions
+- Stadium, arena and TV lot spots open an Events screen: watch the day's match (or go to betting), ringside seats and a risky promo at the wrestling night, and four TV auditions (fee, fans and fame on success; skill + fame decide). Daily/3-day limits per event.
+- Next: real matches you can play/perform at, a wrestling storyline, a recurring TV role.

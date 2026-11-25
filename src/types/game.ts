@@ -2651,6 +2651,8 @@ export interface GameState {
   bizDay?: Record<string, number>;
   /** Day you last did each stadium / arena / TV event (daily limit). */
   eventDay?: Record<string, number>;
+  /** A recurring TV role: weekly episodes, a season at a time. */
+  tvRole?: { show: string; role: string; pay: number; sinceSerial: number; weeksLeft: number; seasons: number; episodes: number };
   /** Plots currently going under the hammer. */
   landAuctions?: Array<{ plotId: string; country: string; endSerial: number; bid: number; bidder: string }>;
   casino?: CasinoState;

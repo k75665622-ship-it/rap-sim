@@ -3229,7 +3229,7 @@ interface GameActions {
   /** Walk away from your recurring TV role. */
   quitTvRole: () => FeatureActionResult;
   /** Stadium, arena and TV lot: watch, perform, audition. */
-  eventAct: (kind: 'watch' | 'ringside' | 'promo' | 'audition', idx?: number) => FeatureActionResult;
+  eventAct: (kind: 'watch' | 'ringside' | 'promo' | 'audition' | 'sofa', idx?: number) => FeatureActionResult;
   /** Buy a shop in town from its owner and run it as one of your businesses. */
   buyShop: (shopId: string, type: VentureType, name: string) => FeatureActionResult;
   /** Use a shop in town. `owner` is the NPC who runs it (their bond grows a little). */
@@ -14108,13 +14108,13 @@ export const useGameStore = create<GameState & GameActions>()(
       const p = before.player;
       if (!p) return { ok: false, message: 'There is no career open.' };
       const today = dateToSerial(before.gameDate);
-      const key = kind === 'audition' ? `tv${idx}` : kind;
+      const key = kind === 'audition' ? `tv${idx}` : kind === 'sofa' ? `sofa${idx}` : kind;
       const last = before.eventDay?.[key];
       const gap = kind === 'audition' ? 3 : 1;
       if (last !== undefined && today - last < gap) return { ok: false, message: kind === 'audition' ? 'They have seen you this week. Come back in a few days.' : 'You did that today already. Come back tomorrow.' };
       const cost = kind === 'ringside' ? 40 : 0;
       if (p.career.money < cost) return { ok: false, message: `Ringside seats are $${cost}.` };
-      const need = kind === 'audition' ? 15 : kind === 'promo' ? 12 : 4;
+      const need = kind === 'audition' ? 15 : kind === 'promo' ? 12 : kind === 'sofa' ? 0 : 4;
       if (p.energy < need) return { ok: false, message: 'Too tired for that. Rest first.' };
       let message = '';
       let minutes = 120;
@@ -14125,7 +14125,8 @@ export const useGameStore = create<GameState & GameActions>()(
         q.energy = Math.max(0, q.energy - need);
         (state.eventDay ??= {})[key] = today;
         const fame = (n: number) => { q.career.localFame = Math.min(100, q.career.localFame + n); };
-        if (kind === 'watch') { fame(0.15); q.career.fanbase += 4; message = 'A great match. Somebody in the stands films you cheering. +4 fans.'; }
+        if (kind === 'sofa') { q.energy = Math.min(q.maxEnergy, q.energy + 5); message = idx === 0 ? 'Feet up, the match on, the street quiet outside. +5 energy.' : 'You shout at the TV like everyone else. +5 energy.'; }
+        else if (kind === 'watch') { fame(0.15); q.career.fanbase += 4; message = 'A great match. Somebody in the stands films you cheering. +4 fans.'; }
         else if (kind === 'ringside') { q.career.fanbase += 6; message = 'Ringside, close enough to feel the ropes shake. A promoter nods at you. +6 fans.'; minutes = 150; }
         else if (kind === 'promo') {
           const skill = ((q.stats.charisma ?? 30) + (q.stats.stagePresence ?? 30) + (q.stats.freestyle ?? 30)) / 3;

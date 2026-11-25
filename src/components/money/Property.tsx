@@ -122,7 +122,7 @@ function ProjectCard({ p, index, serial, onMsg }: { p: DevProject; index: number
         <div className="w-12 h-12 rounded-[14px] bg-white/[0.06] flex items-center justify-center text-[26px] shrink-0">{b ? b.emoji : '🌱'}</div>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold text-ink truncate">{b ? b.name : 'Empty plot'}</div>
-          <div className="text-[11px] text-ink3">{z.emoji} {p.plotId ? (p.estate ? 'Estate plot' : 'Open land') + ' (' + (p.country ?? '') + ')' : z.name} · {p.stage === 'land' ? 'Land' : p.stage === 'building' ? `Building · ${daysLeft} days left` : p.renting ? 'Rented out' : 'Finished, empty'}</div>
+          <div className="text-[11px] text-ink3">{z.emoji} {p.plotId ? (p.estate ? 'Estate plot' : 'Open land') : z.name}{p.country ? ' · ' + p.country.replace('/', ', ') : ''} · {p.stage === 'land' ? 'Land' : p.stage === 'building' ? `Building · ${daysLeft} days left` : p.renting ? 'Rented out' : 'Finished, empty'}</div>
         </div>
         <div className="text-right shrink-0">
           <div className="text-[14px] font-bold text-ink num">{usd(value)}</div>

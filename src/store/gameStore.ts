@@ -883,6 +883,7 @@ function buildSavePayload(state: GameState): Partial<GameState> {
         devProjects: state.devProjects,
         landTaken: state.landTaken,
         landAuctions: state.landAuctions,
+        deals: state.deals,
         forestDay: state.forestDay,
         bizDay: state.bizDay,
         eventDay: state.eventDay,
@@ -3551,7 +3552,7 @@ interface GameActions {
   brandWarehouse: (ventureId: string) => FeatureActionResult;
   buyPlot: (zone: Zone) => FeatureActionResult;
   /** Buy one plot of open land, or (with several ids) a whole block as an estate. */
-  buyWorldPlot: (ids: string[], landZone: LandZone) => FeatureActionResult;
+  buyWorldPlot: (ids: string[], landZone: LandZone, how?: 'diy' | 'lawyer') => FeatureActionResult;
   /** Raise your bid on a plot that is up for auction. */
   bidOnPlot: (plotId: string) => FeatureActionResult;
   startBuild: (projectId: string, build: BuildType) => FeatureActionResult;
@@ -9557,6 +9558,61 @@ export function monthlyBurnOf(state: Pick<GameState, 'home' | 'homes' | 'ownedAs
 
 /** Rent renewals, the landlord's patience, and the monthly bills. */
 /** Out in the open world, other buyers are moving too: a plot you wait on can be gone tomorrow. */
+/** Where the player is standing, as a country. */
+const locationCountry = (state: GameState): string => ((state.story?.flags['abroad'] as string) || state.player?.country || 'Ghana');
+/** Someone on your payroll who checks the papers for you. */
+const hasPaperwork = (state: GameState): boolean => !!advisorOf(state) || (state.crew ?? []).some((c) => c.role === 'lawyer');
+const DEAL_STEPS = ['Title search ordered', 'Contract signed at the notary', 'Registered at the land office'];
+function foreignTerms(state: GameState, how: 'diy' | 'lawyer' | undefined) {
+  const bk = state.player?.stats.businessKnowledge ?? 40;
+  if (hasPaperwork(state)) return { how: 'agent' as const, feeRate: 0, risk: 0.04, days: 7 };
+  if (how === 'lawyer') return { how: 'lawyer' as const, feeRate: 0.02, risk: 0.06, days: 10 };
+  return { how: 'diy' as const, feeRate: 0.01, risk: Math.max(0.2, 0.42 - bk / 400), days: 16 };
+}
+function grantPlots(state: GameState, world: string, ids: string[], landZone: LandZone, prices: number[], estate: boolean, idx: number, serial: number): void {
+  const p = state.player;
+  if (!p) return;
+  const tier = LAND_TIERS[landZone];
+  ids.forEach((id, i) => {
+    (state.devProjects ??= []).push({
+      id: uuidv4(), zone: tier.zone, stage: 'land', landCost: prices[i], buildCost: 0, spent: prices[i], boughtSerial: serial, indexAtBuy: idx,
+      quality: Math.round(45 + (p.stats.businessKnowledge ?? 40) / 5), renting: false, owed: 0, totalRent: 0, plotId: id, country: world, estate,
+      log: [estate ? `Bought a block of ${ids.length} plots to start an estate.` : `Bought a plot of ${landZone === 'farms' ? 'farmland' : 'land'} for $${prices[i].toLocaleString()}.`],
+    });
+  });
+}
+/** Foreign land deals move through their paperwork, and some of them are frauds. */
+function dealTick(state: GameState, serial: number): void {
+  const deals = state.deals;
+  if (!deals?.length) return;
+  const p = state.player;
+  for (const d of [...deals]) {
+    const span = Math.max(1, d.doneSerial - d.startSerial);
+    const stage = serial >= d.doneSerial ? 3 : Math.floor(((serial - d.startSerial) / span) * 3);
+    const bad = !!d.scam;
+    for (let s = d.stage; s < Math.min(stage, 2); s++) {
+      const warn = bad && s === 1 ? ' The seller keeps asking you to wire the money outside the notary.' : '';
+      pushNotification(state, { kind: 'business', title: `📑 Land abroad: ${DEAL_STEPS[s]}`, body: `Step ${s + 1} of 3 for your purchase in ${d.world.split('/')[0]}.${warn}`, artSeed: `deal|${d.id}|${s}` });
+    }
+    d.stage = Math.max(d.stage, Math.min(stage, 3));
+    if (stage < 3 || !p) continue;
+    state.deals = (state.deals ?? []).filter((x) => x !== d);
+    if (bad) {
+      pushNotification(state, { kind: 'business', title: '🚨 You were scammed', body: `The title was forged and the "seller" is gone. ${d.paid.toLocaleString()} dollars of your money went with them. ${d.how === 'diy' ? 'Hire a local lawyer or a financial manager next time.' : 'Even careful buyers lose sometimes.'}`, artSeed: `deal|${d.id}|scam` });
+      continue;
+    }
+    if (d.zone) {
+      const z = zoneOf(d.zone as Zone);
+      (state.devProjects ??= []).push({
+        id: uuidv4(), zone: d.zone as Zone, stage: 'land', landCost: d.prices[0], buildCost: 0, spent: d.prices[0], boughtSerial: serial, indexAtBuy: d.indexAtBuy,
+        quality: Math.round(45 + (p.stats.businessKnowledge ?? 40) / 5), renting: false, owed: 0, totalRent: 0, country: d.world,
+        log: [`Registered a plot in the ${z.name.toLowerCase()} abroad.`],
+      });
+    } else grantPlots(state, d.world, d.ids, (d.landZone as LandZone) ?? 'plots', d.prices, d.estate, d.indexAtBuy, serial);
+    pushNotification(state, { kind: 'business', title: '🔑 Land registered', body: `${DEAL_STEPS[2]} in ${d.world.split('/')[0]}. The land is legally yours.`, artSeed: `deal|${d.id}|done` });
+  }
+}
+
 const ZONES_NAME = (z: string) => ({ plots: 'Sunrise Plots', wilds: 'Ridge Wilds', farms: 'Meadow Farms', lakeside: 'Lakeside' }[z] ?? 'the new districts');
 /** Wrestling heat after fading. */
 export const heatNow = (h: { v: number; day: number } | undefined, today: number) => (h ? Math.min(100, Math.max(0, h.v - (today - h.day))) : 0);
@@ -9593,6 +9649,7 @@ function landTick(state: GameState, days: number, serial: number): void {
     if (!taken[k]) taken[k] = { by: NPC_OWNERS[Math.floor(roll(k + serial) * NPC_OWNERS.length)], serial };
   }
   const own = new Set(mine.filter((d) => d.stage !== 'sold').map((d) => d.plotId!));
+  for (const dl of state.deals ?? []) if (dl.world === country) dl.ids.forEach((i) => own.add(i));
   const idx = state.market?.propertyIndex ?? 100;
   const zoneOfPlot = (id: string) => { const z = L.plots.find((x) => x.id === id)?.zone; return (z && ['plots', 'wilds', 'farms', 'lakeside'].includes(z) ? z : 'plots') as LandZone; };
   // The hammer falls.
@@ -18878,10 +18935,19 @@ export const useGameStore = create<GameState & GameActions>()(
         if (live.length >= 10) { result.message = 'Ten properties at once is the limit.'; return; }
         const price = Math.round(z.land * (m.propertyIndex / 100) * (1 - dealDiscount(state)));
         if (p.career.money < price) { result.message = `That plot costs $${price.toLocaleString()}.`; return; }
-        p.career.money -= price;
         const serial = dateToSerial(state.gameDate);
+        if (locationCountry(state) !== p.country) {
+          const t = foreignTerms(state, undefined);
+          const fee = Math.round(price * t.feeRate);
+          if (p.career.money < price + fee) { result.message = `With legal fees that is $${(price + fee).toLocaleString()}.`; return; }
+          p.career.money -= price + fee;
+          (state.deals ??= []).push({ id: uuidv4(), world: locationCountry(state), ids: [], zone, prices: [price], estate: false, how: t.how, startSerial: serial, doneSerial: serial + t.days, risk: t.risk, scam: Math.random() < t.risk, stage: 0, paid: price + fee, indexAtBuy: m.propertyIndex });
+          result = { ok: true, message: t.how === 'agent' ? `Your ${advisorOf(state) ? 'financial manager' : 'lawyer'} is handling the paperwork. About ${t.days} days.` : `No lawyer, no manager — you are doing the foreign paperwork alone. About ${t.days} days, and the risk of a scam is high.` };
+          return;
+        }
+        p.career.money -= price;
         (state.devProjects ??= []).push({
-          id: uuidv4(), zone, stage: 'land', landCost: price, buildCost: 0, spent: price, boughtSerial: serial, indexAtBuy: m.propertyIndex,
+          id: uuidv4(), zone, stage: 'land', landCost: price, buildCost: 0, spent: price, boughtSerial: serial, indexAtBuy: m.propertyIndex, country: locationCountry(state),
           quality: Math.round(45 + (p.stats.businessKnowledge ?? 40) / 5), renting: false, owed: 0, totalRent: 0,
           log: [`Bought a plot in the ${z.name.toLowerCase()} for $${price.toLocaleString()}.`],
         });
@@ -18890,7 +18956,7 @@ export const useGameStore = create<GameState & GameActions>()(
       return result;
     },
 
-    buyWorldPlot: (ids, landZone) => {
+    buyWorldPlot: (ids, landZone, how) => {
       let result: FeatureActionResult = { ok: false, message: 'Could not buy the land.' };
       set((state) => {
         const p = state.player;
@@ -18907,16 +18973,20 @@ export const useGameStore = create<GameState & GameActions>()(
         const prices = ids.map((id) => plotPrice(landZone, plotKey(country, id), m.propertyIndex, disc));
         const total = prices.reduce((a, b) => a + b, 0);
         if (p.career.money < total) { result.message = `That costs $${total.toLocaleString()}.`; return; }
-        p.career.money -= total;
         const tier = LAND_TIERS[landZone];
         const serial = dateToSerial(state.gameDate);
-        ids.forEach((id, i) => {
-          (state.devProjects ??= []).push({
-            id: uuidv4(), zone: tier.zone, stage: 'land', landCost: prices[i], buildCost: 0, spent: prices[i], boughtSerial: serial, indexAtBuy: m.propertyIndex,
-            quality: Math.round(45 + (p.stats.businessKnowledge ?? 40) / 5), renting: false, owed: 0, totalRent: 0, plotId: id, country, estate,
-            log: [estate ? `Bought a block of ${ids.length} plots to start an estate.` : `Bought a plot of ${landZone === 'farms' ? 'farmland' : 'land'} for $${prices[i].toLocaleString()}.`],
-          });
-        });
+        if (locationCountry(state) !== p.country) {
+          // Buying in a foreign country: a process, with a real chance of fraud.
+          const t = foreignTerms(state, how);
+          const fee = Math.round(total * t.feeRate);
+          if (p.career.money < total + fee) { result.message = `With the legal fees that is $${(total + fee).toLocaleString()}.`; return; }
+          p.career.money -= total + fee;
+          (state.deals ??= []).push({ id: uuidv4(), world: country, ids, landZone, prices, estate, how: t.how, startSerial: serial, doneSerial: serial + t.days, risk: t.risk, scam: Math.random() < t.risk, stage: 0, paid: total + fee, indexAtBuy: m.propertyIndex });
+          result = { ok: true, message: t.how === 'agent' ? `Your ${advisorOf(state) ? 'financial manager' : 'lawyer'} is handling the title search and contract. About ${t.days} days. Cost: $${(total + fee).toLocaleString()}.` : t.how === 'lawyer' ? `A local lawyer checks the papers: $${fee.toLocaleString()} fee. About ${t.days} days.` : `You are doing the paperwork yourself with nobody checking it. About ${t.days} days — and foreign land deals without a lawyer get scammed a lot.` };
+          return;
+        }
+        p.career.money -= total;
+        grantPlots(state, country, ids, landZone, prices, estate, m.propertyIndex, serial);
         result = { ok: true, message: estate ? `${tier.emoji} Estate started — ${ids.length} plots for $${total.toLocaleString()} (10% off). Open Property to build.` : `${tier.emoji} Plot is yours: $${total.toLocaleString()}. Open Property to build on it.` };
       });
       return result;
@@ -18930,6 +19000,7 @@ export const useGameStore = create<GameState & GameActions>()(
         const a = (state.landAuctions ?? []).find((x) => x.plotId === plotId && x.country === country);
         if (!p || !a) return;
         if (a.bidder === 'You') { result.message = 'You are already the top bidder.'; return; }
+        if (state.player && locationCountry(state) !== state.player.country && !hasPaperwork(state)) { result.message = 'Foreign buyers can only bid through a lawyer or a financial manager. Hire one first.'; return; }
         const next = Math.ceil((a.bid * 1.1) / 100) * 100;
         if (p.career.money < next) { result.message = `You need $${next.toLocaleString()} in hand to bid. Winners pay when the hammer falls.`; return; }
         a.bid = next;
@@ -22602,6 +22673,7 @@ export const useGameStore = create<GameState & GameActions>()(
         homeTick(state, todaySerial, log);
         landTick(state, days, todaySerial);
         tvTick(state, todaySerial);
+        dealTick(state, todaySerial);
         bankTick(state, todaySerial, log);
 
         // Monthly family obligation. It is an actual ledger expense, not flavour.

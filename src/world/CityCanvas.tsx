@@ -24,7 +24,7 @@ import { NODES } from '../story/engine';
 import { daylightAt, minuteDelta } from './daylight';
 import { phone } from './phone';
 import { useGameStore } from '../store/gameStore';
-import { cityLayout, type Place } from './layout';
+import { cityLayout, currentCountry, type Place } from './layout';
 import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
@@ -241,7 +241,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
         }
       }
       // Your flats: which one you're in, and who lives there.
-      const homes = useGameStore.getState().homes ?? [];
+      const homes = (useGameStore.getState().homes ?? []).filter((h) => h.country === currentCountry());
       const home = K.id === 'flat' ? homes[tmp.unit] : undefined;
       if (K.id === 'flat') { const tn = K.npcs.find((q) => q.id === 'tenant'); if (tn) tn.model.group.visible = !!home?.rentedOut; }
       const labelOf = (sp: (typeof K.spots)[number]): string => {

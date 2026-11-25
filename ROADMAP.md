@@ -434,3 +434,9 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 
 ### Grab food with people
 - Talk card gets "Grab food · $30": a meal for two, an hour, +6 bond; once a day per person.
+
+### Abroad slice
+- Homes and properties are scoped to the country you are standing in (no more Ghana flats showing up in Nigeria); Property cards show the country.
+- Buying land in a foreign country is a process: agent/financial manager (safest), local lawyer (2% fee), or DIY (high scam risk). Paperwork takes days, with notifications, and a scam can take your money.
+- Each country looks different: building height scale, wall palettes, grass/tree colours by region, and a flag-coloured national monument downtown.
+- Next: roof styles/signage per country, homes abroad via Lifestyle, Property screen grouped by country.

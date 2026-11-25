@@ -96,6 +96,8 @@ export interface Venture {
   /** Months in a row losing money. */
   redMonths: number;
   closed?: boolean;
+  /** Bought from someone in town: which shop in the world this is (`world:bizId`). */
+  shopId?: string;
   /** Clothing brands run a real merch operation — see `sim/clothing.ts`. */
   brand?: BrandState;
 }

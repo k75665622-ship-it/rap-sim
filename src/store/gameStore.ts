@@ -3221,6 +3221,8 @@ interface GameActions {
    */
   eatMeal: (price: number, energy: number, minutes: number, name: string) => FeatureActionResult;
   /** Fly somewhere (or home). Costs money, energy and hours. */
+  /** Buy a shop in town from its owner and run it as one of your businesses. */
+  buyShop: (shopId: string, type: VentureType, name: string) => FeatureActionResult;
   /** Use a shop in town. `owner` is the NPC who runs it (their bond grows a little). */
   bizAct: (kind: 'restaurant' | 'barber' | 'studio' | 'boutique' | 'juice', name: string, owner?: string) => FeatureActionResult;
   /** Things to do in the forest: sit by the fire, write, walk, or stay in a cabin. */
@@ -14023,6 +14025,33 @@ export const useGameStore = create<GameState & GameActions>()(
         npc.relationshipScore = Math.max(-100, Math.min(100, npc.relationshipScore + delta));
         npc.memoryLog = [...npc.memoryLog.slice(-9), `[City] Ran into ${state.player.artistName} ${where}.`];
         result = { ok: true, message: `${first} +${delta}` };
+      });
+      return result;
+    },
+
+    buyShop: (shopId, type, name) => {
+      let result: FeatureActionResult = { ok: false, message: 'Could not buy it.' };
+      set((state) => {
+        const p = state.player;
+        const def = VENTURE_BY_TYPE[type];
+        if (!p || !def) return;
+        const open = (state.ventures ?? []).filter((v) => !v.closed);
+        if (open.some((v) => v.shopId === shopId)) { result.message = 'You already own this shop.'; return; }
+        if (open.length >= 8) { result.message = 'Eight businesses is plenty. Sell one first.'; return; }
+        if (open.some((v) => v.type === type)) { result.message = `You already run a ${def.name.toLowerCase()}. Grow that one first.`; return; }
+        const cost = Math.round(def.startCost * 1.25 * (1 - dealDiscount(state)));
+        if (p.career.money < cost) { result.message = `The owner wants $${cost.toLocaleString()} for the place.`; return; }
+        if (!spendEnergy(state, 6, { admin: true })) { result.message = energyShortfallMessage(6, p.energy); return; }
+        p.career.money -= cost;
+        const clean = name.toLowerCase().replace(/(^|\s)\w/g, (c) => c.toUpperCase());
+        const v = newVenture(type, clean, dateToSerial(state.gameDate), uuidv4());
+        v.invested = cost;
+        v.reputation = 62;
+        v.shopId = shopId;
+        v.log = [`Bought ${clean} from its owner for $${cost.toLocaleString()}. Regulars came with it.`];
+        if (type === 'clothing') brandOf(v, dateToSerial(state.gameDate));
+        (state.ventures ??= []).push(v);
+        result = { ok: true, message: `${def.emoji} ${clean} is yours. $${cost.toLocaleString()}. Run it from Money → Businesses.` };
       });
       return result;
     },

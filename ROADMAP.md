@@ -422,3 +422,6 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 
 ### Recurring TV role
 - A successful audition can land a recurring role: a weekly episode (pay, fans, fame), 8-episode seasons, renewal odds from your fame with a raise each season. Shown as "Your contract" on the TV tab; you can walk away.
+
+### Wrestling storyline
+- Promos build **heat** with the Iron Ring crowd (fades ~1/day). At 30 heat the promoter books a best-of-three bout: Strike/Grapple/Taunt, with your rival's body language as a (mostly honest) tell. Wins pay a purse, fans, fame and more heat; losses leave a grudge. One bout a night.

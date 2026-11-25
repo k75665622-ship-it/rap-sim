@@ -49,7 +49,17 @@ export function PropertyPanel() {
       </Card>
       <Flash msg={msg} onClose={() => setMsg(null)} />
 
-      {live.map((p) => <ProjectCard key={p.id} p={p} index={index} serial={serial} onMsg={setMsg} />)}
+      {(() => {
+        const groups = new Map<string, typeof live>();
+        for (const p of live) { const k = (p.country ?? 'Home').split('/')[0]; groups.set(k, [...(groups.get(k) ?? []), p]); }
+        const multi = groups.size > 1;
+        return [...groups.entries()].map(([c, list]) => (
+          <div key={c} className="space-y-3">
+            {multi && <div className="flex items-baseline justify-between px-1"><div className="text-[14px] font-semibold text-ink">🌍 {c}</div><div className="text-[12px] text-ink3 num">{list.length} {list.length === 1 ? 'property' : 'properties'} · {usd(list.reduce((a, p) => a + projectValue(p, index, serial), 0))}</div></div>}
+            {list.map((p) => <ProjectCard key={p.id} p={p} index={index} serial={serial} onMsg={setMsg} />)}
+          </div>
+        ));
+      })()}
 
       <section>
         <div className="flex items-end justify-between mb-2">

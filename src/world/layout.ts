@@ -81,13 +81,14 @@ export interface Building extends Box {
   rooftop: Array<Box & { h: number }>;
 }
 
-export type BizKind = 'restaurant' | 'barber' | 'studio' | 'boutique' | 'juice';
+export type BizKind = 'restaurant' | 'barber' | 'studio' | 'boutique' | 'juice' | 'dealer';
 export const BIZ_STYLE: Record<BizKind, { names: string[]; color: string; emoji: string; label: string }> = {
   restaurant: { names: ["ABENA'S CHOP BAR", 'SPICE ROUTE GRILL', 'LAGOON KITCHEN', 'THE HOT POT'], color: '#ff6b4a', emoji: '🍲', label: 'Restaurant' },
   barber: { names: ['CUTS & CO', 'SHARP LINES', 'THE FADE ROOM'], color: '#4dabf7', emoji: '💈', label: 'Barber' },
   studio: { names: ['BASEMENT SOUNDS', 'NIGHT OWL STUDIO', 'RED DOOR RECORDS'], color: '#b57bff', emoji: '🎚️', label: 'Recording studio' },
   boutique: { names: ['KENTE & CO', 'STREET ROYAL', 'THREAD HOUSE'], color: '#ff8fb8', emoji: '👗', label: 'Boutique' },
   juice: { names: ['FRESH PRESS', 'PALM JUICE BAR', 'SUNSHINE SIPS'], color: '#7bd34d', emoji: '🥤', label: 'Juice bar' },
+  dealer: { names: ['PRESTIGE MOTORS', 'APEX SUPERCARS', 'GOLD COAST AUTO'], color: '#ff3b3b', emoji: '🏎️', label: 'Car dealership' },
 };
 const BIZ_KINDS: BizKind[] = ['restaurant', 'barber', 'studio', 'boutique', 'juice'];
 
@@ -337,7 +338,7 @@ export function cityLayout(): CityLayout {
     homeIndex++;
   }
 
-  let bizN = 0, bizSeed = 0;
+  let bizN = 0, bizSeed = 0, dealerN = 0;
   for (const lot of lots) {
     const place0 = placeOf.get(lot);
     const home0 = homeOf.get(lot);
@@ -364,6 +365,12 @@ export function cityLayout(): CityLayout {
       const side = [...lot.roads].sort((s1, s2) => sideCentreDist(bx, s1) - sideCentreDist(bx, s2))[0];
       b.door = doorOn(bx, side);
       bizN++;
+    } else if (!place && !b.biz && dealerN < 2 && lot.roads.length && ['downtown', 'market', 'hollywood'].includes(zn) && (Math.floor(bx.minX) + Math.floor(bx.minZ)) % 5 === 0) {
+      // Car dealerships: a fixed rule (no random draws), so the rest of the city is unchanged.
+      b.biz = { id: `dealer${dealerN}`, kind: 'dealer', name: BIZ_STYLE.dealer.names[dealerN % 3] };
+      const side = [...lot.roads].sort((s1, s2) => sideCentreDist(bx, s1) - sideCentreDist(bx, s2))[0];
+      b.door = doorOn(bx, side);
+      dealerN++;
     }
     if (place) {
       // The door faces whichever road runs closest to the middle of town.

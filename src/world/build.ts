@@ -392,7 +392,7 @@ export function buildCity(bin: Bin): CityObjects {
   // Parked cars (the frame loop hides the far ones).
   const parkedRoot = new THREE.Group();
   for (const pc of L.parked) {
-    const car = buildCar(pc.color, bin);
+    const car = buildCar(pc.color, bin, pc.kind);
     bake(car.group, bin);
     car.group.position.set(pc.x, 0, pc.z);
     car.group.rotation.y = pc.heading;

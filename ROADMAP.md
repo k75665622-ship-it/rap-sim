@@ -446,3 +446,4 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 - NPCs now have body shapes (chest/hips/shoulders), outfits (hoodies, tanks, shorts, skirts), caps/beanies, shades, chains, beards. Two supercar kinds (prancing-horse style, wedge) in traffic; your own car is a wedge.
 - Garage cars show on the road: the priciest car you own is the one you drive (Hilux, Range Rover, Huracán, SF90 added).
 - Car dealerships in town (Prestige Motors etc.): browse every car, buy it, or test drive it for 10 minutes.
+- Dealerships show three display cars out front.

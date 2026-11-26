@@ -4,7 +4,10 @@ export type SignalAxis = 'x' | 'z';
 export type SignalState = 'red' | 'yellow' | 'green';
 
 export function signalState(axis: SignalAxis, road: number, now: number): SignalState {
-  const p = ((now + road * 0.011) % 14 + 14) % 14;
+  // One cycle for the whole city. The phase used to shift with the road number, so at most
+  // crossings both streets could be green at once and cars drove through each other.
+  void road;
+  const p = ((now % 14) + 14) % 14;
   if (axis === 'x') {
     if (p < 6.1) return 'green';
     if (p < 7.0) return 'yellow';

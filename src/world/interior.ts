@@ -6,6 +6,9 @@ import { Bin, buildPlayer, type PlayerModel } from './build';
 import type { Box } from './layout';
 import { defaultLook, lookFor, type Look } from '../sim/look';
 
+/** Where a seated person's origin sits so the hips rest on a chair (seat top is 0.48 m). */
+const SIT_Y = -0.29;
+
 export const KX = 2000; // the kitchen's centre on the x axis
 export const SX = 2100; // Studio 9's
 
@@ -135,10 +138,10 @@ export function buildKitchen(bin: Bin): Interior {
   const npcs: Npc[] = [];
   const person = (id: string, who: string, look: Look, x: number, z: number, rot: number, sit = false, work = false) => {
     const model = buildPlayer(look, bin);
-    model.group.position.set(KX + x, sit ? 0.42 : 0, z); model.group.rotation.y = rot;
-    if (sit) { model.legL.rotation.x = -1.45; model.legR.rotation.x = -1.45; }
+    model.group.position.set(KX + x, sit ? SIT_Y : 0, z); model.group.rotation.y = rot;
+    if (sit) { model.legL.rotation.x = -1.45; model.legR.rotation.x = -1.45; model.kneeL.rotation.x = 1.45; model.kneeR.rotation.x = 1.45; }
     group.add(model.group);
-    npcs.push({ id, who, model, x: KX + x, z, rot, sit, work, baseY: sit ? 0.42 : 0 });
+    npcs.push({ id, who, model, x: KX + x, z, rot, sit, work, baseY: sit ? SIT_Y : 0 });
   };
   const mama: Look = { ...lookFor('mama-esi', 'female'), hair: 'bun' as Look['hair'], skin: 'deep' as Look['skin'], outfit: { ...defaultLook('femme').outfit, top: { ...(defaultLook('femme').outfit.top as object), c1: '#c2410c', c2: '#f4e3b0' } as never } };
   person('esi', 'Mama Esi', mama, 0.5, -2.35, 0, false, true);
@@ -260,10 +263,10 @@ export function buildStudio(bin: Bin): Interior {
   const npcs: Npc[] = [];
   const person = (id: string, who: string, look: Look, x: number, z: number, rot: number, sit = false, work = false, vis = false) => {
     const model = buildPlayer(look, bin);
-    model.group.position.set(X + x, sit ? 0.42 : 0, z); model.group.rotation.y = rot;
-    if (sit) { model.legL.rotation.x = -1.45; model.legR.rotation.x = -1.45; }
+    model.group.position.set(X + x, sit ? SIT_Y : 0, z); model.group.rotation.y = rot;
+    if (sit) { model.legL.rotation.x = -1.45; model.legR.rotation.x = -1.45; model.kneeL.rotation.x = 1.45; model.kneeR.rotation.x = 1.45; }
     group.add(model.group);
-    npcs.push({ id, who, model, x: X + x, z, rot, sit, work, baseY: sit ? 0.42 : 0, visitor: vis });
+    npcs.push({ id, who, model, x: X + x, z, rot, sit, work, baseY: sit ? SIT_Y : 0, visitor: vis });
     if (vis) model.group.visible = false;
   };
   const ankh: Look = { ...lookFor('ankh-studio', 'male'), hair: 'bald' as Look['hair'], skin: 'ebony' as Look['skin'], outfit: { ...defaultLook('masc').outfit, top: { ...(defaultLook('masc').outfit.top as object), c1: '#3a3a44', c2: '#ffb800' } as never } };
@@ -327,10 +330,10 @@ function buildRoom(bin: Bin, r: RoomSpec): Interior {
   const npcs: Npc[] = [];
   const put = (id: string, who: string, look: Look, x: number, z: number, rot: number, sit: boolean, work: boolean, visitor: boolean) => {
     const model = buildPlayer(look, bin);
-    model.group.position.set(X + x, sit ? 0.42 : 0, z); model.group.rotation.y = rot;
-    if (sit) { model.legL.rotation.x = -1.45; model.legR.rotation.x = -1.45; }
+    model.group.position.set(X + x, sit ? SIT_Y : 0, z); model.group.rotation.y = rot;
+    if (sit) { model.legL.rotation.x = -1.45; model.legR.rotation.x = -1.45; model.kneeL.rotation.x = 1.45; model.kneeR.rotation.x = 1.45; }
     group.add(model.group);
-    npcs.push({ id, who, model, x: X + x, z, rot, sit, work, baseY: sit ? 0.42 : 0, visitor });
+    npcs.push({ id, who, model, x: X + x, z, rot, sit, work, baseY: sit ? SIT_Y : 0, visitor });
     if (visitor) model.group.visible = false;
   };
   for (const n of r.npcs) {

@@ -9,7 +9,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { themeFor } from './theme';
 import { cityLayout, currentCountry, KERB_H, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD, type Building } from './layout';
-import { SKIN, defaultLook, type Look } from '../sim/look';
+import type { Look } from '../sim/look';
+import { buildVehicle, type CarKind, type CarModel } from './vehicles';
+import { buildCrowdModel, buildPlayerModel, type Crowd, type CrowdPerson, type CrowdPose, type PlayerModel } from './characters';
 
 type Disposable = { dispose: () => void };
 
@@ -625,140 +627,20 @@ function addShopfront(b: Building, root: THREE.Group, bin: Bin, markers: CityObj
 
 // ─── the player ────────────────────────────────────────────────────────────
 
-export interface PlayerModel {
-  group: THREE.Group;
-  body: THREE.Group;
-  legL: THREE.Group; legR: THREE.Group;
-  armL: THREE.Group; armR: THREE.Group;
-  handset: THREE.Mesh;
-}
+export type { Crowd, CrowdPerson, CrowdPose, PlayerModel };
 
+/** You, and the people inside buildings. See characters.ts. */
 export function buildPlayer(look: Look | undefined, bin: Bin): PlayerModel {
-  const l = look ?? defaultLook();
-  const skin = SKIN[l.skin]?.base ?? '#6b3f2a';
-  const top = l.outfit.top?.c1 ?? '#2b2f3a';
-  const topTrim = l.outfit.top?.c2 ?? top;
-  const bottom = l.outfit.bottom?.c1 ?? '#2c4a78';
-  const shoes = l.outfit.shoes?.c1 ?? '#f4f4f4';
-  const slim = l.build === 'slim' ? 0.9 : l.build === 'heavy' ? 1.15 : 1;
-
-  const mat = (c: string) => bin.add(new THREE.MeshLambertMaterial({ color: c }));
-  const box = (w: number, h: number, d: number) => bin.add(new THREE.BoxGeometry(w, h, d));
-  const part = (w: number, h: number, d: number, c: string, x: number, y: number, z: number) => {
-    const me = new THREE.Mesh(box(w, h, d), mat(c));
-    me.position.set(x, y, z);
-    return me;
-  };
-
-  const group = new THREE.Group();
-  const body = new THREE.Group();
-  group.add(body);
-
-  // Legs hang from the hips so they can swing.
-  const leg = (side: number) => {
-    const g = new THREE.Group();
-    g.position.set(side * 0.13 * slim, 0.92, 0);
-    g.add(part(0.22 * slim, 0.82, 0.24, bottom, 0, -0.41, 0));
-    g.add(part(0.25 * slim, 0.14, 0.38, shoes, 0, -0.86, 0.06));
-    body.add(g);
-    return g;
-  };
-  const legL = leg(1), legR = leg(-1);
-
-  body.add(part(0.56 * slim, 0.68, 0.3 * slim, top, 0, 1.27, 0));
-  body.add(part(0.58 * slim, 0.08, 0.32 * slim, topTrim, 0, 0.96, 0)); // waistband
-  body.add(part(0.14, 0.1, 0.14, skin, 0, 1.65, 0));                      // neck
-
-  const arm = (side: number) => {
-    const g = new THREE.Group();
-    g.position.set(side * (0.36 * slim + 0.02), 1.56, 0);
-    g.add(part(0.17, 0.3, 0.19, top, 0, -0.14, 0));
-    g.add(part(0.15, 0.38, 0.16, skin, 0, -0.46, 0));
-    body.add(g);
-    return g;
-  };
-  const armL = arm(1), armR = arm(-1);
-  // A phone in the right hand, shown when you take it out.
-  const handset = part(0.09, 0.17, 0.02, '#0d0e12', 0, -0.66, 0.1);
-  const screenGlow = new THREE.Mesh(box(0.075, 0.145, 0.005), bin.add(new THREE.MeshBasicMaterial({ color: '#7fb4ff', toneMapped: false })));
-  screenGlow.position.set(0, 0, 0.013);
-  handset.add(screenGlow);
-  handset.visible = false;
-  armR.add(handset);
-
-  // Head.
-  body.add(part(0.36, 0.4, 0.36, skin, 0, 1.9, 0));
-  const hairStyle = String(l.hair ?? '');
-  const bald = hairStyle.includes('bald') || hairStyle.includes('shaved');
-  if (!bald) {
-    const tall = /afro|puff|twist|braid|loc|dread/.test(hairStyle);
-    body.add(part(0.4, tall ? 0.24 : 0.1, 0.4, l.hairColor ?? '#141110', 0, tall ? 2.18 : 2.12, -0.01));
-    body.add(part(0.4, 0.28, 0.08, l.hairColor ?? '#141110', 0, 1.98, -0.17));
-    if (/braid|loc|dread/.test(hairStyle)) body.add(part(0.36, 0.5, 0.1, l.hairColor ?? '#141110', 0, 1.7, -0.19));
-  }
-  body.add(part(0.06, 0.05, 0.02, '#111111', 0.08, 1.93, 0.18));
-  body.add(part(0.06, 0.05, 0.02, '#111111', -0.08, 1.93, 0.18));
-
-  body.scale.setScalar(0.92);
-  return { group, body, legL, legR, armL, armR, handset };
+  return buildPlayerModel(look, bin);
 }
 
 // ─── cars ──────────────────────────────────────────────────────────────────
 
-export interface CarModel {
-  group: THREE.Group;
-  /** Front wheels steer; all four spin. */
-  steer: THREE.Group[];
-  wheels: THREE.Mesh[];
-  body: THREE.Group;
-}
+export type { CarModel, CarKind } from './vehicles';
 
-export function buildCar(color: string, bin: Bin): CarModel {
-  const group = new THREE.Group();
-  const body = new THREE.Group();
-  group.add(body);
-  const paint = bin.add(new THREE.MeshStandardMaterial({ color, metalness: 0.45, roughness: 0.35 }));
-  const glass = bin.add(new THREE.MeshStandardMaterial({ color: '#16202c', metalness: 0.6, roughness: 0.15 }));
-  const dark = bin.add(new THREE.MeshLambertMaterial({ color: '#15161a' }));
-  const box = (w: number, h: number, d: number) => bin.add(new THREE.BoxGeometry(w, h, d));
-  const add = (g: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = body) => {
-    const me = new THREE.Mesh(g, mat);
-    me.position.set(x, y, z);
-    parent.add(me);
-    return me;
-  };
-
-  add(box(2.0, 0.62, 4.5), paint, 0, 0.72, 0);
-  add(box(1.72, 0.56, 2.25), glass, 0, 1.3, -0.25);
-  add(box(1.74, 0.08, 1.95), paint, 0, 1.6, -0.3);
-  add(box(2.04, 0.26, 0.2), dark, 0, 0.48, 2.28);   // bumpers
-  add(box(2.04, 0.26, 0.2), dark, 0, 0.48, -2.28);
-  const headL = bin.add(new THREE.MeshBasicMaterial({ color: '#fff6d8', toneMapped: false }));
-  const tailL = bin.add(new THREE.MeshBasicMaterial({ color: '#ff2a2a', toneMapped: false }));
-  for (const s of [-1, 1]) {
-    add(box(0.42, 0.14, 0.04), headL, s * 0.68, 0.84, 2.26);
-    add(box(0.42, 0.12, 0.04), tailL, s * 0.68, 0.84, -2.26);
-  }
-
-  const wheelGeo = bin.add(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 14));
-  wheelGeo.rotateZ(Math.PI / 2);
-  const hubGeo = bin.add(new THREE.BoxGeometry(0.32, 0.12, 0.5));
-  const hub = bin.add(new THREE.MeshLambertMaterial({ color: '#9a9ea8' }));
-  const steer: THREE.Group[] = [];
-  const wheels: THREE.Mesh[] = [];
-  for (const [x, z] of [[0.92, 1.4], [-0.92, 1.4], [0.92, -1.4], [-0.92, -1.4]] as const) {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 0.38, z);
-    group.add(pivot);
-    const wheel = new THREE.Mesh(wheelGeo, dark);
-    const spoke = new THREE.Mesh(hubGeo, hub);
-    spoke.position.x = Math.sign(x) * 0.02;
-    wheel.add(spoke);
-    pivot.add(wheel);
-    wheels.push(wheel);
-    if (z > 0) steer.push(pivot);
-  }
-  return { group, steer, wheels, body };
+/** The player's own car. (Street traffic builds its own mix: see vehicles.ts.) */
+export function buildCar(color: string, bin: Bin, kind: CarKind = 'sedan'): CarModel {
+  return buildVehicle(kind, color, bin, true);
 }
 
 // ─── the sky ───────────────────────────────────────────────────────────────
@@ -805,111 +687,7 @@ export function buildSky(bin: Bin): SkyObjects {
 // torso, sleeves, forearms, head, hair, eyes and a shadow — so fifty people
 // cost nine draw calls rather than seven hundred.
 
-export interface CrowdPerson {
-  colors: { skin: string; top: string; bottom: string; shoes: string; hair: string; bald: boolean };
-  scale: number;
-}
-
-export interface CrowdPose {
-  visible: boolean; x: number; y: number; z: number; rot: number; phase: number; moving: boolean;
-  arms?: number; activity?: 'walk' | 'idle' | 'phone'; startle?: number;
-}
-
-export interface Crowd {
-  group: THREE.Group;
-  update(poses: CrowdPose[]): void;
-}
-
+/** The street crowd: every person drawn with a handful of instanced meshes. See characters.ts. */
 export function buildCrowd(people: CrowdPerson[], bin: Bin): Crowd {
-  const group = new THREE.Group();
-  const n = Math.max(1, people.length);
-  const geo = (w: number, h: number, d: number, x: number, y: number, z: number) => {
-    const g = bin.add(new THREE.BoxGeometry(w, h, d));
-    g.translate(x, y, z);
-    return g;
-  };
-  const merged = (gs: THREE.BufferGeometry[]) => bin.add(mergeGeometries(gs));
-  const mat = bin.add(new THREE.MeshLambertMaterial({ color: '#ffffff' }));
-  const part = (g: THREE.BufferGeometry, count: number, material: THREE.Material = mat) => {
-    const im = new THREE.InstancedMesh(g, material, count);
-    im.frustumCulled = false; // instances move about; the bounds would be stale
-    group.add(im);
-    return im;
-  };
-
-  const legs = part(geo(0.22, 0.82, 0.24, 0, -0.41, 0), n * 2);
-  const shoes = part(geo(0.25, 0.14, 0.38, 0, -0.86, 0.06), n * 2);
-  const torso = part(merged([geo(0.56, 0.68, 0.3, 0, 1.27, 0), geo(0.58, 0.08, 0.32, 0, 0.96, 0)]), n);
-  const sleeves = part(geo(0.17, 0.3, 0.19, 0, -0.14, 0), n * 2);
-  const forearms = part(geo(0.15, 0.38, 0.16, 0, -0.46, 0), n * 2);
-  const heads = part(merged([geo(0.36, 0.4, 0.36, 0, 1.9, 0), geo(0.14, 0.1, 0.14, 0, 1.65, 0)]), n);
-  const hair = part(merged([geo(0.4, 0.1, 0.4, 0, 2.12, -0.01), geo(0.4, 0.28, 0.08, 0, 1.98, -0.17)]), n);
-  const eyes = part(merged([geo(0.06, 0.05, 0.02, 0.08, 1.93, 0.18), geo(0.06, 0.05, 0.02, -0.08, 1.93, 0.18)]), n, bin.add(new THREE.MeshBasicMaterial({ color: '#111111' })));
-  const shadowGeo = bin.add(new THREE.PlaneGeometry(1.1, 1.1));
-  shadowGeo.rotateX(-Math.PI / 2);
-  const shadows = part(shadowGeo, n, bin.add(new THREE.MeshBasicMaterial({ map: blobTexture(bin), transparent: true, depthWrite: false })));
-
-  const c = new THREE.Color();
-  people.forEach((p, i) => {
-    const set = (im: THREE.InstancedMesh, idx: number, col: string) => im.setColorAt(idx, c.set(col));
-    set(legs, i * 2, p.colors.bottom); set(legs, i * 2 + 1, p.colors.bottom);
-    set(shoes, i * 2, p.colors.shoes); set(shoes, i * 2 + 1, p.colors.shoes);
-    set(torso, i, p.colors.top);
-    set(sleeves, i * 2, p.colors.top); set(sleeves, i * 2 + 1, p.colors.top);
-    set(forearms, i * 2, p.colors.skin); set(forearms, i * 2 + 1, p.colors.skin);
-    set(heads, i, p.colors.skin);
-    set(hair, i, p.colors.hair);
-  });
-  for (const im of [legs, shoes, torso, sleeves, forearms, heads, hair]) if (im.instanceColor) im.instanceColor.needsUpdate = true;
-
-  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-  const base = new THREE.Matrix4();
-  const m = new THREE.Matrix4();
-  const tmp = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const up = new THREE.Vector3(0, 1, 0);
-  const pos = new THREE.Vector3();
-  const scl = new THREE.Vector3();
-  const limbM = new THREE.Matrix4();
-  const limb = (side: number, y: number, swing: number, out: THREE.Matrix4) =>
-    out.copy(base).multiply(tmp.makeTranslation(side, y, 0)).multiply(m.makeRotationX(swing));
-
-  const update = (poses: CrowdPose[]) => {
-    for (let i = 0; i < people.length; i++) {
-      const p = poses[i];
-      if (!p || !p.visible) {
-        for (const im of [torso, heads, hair, eyes, shadows]) im.setMatrixAt(i, zero);
-        for (const im of [legs, shoes, sleeves, forearms]) { im.setMatrixAt(i * 2, zero); im.setMatrixAt(i * 2 + 1, zero); }
-        continue;
-      }
-      const s = people[i].scale;
-      const activity = p.activity ?? (p.moving ? 'walk' : 'idle');
-      const bob = p.moving ? Math.abs(Math.sin(p.phase)) * 0.055 : Math.sin(p.phase * 0.7) * 0.012;
-      // A tiny side-to-side weight shift gives idle pedestrians a pulse instead
-      // of making them look frozen. Keep it in the matrix so there are still
-      // only the same instanced draw calls.
-      const lean = activity === 'idle' ? Math.sin(p.phase * 0.7) * 0.025 : activity === 'phone' ? -0.035 : 0;
-      base.compose(pos.set(p.x, p.y + bob, p.z), q.setFromAxisAngle(up, p.rot + lean), scl.set(s, s, s));
-      torso.setMatrixAt(i, base);
-      // Heads subtly scan the street while idle; phone users look down.
-      const headYaw = activity === 'idle' ? Math.sin(p.phase * 0.55) * 0.22 : activity === 'phone' ? -0.18 : 0;
-      const headQ = q.setFromAxisAngle(up, p.rot + headYaw);
-      const headBase = tmp.compose(pos.set(p.x, p.y + bob, p.z), headQ, scl.set(s, s, s));
-      heads.setMatrixAt(i, headBase);
-      eyes.setMatrixAt(i, headBase);
-      hair.setMatrixAt(i, people[i].colors.bald ? zero : headBase);
-      const swing = p.moving ? Math.sin(p.phase) * 0.62 : activity === 'idle' ? Math.sin(p.phase * 0.7) * 0.08 : 0;
-      const l = limbM;
-      limb(0.13, 0.92, swing, l); legs.setMatrixAt(i * 2, l); shoes.setMatrixAt(i * 2, l);
-      limb(-0.13, 0.92, -swing, l); legs.setMatrixAt(i * 2 + 1, l); shoes.setMatrixAt(i * 2 + 1, l);
-      const arm = p.arms ?? 0;
-      const phonePose = activity === 'phone';
-      limb(0.38, 1.56, arm ? -arm : phonePose ? -1.05 : -swing * 0.9, l); sleeves.setMatrixAt(i * 2, l); forearms.setMatrixAt(i * 2, l);
-      limb(-0.38, 1.56, arm ? -arm : phonePose ? -0.25 : swing * 0.9, l); sleeves.setMatrixAt(i * 2 + 1, l); forearms.setMatrixAt(i * 2 + 1, l);
-      shadows.setMatrixAt(i, m.makeTranslation(p.x, p.y + 0.02, p.z));
-    }
-    for (const im of [legs, shoes, torso, sleeves, forearms, heads, hair, eyes, shadows]) im.instanceMatrix.needsUpdate = true;
-  };
-
-  return { group, update };
+  return buildCrowdModel(people, bin, blobTexture(bin));
 }

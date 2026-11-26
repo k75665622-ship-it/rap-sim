@@ -40,6 +40,8 @@ const EXIT_SPEED = 7;
 
 const COARSE = typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 
+const INDOOR_VOID = new THREE.Color('#0c0d12');
+
 export function CityCanvas({ look, onEnter, paused }: { look?: Look; onEnter: (p: Place) => void; paused?: boolean }) {
   return (
     <Canvas
@@ -126,13 +128,21 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin), apts: buildApts(bin), flat: buildFlat(bin), airport: buildAirport(bin), stadium: buildStadium(bin), arena: buildArena(bin), lots: buildLot(bin), mall: buildMall(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
-    scene.add(...Object.values(interiors).map((i) => i.group), gpsGroup, city.root, land.group, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group);
+    scene.add(gpsGroup, city.root, land.group, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group);
     const bizDoors = cityLayout().buildings.filter((b) => b.biz && b.door).map((b) => ({ biz: b.biz!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
+    // The street never moves, so stop re-composing its static matrices every frame
+    // (only the spinning door gems and rings need it).
+    const spinning = new Set<THREE.Object3D>();
+    for (const mk of city.markers) { spinning.add(mk.gem); spinning.add(mk.ring); }
+    city.root.updateMatrixWorld(true);
+    city.root.traverse((o) => { if (!spinning.has(o)) o.matrixAutoUpdate = false; });
     const doors = cityLayout().buildings
       .filter((b) => b.place && b.door)
       .map((b) => ({ place: b.place!, door: b.door!, homeType: b.homeType, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
     return { bizDoors, land, interiors, gpsGroup, gpsRibbon, gpsBeacon, bin, city, player, car, pShadow, cShadow, scene, doors, sky, hemi, sun, beam, fill, residents, crowd, traffic, transport, poses, ray: new THREE.Raycaster() };
   }, []);
+
+  (window as unknown as { __rapBuilt?: unknown }).__rapBuilt = built; // dev/test hook, like __rapCity
 
   useEffect(() => () => {
     built.bin.dispose();
@@ -435,7 +445,15 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     // ── indoors: hide the street, light the room, move its people ──────
     built.city.root.visible = !indoor.on;
     built.crowd.group.visible = !indoor.on;
-    for (const K of Object.values(built.interiors)) for (const l of K.lights) l.intensity = indoor.on && indoor.id === K.id ? 9 : 0;
+    // A room is in the scene only while you are in it. Left in, its meshes and lights
+    // (43 point lights across the 12 rooms) were processed on every frame, outdoors,
+    // and every lit surface in the street paid for each of those lights.
+    for (const K of Object.values(built.interiors)) {
+      const here = indoor.on && indoor.id === K.id;
+      if (here) { if (K.group.parent !== built.scene) built.scene.add(K.group); }
+      else if (K.group.parent) K.group.parent.remove(K.group);
+      for (const l of K.lights) l.intensity = here ? 9 : 0;
+    }
     // Cut-away: a wall between the camera and the room steps aside.
     for (const K of Object.values(built.interiors)) {
       const here = indoor.on && indoor.id === K.id;
@@ -464,18 +482,34 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     player.group.rotation.y = p.rot;
     const stride = Math.min(1, p.speed / 3.4);
     const swing = Math.sin(p.phase) * (0.35 + 0.45 * Math.min(1, p.speed / 7)) * stride;
+    // Joints that only some poses move go back to rest first.
+    player.kneeL.rotation.x = 0.05; player.kneeR.rotation.x = 0.05;
+    player.elbowL.rotation.x = -0.18; player.elbowR.rotation.x = -0.18;
+    player.torso.rotation.y = 0; player.head.rotation.y = 0; player.head.rotation.x = 0;
     if (p.grounded) {
       player.legL.rotation.x = swing;
       player.legR.rotation.x = -swing;
       player.armL.rotation.x = -swing * 0.9;
       player.armR.rotation.x = swing * 0.9;
+      // The knee bends while that leg is carried forward, the elbow while that hand is,
+      // the waist twists against the stride and the head stays level.
+      player.kneeL.rotation.x = 0.05 + stride * Math.max(0, -Math.cos(p.phase));
+      player.kneeR.rotation.x = 0.05 + stride * Math.max(0, Math.cos(p.phase));
+      player.elbowL.rotation.x = -(0.18 + Math.max(0, swing) * 0.75);
+      player.elbowR.rotation.x = -(0.18 + Math.max(0, -swing) * 0.75);
+      player.torso.rotation.y = Math.sin(p.phase) * 0.14 * stride;
+      player.head.rotation.y = -player.torso.rotation.y * 0.6;
       player.body.position.y = Math.abs(Math.sin(p.phase)) * 0.06 * stride;
       player.body.rotation.x = 0.12 * Math.min(1, p.speed / 7);
     } else {
       player.legL.rotation.x = -0.6;
       player.legR.rotation.x = 0.25;
+      player.kneeL.rotation.x = 0.9;
+      player.kneeR.rotation.x = 0.2;
       player.armL.rotation.x = -1.6;
       player.armR.rotation.x = -1.4;
+      player.elbowL.rotation.x = -0.3;
+      player.elbowR.rotation.x = -0.3;
     }
     // Dancing for the camera.
     if (live.shoot.on) {
@@ -484,12 +518,17 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       player.armR.rotation.x = -2.3 - b * 0.6;
       player.legL.rotation.x = b * 0.25;
       player.legR.rotation.x = -b * 0.25;
+      player.kneeL.rotation.x = 0.35 + Math.abs(b) * 0.4;
+      player.kneeR.rotation.x = 0.35 + Math.abs(b) * 0.4;
+      player.elbowL.rotation.x = -0.9 + b * 0.4;
+      player.elbowR.rotation.x = -0.9 - b * 0.4;
+      player.torso.rotation.y = Math.sin(t * 4) * 0.25;
       player.body.position.y = Math.abs(b) * 0.09;
       player.group.rotation.y = p.rot + Math.sin(t * 2) * 0.5;
     }
     // Phone up to your face.
     player.handset.visible = phoneOut;
-    if (phoneOut) { player.armR.rotation.x = -1.25; player.armR.rotation.z = 0.35; }
+    if (phoneOut) { player.armR.rotation.x = -1.0; player.armR.rotation.z = 0.2; player.elbowR.rotation.x = -1.05; player.head.rotation.x = 0.25; }
     else player.armR.rotation.z = 0;
     // Idle breathing.
     if (p.speed < 0.2 && p.grounded) player.body.scale.y = 0.92 * (1 + Math.sin(t * 2.2) * 0.008);
@@ -528,8 +567,10 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const day = daylightAt(tmp.minute);
     const { sky, hemi, sun, beam } = built;
     const scene = state.scene;
-    if (scene.background instanceof THREE.Color) scene.background.copy(day.sky);
-    if (scene.fog instanceof THREE.Fog) { scene.fog.color.copy(day.sky); scene.fog.near = day.fogNear; scene.fog.far = day.fogFar; }
+    // Inside a building there is no sky: below the room's floor you see the dark, not a pale blue band.
+    const backdrop = indoor.on ? INDOOR_VOID : day.sky;
+    if (scene.background instanceof THREE.Color) scene.background.copy(backdrop);
+    if (scene.fog instanceof THREE.Fog) { scene.fog.color.copy(backdrop); scene.fog.near = indoor.on ? 30 : day.fogNear; scene.fog.far = indoor.on ? 110 : day.fogFar; }
     hemi.color.copy(day.hemiSky);
     hemi.groundColor.copy(day.hemiGround);
     hemi.intensity = day.hemiIntensity;

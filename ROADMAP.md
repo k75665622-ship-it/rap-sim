@@ -441,3 +441,5 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 - Each country looks different: building height scale, wall palettes, grass/tree colours by region, and a flag-coloured national monument downtown.
 - Next: roof styles/signage per country, homes abroad via Lifestyle, Property screen grouped by country.
 - Property screen groups your holdings by country with a per-country total.
+
+- Characters/vehicles/performance patch from the other agent: jointed rounded people, 7 vehicle types, rooms only in scene when entered, one traffic-signal cycle.

@@ -4,8 +4,12 @@ export const LUXURY_CATALOG: LuxuryItem[] = [
   // Cars
   { id: 'toyota_camry', name: 'Toyota Camry', category: 'car', cost: 25_000, unlockThreshold: 50_000 },
   { id: 'mercedes_c', name: 'Mercedes C-Class', category: 'car', cost: 60_000, unlockThreshold: 200_000 },
+  { id: 'hilux', name: 'Toyota Hilux', category: 'car', cost: 45_000, unlockThreshold: 90_000 },
+  { id: 'range_rover', name: 'Range Rover Sport', category: 'car', cost: 130_000, unlockThreshold: 400_000 },
   { id: 'porsche_911', name: 'Porsche 911', category: 'car', cost: 150_000, unlockThreshold: 500_000 },
   { id: 'ferrari', name: 'Ferrari Roma', category: 'car', cost: 350_000, unlockThreshold: 1_000_000 },
+  { id: 'huracan', name: 'Lamborghini Huracán', category: 'car', cost: 280_000, unlockThreshold: 800_000 },
+  { id: 'ferrari_sf', name: 'Ferrari SF90', category: 'car', cost: 600_000, unlockThreshold: 3_000_000 },
   { id: 'lamborghini', name: 'Lamborghini Urus', category: 'car', cost: 500_000, unlockThreshold: 2_000_000 },
   { id: 'rolls_royce', name: 'Rolls-Royce Ghost', category: 'car', cost: 750_000, unlockThreshold: 5_000_000 },
 
@@ -36,3 +40,17 @@ export const LUXURY_CATALOG: LuxuryItem[] = [
   { id: 'local_art', name: 'Contemporary Ghanaian Art Collection', category: 'art', cost: 20_000, unlockThreshold: 100_000 },
   { id: 'fine_art', name: 'International Fine Art Collection', category: 'art', cost: 2_000_000, unlockThreshold: 10_000_000 },
 ];
+
+/** How each car in the catalogue looks on the road: body shape and paint. */
+export const CAR_LOOK: Record<string, { kind: 'sedan' | 'hatch' | 'suv' | 'pickup' | 'coupe' | 'super' | 'wedge'; paint: string }> = {
+  toyota_camry: { kind: 'sedan', paint: '#c9ccd1' },
+  mercedes_c: { kind: 'sedan', paint: '#22252b' },
+  hilux: { kind: 'pickup', paint: '#ecf0f1' },
+  range_rover: { kind: 'suv', paint: '#1f3a2e' },
+  porsche_911: { kind: 'coupe', paint: '#e7e9ee' },
+  ferrari: { kind: 'super', paint: '#c1121f' },
+  huracan: { kind: 'wedge', paint: '#7a2cf0' },
+  lamborghini: { kind: 'suv', paint: '#f2c200' },
+  ferrari_sf: { kind: 'super', paint: '#f2c200' },
+  rolls_royce: { kind: 'sedan', paint: '#0e0e12' },
+};

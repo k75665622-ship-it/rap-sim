@@ -128,7 +128,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const interiors: Record<string, Interior> = { kitchen: buildKitchen(bin), studio: buildStudio(bin), label: buildLabel(bin), crib: buildCrib(bin), radio: buildRadio(bin), stage: buildStage(bin), bank: buildBank(bin), gym: buildGym(bin), drip: buildDrip(bin), apts: buildApts(bin), flat: buildFlat(bin), airport: buildAirport(bin), stadium: buildStadium(bin), arena: buildArena(bin), lots: buildLot(bin), mall: buildMall(bin) };
     if (indoor.on) { live.p.x = indoor.exitAt.x; live.p.z = indoor.exitAt.z; live.p.rot = indoor.exitAt.rot; indoor.on = false; hudStore.set({ inside: null }); }
     const scene = new THREE.Group();
-    scene.add(gpsGroup, city.root, land.group, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group);
+    scene.add(gpsGroup, city.root, land.group, player.group, car.group, pShadow, cShadow, sky.group, hemi, sun, fill, crowd.group, transport.group, traffic.group);
     const bizDoors = cityLayout().buildings.filter((b) => b.biz && b.door).map((b) => ({ biz: b.biz!, x: b.door!.x + b.door!.nx * 1.6, z: b.door!.z + b.door!.nz * 1.6 }));
     // The street never moves, so stop re-composing its static matrices every frame
     // (only the spinning door gems and rings need it).

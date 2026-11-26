@@ -1,12 +1,13 @@
 // Lightweight ambient traffic. Fixed lanes + waypoint turns keep CPU cost predictable on phones.
 import * as THREE from 'three';
-import { buildCar, Bin } from './build';
+import { Bin } from './build';
+import { buildVehicle, CAR_LENGTH, type CarKind } from './vehicles';
 import { ROAD_CENTRES, ROAD_HALF, WORLD } from './layout';
 import { signalState } from './signals';
 import { pedestrianHazards } from './pedestrianTraffic';
 
 type Axis = 'x' | 'z';
-type VehicleKind = 'car' | 'suv' | 'taxi' | 'motorcycle' | 'bike';
+type VehicleKind = CarKind | 'motorcycle' | 'bike';
 type Turn = -1 | 0 | 1;
 
 type Unit = {
@@ -33,7 +34,11 @@ type Signal = {
   road: number;
 };
 
-const PAINTS = ['#c0392b', '#1f4e79', '#f1c40f', '#ecf0f1', '#34495e', '#16a085', '#7f8c8d', '#d35400', '#6c5ce7', '#e17055'];
+// Mostly white, silver, black and grey like any real street, with some colour.
+const PAINTS = ['#ecf0f1', '#c0392b', '#2b2f36', '#1f4e79', '#9aa0a6', '#ecf0f1', '#16a085', '#7f8c8d', '#d35400', '#f4f4f0', '#34495e', '#6c5ce7', '#8a1c1c', '#2d6a4f', '#c9ccd1', '#e17055'];
+/** Taxis are yellow and tro-tros are loud; they ignore the palette. */
+const FIXED_PAINT: Partial<Record<VehicleKind, string[]>> = { taxi: ['#f2c200'], minibus: ['#f5d400', '#e8e8e4', '#2f8f4e'] };
+const CRUISE: Record<CarKind, number> = { sedan: 8, hatch: 8.4, suv: 7, pickup: 7, minibus: 6.5, taxi: 9, coupe: 10 };
 
 function mat(bin: Bin, color: string, glow = false) {
   return bin.add(new THREE.MeshLambertMaterial({
@@ -98,16 +103,6 @@ function signal(bin: Bin, x: number, z: number, axis: Axis, road: number): Signa
   return { group, red, yellow, green, axis, road };
 }
 
-function nearestRoad(v: number): number {
-  let best = ROAD_CENTRES[0];
-  let bd = Math.abs(v - best);
-  for (const c of ROAD_CENTRES) {
-    const d = Math.abs(v - c);
-    if (d < bd) { bd = d; best = c; }
-  }
-  return best;
-}
-
 function nextIntersection(u: Unit): { road: number; distance: number } | null {
   const ahead = ROAD_CENTRES.filter((c) => u.dir > 0 ? c > u.pos + 0.05 : c < u.pos - 0.05);
   if (!ahead.length) return null;
@@ -115,34 +110,13 @@ function nextIntersection(u: Unit): { road: number; distance: number } | null {
   return { road, distance: Math.abs(road - u.pos) };
 }
 
-function addVehicleDetail(bin: Bin, group: THREE.Group, kind: VehicleKind, color: string) {
-  if (kind === 'suv') {
-    const roof = new THREE.Mesh(bin.add(new THREE.BoxGeometry(1.78, 0.28, 2.1)), mat(bin, color));
-    roof.position.y = 1.7;
-    group.add(roof);
-    const rails = mat(bin, '#24272c');
-    for (const x of [-0.62, 0.62]) {
-      const bar = new THREE.Mesh(bin.add(new THREE.BoxGeometry(0.06, 0.06, 2.15)), rails);
-      bar.position.set(x, 1.86, -0.28);
-      group.add(bar);
-    }
-  } else if (kind === 'taxi') {
-    const sign = new THREE.Mesh(bin.add(new THREE.BoxGeometry(0.62, 0.16, 0.32)), mat(bin, '#f7f7f7'));
-    sign.position.y = 1.9;
-    group.add(sign);
-    const stripe = new THREE.Mesh(bin.add(new THREE.BoxGeometry(1.86, 0.08, 0.14)), mat(bin, '#16181d'));
-    stripe.position.set(0, 1.06, 0);
-    group.add(stripe);
-  }
-}
-
 function vehicle(bin: Bin, kind: VehicleKind, color: string): THREE.Group {
   if (kind === 'motorcycle') return bike(bin, color, true);
   if (kind === 'bike') return bike(bin, color, false);
-  const car = buildCar(color, bin);
-  car.group.scale.set(kind === 'suv' ? 1.02 : 0.9, kind === 'suv' ? 1.08 : 0.9, kind === 'suv' ? 1.06 : 0.94);
-  addVehicleDetail(bin, car.group, kind, color);
-  return car.group;
+  const g = buildVehicle(kind, color, bin).group;
+  // The pieces never move relative to the car: only the car as a whole does.
+  g.traverse((o) => { if (o !== g) { o.updateMatrix(); o.matrixAutoUpdate = false; } });
+  return g;
 }
 
 function chooseTurn(u: Unit, intersection: number): Turn {
@@ -182,35 +156,40 @@ export function buildTraffic(bin: Bin): TrafficSystem {
   const group = new THREE.Group();
   const units: Unit[] = [];
 
-  const starts: Array<[Axis, number, number, 1 | -1, number, VehicleKind]> = [
-    ['x', 3, -120, 1, 8.5, 'car'],
-    ['x', -3, 180, -1, 7.2, 'suv'],
-    ['x', 3, 420, 1, 9.0, 'taxi'],
-    ['x', -3, 600, -1, 6.8, 'car'],
-    ['z', 3, 0, 1, 8.0, 'car'],
-    ['z', -3, 240, -1, 7.0, 'suv'],
-    ['z', 3, 480, 1, 8.7, 'taxi'],
-    ['z', -3, 660, -1, 6.5, 'car'],
-    ['x', 4.8, 40, 1, 6.0, 'bike'],
-    ['z', -4.8, 150, -1, 5.4, 'motorcycle'],
-    ['x', -4.8, 360, -1, 5.8, 'bike'],
-    ['z', 4.8, 500, 1, 5.2, 'motorcycle'],
-  ];
+  // [axis, road, lane, position along it, direction, speed, kind]
+  const starts: Array<[Axis, number, number, number, 1 | -1, number, VehicleKind]> = [];
+  // A mix of everything on the street, in every district: every other street each way,
+  // one vehicle per lane so nobody starts on top of anybody.
+  const MIX: CarKind[] = ['sedan', 'hatch', 'suv', 'taxi', 'sedan', 'pickup', 'hatch', 'minibus', 'sedan', 'suv', 'coupe', 'taxi', 'hatch', 'sedan', 'minibus', 'pickup'];
+  let n = 0;
+  for (const axis of ['x', 'z'] as const) {
+    ROAD_CENTRES.forEach((road, ri) => {
+      if ((ri + (axis === 'x' ? 0 : 1)) % 2) return;
+      for (const lane of [3, -3]) {
+        const kind = MIX[n % MIX.length];
+        n++;
+        starts.push([axis, road, lane, WORLD.x0 + 40 + ((n * 137) % 820), lane > 0 ? 1 : -1, CRUISE[kind] * (0.9 + ((n * 7) % 5) * 0.05), kind]);
+      }
+    });
+  }
+  // Bicycles and motorbikes keep to the kerb.
+  starts.push(['x', 0, 4.8, 40, 1, 6.0, 'bike'], ['z', 120, -4.8, 150, -1, 5.4, 'motorcycle'], ['x', 240, -4.8, 360, -1, 5.8, 'bike'], ['z', 480, 4.8, 500, 1, 5.2, 'motorcycle'], ['x', 360, 4.8, 220, 1, 5.6, 'motorcycle'], ['z', 600, -4.8, 90, -1, 5.0, 'bike']);
 
-  starts.forEach(([axis, lane, pos, dir, speed, kind], i) => {
-    const g = vehicle(bin, kind, PAINTS[i % PAINTS.length]);
+  starts.forEach(([axis, road, lane, pos, dir, speed, kind], i) => {
+    const fixed = FIXED_PAINT[kind];
+    const g = vehicle(bin, kind, fixed ? fixed[i % fixed.length] : PAINTS[i % PAINTS.length]);
     g.position.y = 0.02;
     group.add(g);
     units.push({
       group: g,
       axis,
-      road: nearestRoad(axis === 'x' ? 0 : pos),
+      road,
       lane,
       pos,
       dir,
       speed,
       cruise: speed,
-      length: kind === 'suv' ? 5.0 : kind === 'motorcycle' || kind === 'bike' ? 1.6 : 4.4,
+      length: kind === 'motorcycle' || kind === 'bike' ? 1.6 : CAR_LENGTH[kind],
       kind,
       turnAt: null,
       turn: 0,

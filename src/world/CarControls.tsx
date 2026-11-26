@@ -65,8 +65,8 @@ export function Dashboard({ kmh }: { kmh: number }) {
       <div className="absolute left-1/2 -translate-x-1/2 bottom-2 flex items-end gap-3">
         <div className="relative w-[88px] h-[88px] rounded-full bg-black border-2 border-[#3a3a44] flex items-center justify-center">
           <div className="absolute w-[3px] h-[36px] bg-red-500 origin-bottom rounded" style={{ bottom: '50%', transform: `rotate(${needle}deg)` }} />
-          <div className="absolute bottom-3 text-[9px] text-ink2">km/h</div>
-          <div className="absolute top-[58%] text-[18px] font-black num text-ink">{kmh}</div>
+          <div className="absolute bottom-[8px] text-[9px] leading-none text-ink2">km/h</div>
+          <div className="absolute bottom-[21px] text-[18px] leading-none font-black num text-ink">{kmh}</div>
         </div>
       </div>
     </div>

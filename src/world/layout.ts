@@ -94,7 +94,7 @@ const BIZ_KINDS: BizKind[] = ['restaurant', 'barber', 'studio', 'boutique', 'jui
 
 export interface Prop { kind: 'tree' | 'lamp'; x: number; z: number; rot: number }
 
-export interface ParkedCar { x: number; z: number; heading: number; color: string }
+export interface ParkedCar { x: number; z: number; heading: number; color: string; kind?: 'super' | 'wedge' | 'coupe' | 'suv' }
 
 export interface Block extends Box { park: boolean; water?: boolean }
 /** A campsite (tent + fire) or a cabin in the forest. */
@@ -468,6 +468,19 @@ export function cityLayout(): CityLayout {
   // North half of an east-west road drives west, south half drives east.
   const spotsEW: Array<[number, number, number]> = [[-30, -kerbLane, -Math.PI / 2], [34, kerbLane, Math.PI / 2], [-22, 60 + kerbLane, Math.PI / 2], [26, -60 - kerbLane, -Math.PI / 2]];
   for (const [x, z, heading] of spotsEW) parked.push({ x, z, heading, color: paints[Math.floor(r() * paints.length)] });
+
+  // Dealerships keep their best cars out front, at the kerb.
+  for (const b of buildings) {
+    if (b.biz?.kind !== 'dealer' || !b.door) continue;
+    const dd = b.door;
+    const lane = 0.6 + SIDEWALK + 1.3;
+    const shows: Array<['super' | 'wedge' | 'coupe' | 'suv', string]> = [['super', '#c1121f'], ['wedge', '#f2c200'], ['suv', '#e8e8e4']];
+    shows.forEach(([kind, color], i) => {
+      const t = (i - 1) * 8;
+      if (dd.nx !== 0) parked.push({ x: dd.x + dd.nx * lane, z: dd.z + t, heading: dd.nx > 0 ? 0 : Math.PI, color, kind });
+      else parked.push({ x: dd.x + t, z: dd.z + dd.nz * lane, heading: dd.nz > 0 ? -Math.PI / 2 : Math.PI / 2, color, kind });
+    });
+  }
 
   // ─── solids ────────────────────────────────────────────────────────────
   const solids: Box[] = buildings.map((b) => ({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ }));

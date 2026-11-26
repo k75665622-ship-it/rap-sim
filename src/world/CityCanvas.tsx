@@ -28,6 +28,7 @@ import { cityLayout, currentCountry, type Place } from './layout';
 import { footBrake, handbrake, hudStore, moveAxis, sprinting, takeAction, takeJump, takeLook } from './input';
 import { CAR, PLAYER_R, distToCar, ensureSpawned, exitCar, groundAt, idleCar, lerpAngle, live, stepCar, stepPlayer } from './sim';
 import type { Look } from '../sim/look';
+import { CAR_LOOK } from '../data/luxuryItems';
 import { buildTraffic } from './traffic';
 import { buildTransport } from './transport';
 
@@ -77,7 +78,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const bin = new Bin();
     const city = buildCity(bin);
     const player = buildPlayer(lookRef.current, bin);
-    const car = buildCar('#ffb800', bin, 'wedge');
+    const car = buildCar('#ffb800', bin, 'sedan');
     const land = buildLand(bin);
     const traffic = buildTraffic(bin);
     const transport = buildTransport(bin);
@@ -157,7 +158,7 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
   }, []);
 
   const tmp = useMemo(() => ({
-    target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true, carTick: -1, unit: 0,
+    target: new THREE.Vector3(), want: new THREE.Vector3(), dir: new THREE.Vector3(), lastHud: 0, first: true, ownedRef: undefined as unknown, carKey: "?", carTick: -1, unit: 0,
     /** The minute of the day being shown; eases after the game clock. */
     minute: useGameStore.getState().clockMinute ?? 720,
     mode: live.mode as typeof live.mode,
@@ -539,6 +540,23 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     pShadow.scale.set(1.1 - Math.min(0.5, air * 0.3), 1.1 - Math.min(0.5, air * 0.3), 1);
 
     // ── pose the car ────────────────────────────────────────────────────
+    // Your garage shows on the road: the priciest car you own is the one you drive.
+    {
+      const owned = useGameStore.getState().ownedAssets;
+      if (owned !== tmp.ownedRef) {
+        tmp.ownedRef = owned;
+        const best = (owned ?? []).filter((a) => a.category === 'car' && CAR_LOOK[a.id]).sort((a, b) => b.cost - a.cost)[0];
+        const key = best?.id ?? '';
+        if (key !== tmp.carKey) {
+          tmp.carKey = key;
+          const look = best ? CAR_LOOK[best.id] : { kind: 'sedan' as const, paint: '#ffb800' };
+          const fresh = buildCar(look.paint, built.bin, look.kind);
+          for (const ch of [...car.group.children]) if (ch !== built.beam && ch !== built.beam.target) car.group.remove(ch);
+          for (const ch of [...fresh.group.children]) car.group.add(ch);
+          car.body = fresh.body; car.steer = fresh.steer; car.wheels = fresh.wheels;
+        }
+      }
+    }
     const c = live.car;
     car.group.position.set(c.x, c.y, c.z);
     car.group.rotation.y = c.heading;

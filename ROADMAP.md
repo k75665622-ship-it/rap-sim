@@ -443,3 +443,4 @@ Monthly: an angry tenant leaves 45% of the time, an uneasy one 10%; the flat goe
 - Property screen groups your holdings by country with a per-country total.
 
 - Characters/vehicles/performance patch from the other agent: jointed rounded people, 7 vehicle types, rooms only in scene when entered, one traffic-signal cycle.
+- NPCs now have body shapes (chest/hips/shoulders), outfits (hoodies, tanks, shorts, skirts), caps/beanies, shades, chains, beards. Two supercar kinds (prancing-horse style, wedge) in traffic; your own car is a wedge.

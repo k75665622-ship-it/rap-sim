@@ -38,6 +38,46 @@ export function hairKindFor(style: string | undefined): HairKind {
   return 'crop';
 }
 
+/** How someone is built and dressed, read from their Look. Shared by you and the crowd. */
+export interface Style {
+  femme: boolean;
+  /** Chest width and depth, hip width: the silhouette. */
+  chest: number; depth: number; hips: number; shoulder: number;
+  sleeve: 'short' | 'long' | 'none';
+  legs: 'long' | 'short' | 'skirt';
+  hood: boolean;
+  hat: 'none' | 'cap' | 'beanie';
+  hatColor: string;
+  shades: boolean;
+  chain: string | null;
+  beard: boolean;
+}
+
+export function styleOf(look: Look | undefined): Style {
+  const l = look ?? defaultLook();
+  const femme = l.frame === 'femme';
+  let chest = l.build === 'slim' ? 0.92 : l.build === 'heavy' ? 1.22 : 1.1;
+  let depth = l.build === 'heavy' ? 1.18 : 1;
+  let hips = l.build === 'heavy' ? 1.18 : l.build === 'slim' ? 0.94 : 1.0;
+  let shoulder = l.build === 'athletic' ? 1.1 : 1;
+  if (femme) { chest *= 0.86; hips *= 1.16; shoulder *= 0.9; }
+  const top = l.outfit.top?.shape ?? 'tee';
+  const bulk = top === 'puffer' ? 1.22 : top === 'bomber' || top === 'varsity' ? 1.1 : top === 'oversized' ? 1.14 : top === 'hoodie' ? 1.08 : 1;
+  chest *= bulk; depth *= bulk;
+  const sleeve = top === 'tank' || top === 'none' ? 'none' : ['hoodie', 'puffer', 'bomber', 'varsity', 'suit'].includes(top) ? 'long' : 'short';
+  const bs = l.outfit.bottom?.shape ?? 'jeans';
+  const legs = bs === 'shorts' ? 'short' : bs === 'skirt' ? 'skirt' : 'long';
+  const head = l.outfit.head?.shape;
+  const hat = !head ? 'none' : head === 'beanie' || head === 'durag' || head === 'bandana' ? 'beanie' : 'cap';
+  const fh = l.facialHair;
+  return {
+    femme, chest, depth, hips, shoulder, sleeve, legs, hood: top === 'hoodie', hat,
+    hatColor: l.outfit.head?.c1 ?? '#1d1f26', shades: !!l.outfit.eyes,
+    chain: l.outfit.chain ? l.outfit.chain.c1 : null,
+    beard: fh === 'goatee' || fh === 'chinstrap' || fh === 'full' || fh === 'mustache',
+  };
+}
+
 export interface CharacterGeo {
   thigh: THREE.BufferGeometry;
   shin: THREE.BufferGeometry;
@@ -51,6 +91,14 @@ export interface CharacterGeo {
   hairLong: THREE.BufferGeometry;
   upperArm: THREE.BufferGeometry;
   foreArm: THREE.BufferGeometry;
+  hand: THREE.BufferGeometry;
+  cap: THREE.BufferGeometry;
+  beanie: THREE.BufferGeometry;
+  shades: THREE.BufferGeometry;
+  chain: THREE.BufferGeometry;
+  beard: THREE.BufferGeometry;
+  skirt: THREE.BufferGeometry;
+  hood: THREE.BufferGeometry;
 }
 
 const capsule = (r: number, len: number, seg = 6) => new THREE.CapsuleGeometry(r, len, 2, seg);
@@ -104,7 +152,22 @@ export function characterGeometry(bin: Bin, slim = 1): CharacterGeo {
     ),
     // Arms hang from the shoulder joint; the forearm (with the hand) from the elbow.
     upperArm: keep(put(capsule(0.07 * w, 0.14), 0, -0.13, 0)),
-    foreArm: keep(mergeGeometries([put(capsule(0.058 * w, 0.15), 0, -0.135, 0), put(ball(0.066 * w, 6, 5), 0, -0.3, 0)])!),
+    foreArm: keep(put(capsule(0.058 * w, 0.15), 0, -0.135, 0)),
+    hand: keep(put(ball(0.066 * w, 6, 5), 0, -0.3, 0)),
+    // Things worn: all merged so each is one instanced mesh in the crowd.
+    cap: keep(mergeGeometries([
+      (() => { const g = new THREE.SphereGeometry(0.218, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5); g.scale(0.98, 1.0, 1.05); g.translate(0, 1.9, 0); return g; })(),
+      (() => { const g = new THREE.BoxGeometry(0.3, 0.018, 0.2); g.rotateX(0.14); g.translate(0, 1.935, 0.27); return g; })(),
+    ])!),
+    beanie: keep(put(new THREE.SphereGeometry(0.222, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.6), 0, 1.89, 0, 0.98, 1.1, 1.02)),
+    shades: keep(mergeGeometries([put(new THREE.BoxGeometry(0.15, 0.065, 0.03), 0.082, 1.9, 0.19), put(new THREE.BoxGeometry(0.15, 0.065, 0.03), -0.082, 1.9, 0.19), put(new THREE.BoxGeometry(0.4, 0.018, 0.03), 0, 1.915, 0.185)])!),
+    chain: keep(mergeGeometries([
+      (() => { const t = new THREE.TorusGeometry(0.15, 0.016, 5, 14); t.rotateX(Math.PI / 2 - 0.35); t.scale(1, 1, 0.9); t.translate(0, 1.55, 0.05); return t; })(),
+      put(new THREE.BoxGeometry(0.07, 0.07, 0.02), 0, 1.44, 0.15),
+    ])!),
+    beard: keep(put(new THREE.SphereGeometry(0.17, 8, 6, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5), 0, 1.86, 0.045, 0.97, 0.85, 0.95)),
+    skirt: keep(put(new THREE.CylinderGeometry(0.2, 0.31, 0.44, 9), 0, 0.73, 0, 1.05 * w, 1, 0.9 * w)),
+    hood: keep(put(ball(0.17, 7, 5), 0, 1.64, -0.15, 1.35, 0.85, 0.8)),
   };
 }
 
@@ -130,6 +193,7 @@ export interface PlayerModel {
 
 export function buildPlayerModel(look: Look | undefined, bin: Bin): PlayerModel {
   const l = look ?? defaultLook();
+  const st = styleOf(l);
   const skin = SKIN[l.skin]?.base ?? '#6b3f2a';
   const top = l.outfit.top?.c1 ?? '#2b2f3a';
   const bottom = l.outfit.bottom?.c1 ?? '#2c4a78';
@@ -157,27 +221,31 @@ export function buildPlayerModel(look: Look | undefined, bin: Bin): PlayerModel 
   group.add(body);
 
   const leg = (side: number) => {
-    const hip = joint(body, side * J.hipX * slim, J.hipY);
-    mesh(g.thigh, bottom, hip);
+    const hip = joint(body, side * J.hipX * st.hips, J.hipY);
+    mesh(g.thigh, st.legs === 'skirt' ? skin : bottom, hip);
     const knee = joint(hip, 0, -J.thigh);
-    mesh(g.shin, bottom, knee);
+    mesh(g.shin, st.legs === 'long' ? bottom : skin, knee);
     const ankle = joint(knee, 0, -J.shin);
     mesh(g.shoe, shoes, ankle);
     return { hip, knee };
   };
   const legL = leg(1), legR = leg(-1);
 
-  mesh(g.pelvis, bottom, body);
+  mesh(g.pelvis, bottom, body).scale.set(st.hips, 1, st.depth);
+  if (st.legs === 'skirt') mesh(g.skirt, bottom, body).scale.set(st.hips, 1, st.depth);
 
   // The upper body pivots at the waist; the head at the neck.
   const torso = joint(body, 0, J.waist);
-  mesh(g.torso, top, torso, 0, -J.waist, 0);
+  mesh(g.torso, top, torso, 0, -J.waist, 0).scale.set(st.chest, 1, st.depth);
+  if (st.hood) mesh(g.hood, top, torso, 0, -J.waist, 0);
+  if (st.chain) mesh(g.chain, st.chain, torso, 0, -J.waist, 0);
 
   const arm = (side: number) => {
-    const shoulder = joint(torso, side * (J.shoulderX * slim), J.shoulderY - J.waist);
-    mesh(g.upperArm, top, shoulder);
+    const shoulder = joint(torso, side * (J.shoulderX * slim * st.shoulder * Math.max(1, st.chest * 0.95)), J.shoulderY - J.waist);
+    mesh(g.upperArm, st.sleeve === 'none' ? skin : top, shoulder);
     const elbow = joint(shoulder, 0, -J.upperArm);
-    mesh(g.foreArm, skin, elbow);
+    mesh(g.foreArm, st.sleeve === 'long' ? top : skin, elbow);
+    mesh(g.hand, skin, elbow);
     return { shoulder, elbow };
   };
   const armL = arm(1), armR = arm(-1);
@@ -194,8 +262,13 @@ export function buildPlayerModel(look: Look | undefined, bin: Bin): PlayerModel 
   const head = joint(torso, 0, J.neck - J.waist);
   mesh(g.head, skin, head, 0, -J.neck, 0);
   mesh(g.eyes, '#111111', head, 0, -J.neck, 0);
-  const kind = hairKindFor(l.hair);
-  if (kind !== 'none') mesh(kind === 'afro' ? g.hairAfro : kind === 'long' ? g.hairLong : g.hairCrop, hairColor, head, 0, -J.neck, 0);
+  if (st.shades) mesh(g.shades, '#0b0b0e', head, 0, -J.neck, 0);
+  if (st.beard) mesh(g.beard, hairColor, head, 0, -J.neck, 0);
+  if (st.hat !== 'none') mesh(st.hat === 'cap' ? g.cap : g.beanie, st.hatColor, head, 0, -J.neck, 0);
+  else {
+    const kind = hairKindFor(l.hair);
+    if (kind !== 'none') mesh(kind === 'afro' ? g.hairAfro : kind === 'long' ? g.hairLong : g.hairCrop, hairColor, head, 0, -J.neck, 0);
+  }
 
   body.scale.setScalar(0.92);
   return { group, body, legL: legL.hip, legR: legR.hip, kneeL: legL.knee, kneeR: legR.knee, armL: armL.shoulder, armR: armR.shoulder, elbowL: armL.elbow, elbowR: armR.elbow, torso, head, handset };
@@ -206,6 +279,7 @@ export function buildPlayerModel(look: Look | undefined, bin: Bin): PlayerModel 
 export interface CrowdPerson {
   colors: { skin: string; top: string; bottom: string; shoes: string; hair: string; bald: boolean };
   scale: number;
+  style?: Style;
 }
 
 export interface CrowdPose {
@@ -242,13 +316,15 @@ export function buildCrowdModel(people: CrowdPerson[], bin: Bin, shadowMap: THRE
   };
   const thighs = part(g.thigh, 2), shins = part(g.shin, 2), shoes = part(g.shoe, 2);
   const pelvis = part(g.pelvis, 1), torso = part(g.torso, 1);
-  const uppers = part(g.upperArm, 2), fores = part(g.foreArm, 2);
+  const uppers = part(g.upperArm, 2), fores = part(g.foreArm, 2), hands = part(g.hand, 2);
+  const caps = part(g.cap, 1), beanies = part(g.beanie, 1), shades = part(g.shades, 1, bin.add(new THREE.MeshBasicMaterial({ color: '#0b0b0e' })));
+  const chains = part(g.chain, 1), beards = part(g.beard, 1), skirts = part(g.skirt, 1), hoods = part(g.hood, 1);
   const heads = part(g.head, 1), eyes = part(g.eyes, 1, eyeMat);
   const hairs = { crop: part(g.hairCrop, 1), afro: part(g.hairAfro, 1), long: part(g.hairLong, 1) };
   const shadowGeo = bin.add(new THREE.PlaneGeometry(1.1, 1.1));
   shadowGeo.rotateX(-Math.PI / 2);
   const shadows = part(shadowGeo, 1, bin.add(new THREE.MeshBasicMaterial({ map: shadowMap, transparent: true, depthWrite: false })));
-  const all = [thighs, shins, shoes, pelvis, torso, uppers, fores, heads, eyes, hairs.crop, hairs.afro, hairs.long, shadows];
+  const all = [thighs, shins, shoes, pelvis, torso, uppers, fores, hands, caps, beanies, shades, chains, beards, skirts, hoods, heads, eyes, hairs.crop, hairs.afro, hairs.long, shadows];
 
   const hairKinds = people.map((p, i) => hairOf(i, p.colors.bald));
 
@@ -261,8 +337,13 @@ export function buildCrowdModel(people: CrowdPerson[], bin: Bin, shadowMap: THRE
     vis.forEach((pi, j) => {
       const c = people[pi].colors;
       const set = (m: { im: THREE.InstancedMesh; per: number }, k: number, hex: string) => m.im.setColorAt(j * m.per + k, col.set(hex));
-      for (const k of [0, 1]) { set(thighs, k, c.bottom); set(shins, k, c.bottom); set(shoes, k, c.shoes); set(uppers, k, c.top); set(fores, k, c.skin); }
-      set(pelvis, 0, c.bottom); set(torso, 0, c.top); set(heads, 0, c.skin);
+      const st = people[pi].style;
+      for (const k of [0, 1]) {
+        set(thighs, k, st?.legs === 'skirt' ? c.skin : c.bottom); set(shins, k, !st || st.legs === 'long' ? c.bottom : c.skin); set(shoes, k, c.shoes);
+        set(uppers, k, st?.sleeve === 'none' ? c.skin : c.top); set(fores, k, st?.sleeve === 'long' ? c.top : c.skin); set(hands, k, c.skin);
+      }
+      set(pelvis, 0, c.bottom); set(skirts, 0, c.bottom); set(torso, 0, c.top); set(hoods, 0, c.top); set(heads, 0, c.skin);
+      set(caps, 0, st?.hatColor ?? '#1d1f26'); set(beanies, 0, st?.hatColor ?? '#1d1f26'); set(chains, 0, st?.chain ?? '#e0b43a'); set(beards, 0, c.hair);
       set(hairs.crop, 0, c.hair); set(hairs.afro, 0, c.hair); set(hairs.long, 0, c.hair);
     });
     for (const m of all) if (m.im.instanceColor) m.im.instanceColor.needsUpdate = true;
@@ -272,7 +353,7 @@ export function buildCrowdModel(people: CrowdPerson[], bin: Bin, shadowMap: THRE
   const base = new THREE.Matrix4(), torsoM = new THREE.Matrix4(), headM = new THREE.Matrix4();
   const hipM = new THREE.Matrix4(), kneeM = new THREE.Matrix4(), ankleM = new THREE.Matrix4();
   const shoulderM = new THREE.Matrix4(), elbowM = new THREE.Matrix4();
-  const mT = new THREE.Matrix4(), mR = new THREE.Matrix4();
+  const mT = new THREE.Matrix4(), mR = new THREE.Matrix4(), mS = new THREE.Matrix4(), body2 = new THREE.Matrix4(), torso2 = new THREE.Matrix4();
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), scl = new THREE.Vector3();
 
   const move = (out: THREE.Matrix4, from: THREE.Matrix4, x: number, y: number, z: number, rx = 0, ry = 0) => {
@@ -313,13 +394,25 @@ export function buildCrowdModel(people: CrowdPerson[], bin: Bin, shadowMap: THRE
       const headPitch = activity === 'phone' ? 0.35 : 0;
       move(headM, torsoM, 0, J.neck, 0, headPitch, headYaw).multiply(mT.makeTranslation(0, -J.neck, 0));
 
-      pelvis.im.setMatrixAt(j, base);
-      torso.im.setMatrixAt(j, torsoM);
+      const st = people[i].style;
+      // Silhouette: chest and hips scale about the body's own axis.
+      body2.copy(base).multiply(mS.makeScale(st?.hips ?? 1, 1, st?.depth ?? 1));
+      torso2.copy(torsoM).multiply(mS.makeScale(st?.chest ?? 1, 1, st?.depth ?? 1));
+      pelvis.im.setMatrixAt(j, body2);
+      skirts.im.setMatrixAt(j, st?.legs === 'skirt' ? body2 : zero);
+      torso.im.setMatrixAt(j, torso2);
+      hoods.im.setMatrixAt(j, st?.hood ? torsoM : zero);
+      chains.im.setMatrixAt(j, st?.chain ? torsoM : zero);
       heads.im.setMatrixAt(j, headM);
       eyes.im.setMatrixAt(j, headM);
-      hairs.crop.im.setMatrixAt(j, hairKinds[i] === 'crop' ? headM : zero);
-      hairs.afro.im.setMatrixAt(j, hairKinds[i] === 'afro' ? headM : zero);
-      hairs.long.im.setMatrixAt(j, hairKinds[i] === 'long' ? headM : zero);
+      shades.im.setMatrixAt(j, st?.shades ? headM : zero);
+      beards.im.setMatrixAt(j, st?.beard ? headM : zero);
+      caps.im.setMatrixAt(j, st?.hat === 'cap' ? headM : zero);
+      beanies.im.setMatrixAt(j, st?.hat === 'beanie' ? headM : zero);
+      const hatted = !!st && st.hat !== 'none';
+      hairs.crop.im.setMatrixAt(j, !hatted && hairKinds[i] === 'crop' ? headM : zero);
+      hairs.afro.im.setMatrixAt(j, !hatted && hairKinds[i] === 'afro' ? headM : zero);
+      hairs.long.im.setMatrixAt(j, !hatted && hairKinds[i] === 'long' ? headM : zero);
       shadows.im.setMatrixAt(j, mT.makeTranslation(p.x, p.y + 0.02, p.z));
 
       // Legs: the thigh swings, and the knee bends while that leg is carried forward.
@@ -329,7 +422,7 @@ export function buildCrowdModel(people: CrowdPerson[], bin: Bin, shadowMap: THRE
         const thighA = side * swing;
         const carry = walking ? Math.max(0, -Math.cos(ph) * side) : 0;
         const kneeA = carry * 1.0 + 0.05;
-        move(hipM, base, side * J.hipX, J.hipY, 0, thighA);
+        move(hipM, base, side * J.hipX * (st?.hips ?? 1), J.hipY, 0, thighA);
         thighs.im.setMatrixAt(j * 2 + idx, hipM);
         move(kneeM, hipM, 0, -J.thigh, 0, kneeA);
         shins.im.setMatrixAt(j * 2 + idx, kneeM);
@@ -347,10 +440,11 @@ export function buildCrowdModel(people: CrowdPerson[], bin: Bin, shadowMap: THRE
         else if (activity === 'phone') {
           if (side === -1) { armA = -0.95; elbowA = -1.25; } else { armA = -0.08; elbowA = -0.2; }
         }
-        move(shoulderM, torsoM, side * J.shoulderX, J.shoulderY, 0, armA);
+        move(shoulderM, torsoM, side * J.shoulderX * (st ? st.shoulder * Math.max(1, st.chest * 0.95) : 1), J.shoulderY, 0, armA);
         uppers.im.setMatrixAt(j * 2 + idx, shoulderM);
         move(elbowM, shoulderM, 0, -J.upperArm, 0, elbowA);
         fores.im.setMatrixAt(j * 2 + idx, elbowM);
+        hands.im.setMatrixAt(j * 2 + idx, elbowM);
       }
     }
     for (const m of all) m.im.instanceMatrix.needsUpdate = true;

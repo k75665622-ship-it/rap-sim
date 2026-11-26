@@ -23,6 +23,7 @@ import { cityLayout, PLACES, ROAD_CENTRES, ROAD_HALF, SIDEWALK, WORLD } from './
 import { pedestrianCanCross, type SignalAxis } from './signals';
 import { setPedestrianHazards, type PedestrianHazard } from './pedestrianTraffic';
 import type { NPC } from '../types/game';
+import { styleOf, type Style } from './characters';
 
 const LANE = ROAD_HALF + SIDEWALK / 2;   // 7.5 m from a road's centre
 const LANE_END = WORLD.x1 - 2;
@@ -193,6 +194,7 @@ export interface Resident {
   local: boolean;
   colors: { skin: string; top: string; bottom: string; shoes: string; hair: string; bald: boolean };
   scale: number;
+  style: Style;
   home: number;
   work: string;
   owl: boolean;
@@ -270,7 +272,7 @@ export function cast(): Resident[] {
     const homes = N.homes.length ? N.homes : N.corners;
     const build = look.build === 'slim' ? 0.94 : look.build === 'heavy' ? 1.06 : 1;
     return {
-      id, npcId, name, role, local, colors: colorsOf(look), scale: 0.9 * build,
+      id, npcId, name, role, local, colors: colorsOf(look), scale: 0.9 * build * (look.frame === 'femme' ? 0.96 : 1) * (0.95 + rnd01(`h|${id}`) * 0.1), style: styleOf(look),
       home: homes[h32(`home|${id}`) % homes.length],
       work: WORK_BY_ROLE[role] ?? 'drip',
       owl: !local && OWLS.has(role) && rnd01(`owl|${id}`) < 0.75,

@@ -2,6 +2,7 @@
 
 The plan for turning RAP LIFE into a music-world game people play every day for months, not a game that spikes for a week and fades.
 Stages 1–5 (the city) are done. This file lists everything after that. To continue, say **"continue with M1"** (or any stage).
+**Next-level push (missions, graphics, legal, launch): see [NEXT_LEVEL_README.md](NEXT_LEVEL_README.md)** — steps NL-0.1 … NL-4.5.
 
 ---
 

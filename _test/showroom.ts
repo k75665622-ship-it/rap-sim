@@ -2,8 +2,21 @@
 import * as THREE from 'three';
 import { Bin } from '../src/world/build';
 import { buildVehicle, CAR_KINDS } from '../src/world/vehicles';
-import { buildCrowdModel, buildPlayerModel } from '../src/world/characters';
+import { buildCrowdModel, buildPlayerModel, type Style } from '../src/world/characters';
 
+const base: Style = { femme: false, chest: 1.1, depth: 1, hips: 1, shoulder: 1, sleeve: 'short', legs: 'long', hood: false, hat: 'none', hatColor: '#1d1f26', shades: false, chain: null, beard: false };
+const STYLES: Style[] = [
+  { ...base, shades: true, chain: '#e0b43a', beard: true, chest: 1.2, shoulder: 1.1 },
+  { ...base, hood: true, sleeve: 'long', hat: 'cap', hatColor: '#c0392b', chest: 1.15 },
+  { ...base, femme: true, chest: 0.8, hips: 1.18, shoulder: 0.9, legs: 'skirt', chain: '#e8e8e8', shades: true },
+  { ...base, chest: 1.3, depth: 1.18, hips: 1.18, sleeve: 'none', legs: 'short', hat: 'beanie', hatColor: '#2b6cb0' },
+  { ...base, femme: true, chest: 0.84, hips: 1.16, shoulder: 0.9, sleeve: 'long' },
+  { ...base, chest: 0.95, hips: 0.95, shades: true, hat: 'cap', hatColor: '#111' },
+  { ...base, chest: 1.3, sleeve: 'long', beard: true, chain: '#e0b43a' },
+  { ...base, femme: true, chest: 0.8, hips: 1.2, legs: 'skirt', sleeve: 'none' },
+  { ...base },
+  { ...base, hood: true, sleeve: 'long', hat: 'beanie', hatColor: '#222' },
+];
 const mode = new URLSearchParams(location.search).get('mode') ?? 'cars';
 const W = mode === 'sit' ? 700 : 1500, H = mode === 'cars' ? 560 : mode === 'sit' ? 420 : 520;
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -49,7 +62,7 @@ if (mode === 'cars') {
   renderer.render(scene, cam);
 } else {
   // Eight moments of the walk cycle, side on, then idle and phone.
-  const people = Array.from({ length: 10 }, (_, i) => ({ colors: { skin: ['#6b3f2a', '#8d5a3b', '#4a2c20', '#c68a62'][i % 4], top: ['#c0392b', '#2b6cb0', '#d69e2e', '#2f855a', '#6b46c1'][i % 5], bottom: ['#2c4a78', '#2b2f3a', '#4a5568'][i % 3], shoes: '#f4f4f4', hair: ['#141110', '#3b2a20', '#141110', '#7a4b2a'][i % 4], bald: i === 7 }, scale: 1 }));
+  const people = Array.from({ length: 10 }, (_, i) => ({ colors: { skin: ['#6b3f2a', '#8d5a3b', '#4a2c20', '#c68a62'][i % 4], top: ['#c0392b', '#2b6cb0', '#d69e2e', '#2f855a', '#6b46c1'][i % 5], bottom: ['#2c4a78', '#2b2f3a', '#4a5568'][i % 3], shoes: '#f4f4f4', hair: ['#141110', '#3b2a20', '#141110', '#7a4b2a'][i % 4], bald: i === 7 }, scale: 1, style: STYLES[i] }));
   const crowd = buildCrowdModel(people, bin, new THREE.Texture());
   scene.add(crowd.group);
   const poses = people.map((_, i) => ({

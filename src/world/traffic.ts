@@ -37,8 +37,8 @@ type Signal = {
 // Mostly white, silver, black and grey like any real street, with some colour.
 const PAINTS = ['#ecf0f1', '#c0392b', '#2b2f36', '#1f4e79', '#9aa0a6', '#ecf0f1', '#16a085', '#7f8c8d', '#d35400', '#f4f4f0', '#34495e', '#6c5ce7', '#8a1c1c', '#2d6a4f', '#c9ccd1', '#e17055'];
 /** Taxis are yellow and tro-tros are loud; they ignore the palette. */
-const FIXED_PAINT: Partial<Record<VehicleKind, string[]>> = { taxi: ['#f2c200'], minibus: ['#f5d400', '#e8e8e4', '#2f8f4e'] };
-const CRUISE: Record<CarKind, number> = { sedan: 8, hatch: 8.4, suv: 7, pickup: 7, minibus: 6.5, taxi: 9, coupe: 10 };
+const FIXED_PAINT: Partial<Record<VehicleKind, string[]>> = { taxi: ['#f2c200'], minibus: ['#f5d400', '#e8e8e4', '#2f8f4e'], super: ['#c1121f', '#f2c200', '#e8e8e4', '#1f4e79'], wedge: ['#f2c200', '#7a2cf0', '#ff7a00', '#2fb36b'] };
+const CRUISE: Record<CarKind, number> = { sedan: 8, hatch: 8.4, suv: 7, pickup: 7, minibus: 6.5, taxi: 9, coupe: 10, super: 12, wedge: 12.5 };
 
 function mat(bin: Bin, color: string, glow = false) {
   return bin.add(new THREE.MeshLambertMaterial({
@@ -160,7 +160,7 @@ export function buildTraffic(bin: Bin): TrafficSystem {
   const starts: Array<[Axis, number, number, number, 1 | -1, number, VehicleKind]> = [];
   // A mix of everything on the street, in every district: every other street each way,
   // one vehicle per lane so nobody starts on top of anybody.
-  const MIX: CarKind[] = ['sedan', 'hatch', 'suv', 'taxi', 'sedan', 'pickup', 'hatch', 'minibus', 'sedan', 'suv', 'coupe', 'taxi', 'hatch', 'sedan', 'minibus', 'pickup'];
+  const MIX: CarKind[] = ['sedan', 'hatch', 'suv', 'taxi', 'sedan', 'pickup', 'hatch', 'minibus', 'sedan', 'suv', 'coupe', 'taxi', 'hatch', 'sedan', 'minibus', 'pickup', 'super', 'wedge', 'sedan', 'hatch'];
   let n = 0;
   for (const axis of ['x', 'z'] as const) {
     ROAD_CENTRES.forEach((road, ri) => {

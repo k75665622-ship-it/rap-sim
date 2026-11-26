@@ -10,12 +10,12 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Bin } from './build';
 
-export type CarKind = 'sedan' | 'hatch' | 'suv' | 'pickup' | 'minibus' | 'taxi' | 'coupe';
+export type CarKind = 'sedan' | 'hatch' | 'suv' | 'pickup' | 'minibus' | 'taxi' | 'coupe' | 'super' | 'wedge';
 
-export const CAR_KINDS: readonly CarKind[] = ['sedan', 'hatch', 'suv', 'pickup', 'minibus', 'taxi', 'coupe'];
+export const CAR_KINDS: readonly CarKind[] = ['sedan', 'hatch', 'suv', 'pickup', 'minibus', 'taxi', 'coupe', 'super', 'wedge'];
 
 /** Bumper to bumper, for keeping a gap in traffic. */
-export const CAR_LENGTH: Record<CarKind, number> = { sedan: 4.9, hatch: 4.4, suv: 5.2, pickup: 5.6, minibus: 5.8, taxi: 4.9, coupe: 4.7 };
+export const CAR_LENGTH: Record<CarKind, number> = { sedan: 4.9, hatch: 4.4, suv: 5.2, pickup: 5.6, minibus: 5.8, taxi: 4.9, coupe: 4.7, super: 4.7, wedge: 4.6 };
 
 export interface CarModel {
   group: THREE.Group;
@@ -74,6 +74,20 @@ const SPECS: Record<Exclude<CarKind, 'taxi'>, Spec> = {
     body: [[-2.7, 0.34], [2.7, 0.34], [2.72, 0.8], [2.55, 1.15], [1.95, 1.5], [1.66, 2.3], [-2.6, 2.34], [-2.72, 2.2]],
     cabin: [[1.9, 1.52], [1.66, 2.26], [1.6, 2.26], [1.84, 1.52]],
     roof: [[1.64, 2.3], [1.66, 2.38], [-2.6, 2.4], [-2.62, 2.32]],
+  },
+  // A mid-engined prancing-horse style supercar: long low nose, cab-forward canopy, wide haunches.
+  super: {
+    len: 4.6, width: 2.0, wheelR: 0.36, lightY: 0.5, mirrorX: 0.35, mirrorY: 0.88,
+    body: [[-2.3, 0.25], [2.3, 0.25], [2.36, 0.42], [2.1, 0.55], [1.25, 0.66], [0.65, 0.8], [-0.4, 0.88], [-1.5, 0.97], [-2.15, 0.96], [-2.32, 0.72]],
+    cabin: [[0.7, 0.78], [0.12, 1.12], [-0.75, 1.14], [-1.35, 0.97]],
+    roof: [[0.14, 1.1], [0.16, 1.16], [-0.77, 1.18], [-0.75, 1.12]],
+  },
+  // A razor wedge: nose almost on the road, one straight line up to the roof, flat tail.
+  wedge: {
+    len: 4.5, width: 2.05, wheelR: 0.36, lightY: 0.46, mirrorX: 0.1, mirrorY: 0.84,
+    body: [[-2.25, 0.25], [2.25, 0.25], [2.32, 0.36], [1.5, 0.5], [0.5, 0.74], [-0.9, 0.93], [-2.15, 0.95], [-2.28, 0.7]],
+    cabin: [[0.55, 0.76], [-0.05, 1.08], [-0.95, 1.1], [-1.3, 0.95]],
+    roof: [[-0.03, 1.06], [-0.01, 1.12], [-0.97, 1.14], [-0.95, 1.08]],
   },
   coupe: {
     len: 4.3, width: 1.9, wheelR: 0.35, lightY: 0.6, mirrorX: 0.5, mirrorY: 0.9,
@@ -185,6 +199,16 @@ export function buildVehicle(kind: CarKind, color: string, bin: Bin, hero = fals
   } else if (taxi) {
     for (const s of [-1, 1]) parts.box('dark', 0.03, 0.09, len * 0.9, s * (W / 2 + 0.012), 0.9, 0);
     parts.box('white', 0.62, 0.17, 0.3, 0, 1.62, -0.2);                         // roof sign
+  } else if (kind === 'super' || kind === 'wedge') {
+    const wy = kind === 'super' ? 1.2 : 1.17;
+    parts.box('paint', W * 0.92, 0.04, 0.4, 0, wy, -half + 0.2);                 // rear wing
+    for (const s of [-1, 1]) {
+      parts.box('dark', 0.05, 0.22, 0.12, s * W * 0.3, wy - 0.12, -half + 0.2);
+      parts.box('dark', 0.06, 0.18, 0.75, s * (W / 2 + 0.01), 0.62, -0.7);       // side intakes
+      parts.box('dark', 0.5, 0.05, 0.9, s * 0.4, 1.0, -1.5);                      // engine-cover vents
+    }
+    parts.box('dark', W * 0.98, 0.035, 0.32, 0, 0.27, frontX + 0.12);            // front splitter
+    parts.box('tail', W * 0.7, 0.05, 0.04, 0, 0.78, -half - 0.05);              // light bar
   } else if (kind === 'coupe') {
     parts.box('dark', W * 0.82, 0.05, 0.34, 0, 1.0, -2.0);                      // spoiler
     for (const s of [-1, 1]) parts.box('dark', 0.05, 0.14, 0.05, s * 0.6, 0.9, -2.0);

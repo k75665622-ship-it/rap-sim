@@ -26,6 +26,9 @@ import { zoneAt, ZONES, currentCity } from './layout';
 import { live } from './sim';
 import { useUi } from './ui';
 import { MapOverlay, Minimap } from './MapView';
+import { MissionHud } from '../missions/MissionHud';
+import { useMission } from '../missions/runtime';
+import { NODES } from '../story/engine';
 
 const coarse = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 const HELP_KEY = 'rl_city_help_v4';
@@ -53,7 +56,12 @@ export function Hud({ onExit }: { onExit: () => void }) {
     }, 600);
     return () => clearInterval(i);
   }, []);
-  const gps = gpsState.target && gpsState.route.length > 1 ? gpsState : null;
+  const mission = useMission();
+  // A mission that's live or waiting takes the top of the screen; its panel shows the distance.
+  const missionUp = !!mission || (useGameStore.getState().story?.inbox ?? []).some((d) => (d.status === 'new' || d.status === 'open') && NODES[d.node]?.channel === 'play');
+  // A mission card or the 3-2-1 is up: the door prompt and clip button step aside.
+  const missionCard = !!mission && mission.phase !== 'play';
+  const gps = gpsState.target && gpsState.route.length > 1 && !(mission && (mission.phase === 'play' || mission.phase === 'count')) ? gpsState : null;
   const unread = useUnread();
   const [help, setHelp] = useState(() => {
     try { return !localStorage.getItem(HELP_KEY); } catch { return true; }
@@ -106,7 +114,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {(() => {
-        if (hud.inside) return null;
+        if (hud.inside || missionUp) return null;
         const day = dateToSerial(useGameStore.getState().gameDate);
         const w = waitingFor(day)[0];
         if (!w) return null;
@@ -127,7 +135,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       ) : null}
 
       {/* Interaction prompt */}
-      {hud.prompt && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz ? (
+      {hud.prompt && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz && !missionCard ? (
         <div className={`absolute left-1/2 -translate-x-1/2 ${touch ? 'bottom-44' : 'bottom-10'} flex items-center gap-2 h-10 pl-1.5 pr-4 rounded-full bg-black/70 backdrop-blur border border-amber/40 text-[14px] font-semibold rl-fade`}>
           <span className="w-7 h-7 rounded-full bg-amber text-black font-black text-[13px] flex items-center justify-center">{touch ? '✋' : 'E'}</span>
           {hud.prompt}
@@ -151,7 +159,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
       {hud.mode === 'car' && !phoneOut && !touch ? <RadioPill touch={touch} /> : null}
 
       {/* Open mic and video shoot, on foot. */}
-      {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz && !hud.gig && !hud.shooting ? (
+      {hud.mode === 'foot' && !hud.inside && !phoneOut && !hud.talk && !hud.plot && !hud.camp && !hud.biz && !hud.gig && !hud.shooting && !missionCard ? (
         <div className={`absolute ${touch ? 'left-[104px] top-14' : 'left-3 bottom-6'} flex flex-col items-start gap-2`}>
           {hud.nearStage ? (
             <button onClick={() => hudStore.set({ gig: true })} className="pointer-events-auto h-10 px-4 rounded-full bg-re text-white text-[13px] font-bold shadow-lg">🎤 Open mic{touch ? '' : ' · G'}</button>
@@ -160,6 +168,7 @@ export function Hud({ onExit }: { onExit: () => void }) {
         </div>
       ) : null}
 
+      {hud.mapOpen ? null : <MissionHud touch={touch} />}
       <TalkCard />
       <PlotCard />
       <ForestCard />

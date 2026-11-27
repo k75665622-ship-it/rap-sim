@@ -12,6 +12,7 @@ import { cn } from '@/utils/cn';
 import { hudStore } from '../../world/input';
 import { setGpsPlace } from '../../world/gps';
 import type { GameScreen } from '../../types/game';
+import { missions } from '../../missions/runtime';
 
 const PLACE: Record<Place, { screen: GameScreen; name: string }> = {
   stadium: { screen: 'city', name: 'National Stadium' }, arena: { screen: 'city', name: 'Iron Ring Arena' }, lots: { screen: 'city', name: 'Gold Coast Studios' }, mall: { screen: 'city', name: 'Market Square' }, airport: { screen: 'city', name: 'the airport' }, apts: { screen: 'city', name: 'Eastgate Apartments' }, gym: { screen: 'city', name: 'Iron House' }, drip: { screen: 'city', name: 'Drip & Ink' }, radio: { screen: 'city', name: 'Hot 101.9' }, label: { screen: 'city', name: 'Label HQ' }, crib: { screen: 'city', name: 'Your place' },
@@ -19,7 +20,7 @@ const PLACE: Record<Place, { screen: GameScreen; name: string }> = {
 };
 /** Places you walk into: the meeting happens inside, when you walk up to them. */
 const INWORLD = new Set<Place>(['kitchen', 'studio', 'stadium', 'arena', 'lots', 'mall', 'airport', 'apts', 'gym', 'drip', 'radio', 'label', 'crib']);
-const ICON: Record<Channel, string> = { call: '📞', text: '💬', encounter: '📍', letter: '✉️', scene: '🎬' };
+const ICON: Record<Channel, string> = { call: '📞', text: '💬', encounter: '📍', letter: '✉️', scene: '🎬', play: '🎯' };
 const PATHS: { id: Path; label: string; blurb: string }[] = [
   { id: 'rapper', label: '🎤 Rapper — Two Rooms', blurb: 'You and Static grew up one flat apart.' },
   { id: 'producer', label: '🎛️ Producer — Reel 9', blurb: "Ankh needs hands. Nobody tells you what's in the tape room." },
@@ -78,7 +79,7 @@ export function StoryHost() {
           📖{others.length > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-amber text-black text-[11px] flex items-center justify-center" data-testid="story-count">{others.length}</span>}
         </button>
       )}
-      {sheet && !scene && <Sheet onClose={() => setSheet(false)} pending={others} onOpen={(d) => { const n = NODES[d.node]; if (n.channel === 'encounter' && n.where && INWORLD.has(n.where) && n.where !== 'kitchen' && n.where !== 'studio') { setSheet(false); setGpsPlace(n.where); setScreen('city'); hudStore.toast(`📍 GPS set: ${PLACE[n.where].name}`, 2600); return; }
+      {sheet && !scene && <Sheet onClose={() => setSheet(false)} pending={others} onOpen={(d) => { const n = NODES[d.node]; if (n.channel === 'play') { setSheet(false); missions.begin(d.node); return; } if (n.channel === 'encounter' && n.where && INWORLD.has(n.where) && n.where !== 'kitchen' && n.where !== 'studio') { setSheet(false); setGpsPlace(n.where); setScreen('city'); hudStore.toast(`📍 GPS set: ${PLACE[n.where].name}`, 2600); return; }
           if (n.channel === 'encounter' && n.where && PLACE[n.where].screen !== screen) { setSheet(false); setScreen(PLACE[n.where].screen); return; } open(d.node); setSheet(false); setScene(d.node); }} />}
     </>
   );
@@ -116,7 +117,7 @@ function Sheet({ onClose, pending, onOpen }: { onClose: () => void; pending: Del
               <button key={d.id} onClick={() => onOpen(d)} className="w-full text-left rounded-xl border border-line px-3 py-2 flex items-center gap-3 hover:border-amber/60" data-testid="story-item">
                 <span className="text-[22px]">{ICON[n.channel]}</span>
                 <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-ink truncate">{n.title}</span><span className="block text-[11px] text-ink3 truncate">{c.name}{n.where ? ` · ${PLACE[n.where].name}` : ''}{d.due !== undefined ? ` · answer by day ${d.due}` : ''}</span></span>
-                <span className="text-[12px] text-amber">{n.channel === 'encounter' ? 'Go →' : 'Open →'}</span>
+                <span className="text-[12px] text-amber">{n.channel === 'play' ? 'Play →' : n.channel === 'encounter' ? 'Go →' : 'Open →'}</span>
               </button>); })}
             {!started && (
               <div className="pt-3 border-t border-line">
@@ -160,7 +161,12 @@ function Scene({ nodeId: first, onClose }: { nodeId: string; onClose: () => void
   if (!n) return null;
   const from = CAST[n.from];
   const all = shown >= lines.length;
-  const pick = (id: string) => { const next = choose(nodeId, id); if (next) { setNodeId(next); setShown(1); } else onClose(); };
+  const pick = (id: string) => {
+    const next = choose(nodeId, id);
+    // A choice that leads into a mission beat: close the scene and go and play it.
+    if (next && NODES[next]?.channel === 'play') { onClose(); missions.begin(next); return; }
+    if (next) { setNodeId(next); setShown(1); } else onClose();
+  };
   return (
     <div className="fixed inset-0 z-[450] bg-black/85 flex items-end md:items-center justify-center" data-testid="story-scene">
       <div className="w-full max-w-[560px] h-[88vh] md:h-[80vh] flex flex-col rounded-t-3xl md:rounded-3xl bg-[#0f1118] border border-line overflow-hidden">

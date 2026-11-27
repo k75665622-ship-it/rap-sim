@@ -5,7 +5,8 @@
 // schedule more story days or weeks later. See STORY_BIBLE.md.
 
 export type Path = 'rapper' | 'producer' | 'manager' | 'singer' | 'director' | 'dj';
-export type Channel = 'call' | 'text' | 'encounter' | 'letter' | 'scene';
+/** `play` is a mission beat: something you *do* in the city (see `PlaySpec`). */
+export type Channel = 'call' | 'text' | 'encounter' | 'letter' | 'scene' | 'play';
 export type Axis = 'integrity' | 'hustle' | 'heart';
 /** Where an encounter lives: a screen id the player enters (kitchen, studio, shows, bank…). */
 export type Place = 'kitchen' | 'studio' | 'shows' | 'bank' | 'city' | 'stadium' | 'arena' | 'lots' | 'mall' | 'airport' | 'apts' | 'gym' | 'drip' | 'radio' | 'label' | 'crib';
@@ -70,8 +71,49 @@ export interface StoryNode {
   /** What happens when it lapses unanswered — the ignore is a choice. */
   lapse?: { fx?: Effect[]; goto?: string; schedule?: { node: string; days: number } };
   title: string;
+  /** For a `play` node these are the briefing lines on the mission card. */
   lines: Line[];
+  /** A `play` node has none: its medal picks the way on (`play.outcomes`). */
   choices: Choice[];
+  /** Only on `play` nodes: what you do, and where each result leads. */
+  play?: PlaySpec;
+}
+
+// ─── missions (NEXT_LEVEL_README §4.7) ─────────────────────────────────────
+// A mission is ordinary story: a call or a text whose choice goes to a `play`
+// node. The play node is a gameplay beat in the city — a timed run, later a
+// chase, a battle, a show. How well you do gives a medal, and the medal picks
+// the next node, exactly like a choice would.
+
+export type Medal = 'gold' | 'silver' | 'bronze' | 'miss';
+
+/** A story place you can be sent to in the city (has a door with a GPS target). */
+export type RunPlace = Exclude<Place, 'city'>;
+
+/** The gameplay of a beat. One entry per verb; more verbs join this union. */
+export type Verb =
+  /**
+   * Timed run: pass each `via` stop in order, then reach `to`, before the clock
+   * runs out. The clock is set from the real road distance at the start, so it
+   * is fair from wherever you are. `pace` is the average speed (m/s) needed just
+   * to make it; `steps` is the HUD line for each stop (via…, then to).
+   */
+  | { verb: 'run'; to: RunPlace; via?: RunPlace[]; pace?: number; steps?: string[] };
+
+export interface PlayOutcome { fx?: Effect[]; goto?: string; /** One line on the result card, in the story's voice. */ say?: string }
+
+export interface PlaySpec {
+  task: Verb;
+  /** The goal in one line, on the mission card and the HUD. */
+  objective: string;
+  /** Score (0–100) needed for each medal; finishing at all is bronze. Defaults per verb. */
+  medals?: { gold: number; silver: number };
+  /** Game minutes each attempt takes (the world clock is held while you play). Default 20. */
+  minutes?: number;
+  /** Attempts in total before it counts as a miss. Default 3. */
+  tries?: number;
+  /** Where each result leads. A missing medal falls back to the next one down; `miss` must exist. */
+  outcomes: Partial<Record<Exclude<Medal, 'miss'>, PlayOutcome>> & { miss: PlayOutcome };
 }
 
 export interface Trigger { node: string; if: Cond }
@@ -98,4 +140,6 @@ export interface StoryState {
   active?: { node: string; delivery?: string };
   /** A readable log of what the player chose. */
   log: { day: number; node: string; title: string; choice: string }[];
+  /** Mission beats: attempts used and best score. Missing on careers saved before missions. */
+  plays?: Record<string, { tries: number; best: number }>;
 }

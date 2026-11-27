@@ -555,7 +555,7 @@ Sizes: **S** = a session or two · **M** = a few sessions · **L** = a week or m
 
 | ID | Step | Size | Done when |
 |---|---|---|---|
-| **NL-1.1** | **Mission engine:** the `play` node, mission runner HUD (objective, timer, meters, checkpoints), medals, the retry rule and the end card | M | A test mission runs from call → play → medal → branch |
+| **NL-1.1** ✅ | **Mission engine:** the `play` node, mission runner HUD (objective, timer, meters, checkpoints), medals, the retry rule and the end card | M | A test mission runs from call → play → medal → branch |
 | **NL-1.2** | **First verbs:** timed run, chase/escape, booth under the clock | M | Each verb works on its own with the medal rules |
 | **NL-1.3** | **"Before Sunrise"**, the first flagship mission (rain, booth, radio payoff) | M | Playtesters say it's the best moment in the game. You hear your hook on the car radio. |
 | **NL-1.4** | **Rap battle verb + "Park Battle"** | M | 3 rounds, comebacks that use memory flags, the a cappella twist, and a shareable clip |
@@ -564,6 +564,31 @@ Sizes: **S** = a session or two · **M** = a few sessions · **L** = a week or m
 | **NL-1.7** | **More verbs:** sneak, tail, investigate, negotiate, interview, live show, promo campaign | L | All the verbs in table 4.3 exist |
 | **NL-1.8** | **The other flagship missions:** Tape Room, Flashbulbs, Sold Out, The Ledger board, One Phone Call, Shoot Day, Tro-tro Mate | L | Every seat has at least 5 missions that pass the five-ingredient check |
 | **NL-1.9** | **The playable Night of Akwaaba** finale | L | The gala is played (carpet → backstage → stage → reveal → drive home), not only read |
+
+**✅ NL-1.1 done (26 Nov 2026).**
+- **What's in it:**
+  - A new story node kind, `play` (`src/story/types.ts`).
+  - Medals, outcomes and the retry rule (`src/story/engine.ts`).
+  - The live runner (`src/missions/runtime.ts`): mission card → 3-2-1 → play → retry card or medal card.
+  - The HUD (`src/missions/MissionHud.tsx`): objective, stop counter, timer, distance, and a "▶ Start" pill for a waiting mission.
+  - The first verb, a basic **timed run** through stops (`src/missions/verbs.ts`).
+  - The GPS route and beacon turn red while the clock runs.
+  - E or ✋ presses the card's main button.
+- **The test mission:** "Hot Jollof" (`src/story/content/missions.ts`). Mama calls on day 3+, you collect her jollof and race it to Hot 101.9, and the medal sends the story four ways:
+  - 🥇 Gold: you go live on the Midnight Cypher.
+  - 🥈 Silver: a tip, then a text from Mama.
+  - 🥉 Bronze: a joke on air.
+  - Miss: her nephew takes it, and Mama texts you.
+- **Rules as built:**
+  - The world clock is held while you play. Each try then costs its game minutes (25 here).
+  - You get 3 tries.
+  - Giving up, or never playing it before the day ends, takes the miss branch.
+  - The medal is saved the moment the beat ends.
+- **Checked:**
+  - TypeScript and a production build pass.
+  - In a browser I played the gold path, the fail → retry → retry → miss path, the clock being held and released, and a beat lapsing as a miss. There were no errors.
+  - Test hook for scripts: `window.__rapMission` (`deliver`, `begin`, `state`, `skip`).
+- **Next:** NL-1.2 deepens the run (rain, traffic events, shortcuts) and adds chase/escape and booth-under-the-clock.
 
 ### Phase 2 — The look (vertical slice first)
 
@@ -632,6 +657,24 @@ Continue with **ROADMAP.md Stages 14–25** (accounts at scale, real players' mu
 - When a step is finished, tick it here (add "✅ done" and a one-line note under its table, as ROADMAP.md does) so the next session knows where things stand.
 - Big decisions made along the way (art style approved, monetization model chosen, district order) get recorded in a short **"Decisions"** list at the bottom of this file.
 
+### How to write a mission (cheat sheet)
+
+A mission is ordinary story content in `src/story/content/`. The pattern, from "Hot Jollof":
+
+1. **A hook node.** A `call`, `text` or `encounter`, with lines and choices. The "yes" choice has `goto: '<play node id>'`. Saying yes takes you straight to the mission card in the city.
+2. **A `play` node** (`channel: 'play'`, `choices: []`):
+   - Its `lines` are the briefing on the mission card.
+   - `expires` is how many days it waits before counting as a miss.
+   - `play.task` is the verb and its settings, for example `{ verb: 'run', via: ['kitchen'], to: 'radio', pace: 10, steps: [...] }`. Places are story places (kitchen, studio, radio, bank, stadium…), never coordinates, so missions work in every city layout.
+   - `play.objective` is one line.
+   - Optional: `medals` (the scores needed for gold and silver), `minutes` (game time per try), `tries`.
+   - `play.outcomes`: `gold`, `silver`, `bronze` and `miss` (required). Each has `say` (one line on the medal card), `fx` (the usual effects) and an optional `goto` (the next node: a scene, a text, a call that rings, an encounter, or another `play` beat).
+3. **Branch later on the medal.** The medal is saved as the node's choice, so `{ k: 'done', node: 'mx_jollof_run', choice: 'gold' }` works in any condition. The score is in the flag `play:<node id>`.
+4. **A trigger** in the arc's `triggers` decides when the hook arrives.
+
+To add a verb, see the header of `src/missions/verbs.ts` (three places to touch).
+
 ### Decisions
 
 - 2026-11-26: Stay on the web stack (React + three.js) and upgrade the art instead of porting to another engine. Revisit only for a PC or console version after funding.
+- 2026-11-26 (NL-1.1): Mission timers run in real seconds, and the world clock is held during a beat. Each try then costs a fixed amount of game time. The game clock runs at 10 game minutes per real second, far too fast for a fair timer.

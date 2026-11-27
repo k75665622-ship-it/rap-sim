@@ -379,7 +379,8 @@ import {
   type BeatsState, type OwnedBeat, type BeatOrder,
 } from '../sim/beats';
 import { scorePattern } from '../sim/beatMaker';
-import { NODES as STORY_NODES, emptyStory, lapseNow as lapseNowFn, tick as storyTickFn, choose as storyChooseFn, type Ctx as StoryCtx } from '../story/engine';
+import { NODES as STORY_NODES, emptyStory, lapseNow as lapseNowFn, tick as storyTickFn, choose as storyChooseFn, finishPlay as finishPlayFn, recordTry as recordTryFn, deliverNow as deliverNowFn, type Ctx as StoryCtx } from '../story/engine';
+import type { Medal as StoryMedal } from '../story/types';
 import { syncRegionFlags } from '../story/region';
 import type { Effect as StoryEffect, Path as StoryPath } from '../story/types';
 import { MISSIONS, STREAK_REWARDS, emptyGoals, metricsOf, pickDaily, pickWeekly, dailyDef, weeklyDef, progress } from '../sim/goals';
@@ -3469,6 +3470,12 @@ interface GameActions {
   storyOpen: (nodeId: string) => void;
   storyDecline: (nodeId: string) => void;
   setStoryPath: (path: StoryPath) => void;
+  /** A mission beat attempt was played: count the try and let its game time pass. */
+  missionAttempt: (nodeId: string, score: number, minutes: number) => void;
+  /** A mission beat ended with a medal (or a miss): apply its outcome. Returns the next node. */
+  missionFinish: (nodeId: string, medal: StoryMedal, score: number, note?: string) => string | undefined;
+  /** Make a story node arrive now (Street Jobs; the __rapMission test hook). */
+  storyDeliverNow: (nodeId: string) => void;
   /** Keep your own rough mix instead. */
   keepRoughMix: (songId: string) => FeatureActionResult;
   /** Send notes on the mix. */
@@ -17494,6 +17501,28 @@ export const useGameStore = create<GameState & GameActions>()(
           state.story.bonds[n.from] = Math.max(-100, (state.story.bonds[n.from] ?? 0) - 1);
         }
       }
+    }),
+    missionAttempt: (nodeId, score, minutes) => {
+      set((state) => { if (state.story) recordTryFn(state.story, nodeId, score); });
+      // The world clock is held while a beat is played; the try's game time passes now.
+      if (minutes > 0) passTime(minutes);
+    },
+    missionFinish: (nodeId, medal, score, note) => {
+      let next: string | undefined;
+      set((state) => {
+        if (!state.story || !state.player) return;
+        const r = finishPlayFn(state.story, nodeId, medal, score, storyCtx(state), note);
+        next = r.next;
+        applyStoryWorld(state, r.world);
+        applyStoryWorld(state, storyTickFn(state.story, storyCtx(state)));
+      });
+      return next;
+    },
+    storyDeliverNow: (nodeId) => set((state) => {
+      if (!state.player) return;
+      const ctx = storyCtx(state);
+      if (!state.story) state.story = emptyStory('rapper', ctx.day);
+      deliverNowFn(state.story, nodeId, ctx);
     }),
     setStoryPath: (path) => set((state) => {
       const ctx = storyCtx(state);

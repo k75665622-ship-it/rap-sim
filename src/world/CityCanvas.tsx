@@ -32,6 +32,8 @@ import { testDrive } from './testdrive';
 import { CAR_LOOK } from '../data/luxuryItems';
 import { buildTraffic } from './traffic';
 import { buildTransport } from './transport';
+import { missions } from '../missions/runtime';
+import { missionGps } from '../missions/target';
 
 const SKY = '#9cc3e6';
 /** How close to a door marker counts as "at the door". */
@@ -221,8 +223,12 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
     const hs = hudStore.get();
     const talkId = hs.talk;
     if (!talkId && tmp.talking) { tmp.talking.hold = 0.6; tmp.talking = null; }
-    const busy = phoneOut || !!talkId || hs.gig || hs.shooting;
-    const action = takeAction() && !busy;
+    // A mission card or the 3-2-1 is up: stand still, and E presses the card's main button.
+    const missionHold = missions.blocking();
+    const busy = phoneOut || !!talkId || hs.gig || hs.shooting || missionHold;
+    const pressed = takeAction();
+    if (pressed && missionHold && !phoneOut) missions.primary();
+    const action = pressed && !busy;
     const jump = takeJump() && !busy;
     const move = busy ? { x: 0, y: 0 } : moveAxis();
     let prompt: string | null = null;
@@ -650,6 +656,11 @@ function World({ look, onEnter }: { look?: Look; onEnter: (p: Place) => void }) 
       }
     }
     built.gpsBeacon.rotation.y = t;
+    // ── mission beat ────────────────────────────────────────────────────
+    missions.frame(frameDt);
+    // The beacon turns red while a mission's clock is running.
+    (built.gpsRibbon.material as THREE.MeshBasicMaterial).color.set(missionGps.live ? '#ff4d5e' : '#ffc21a');
+    ((built.gpsBeacon.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(missionGps.live ? '#ff4d5e' : '#ffc21a');
     const driving = live.mode === 'car';
     const cockpit = driving && drivePrefs.get().view === 'cockpit' && !live.shoot.on;
     car.group.visible = !cockpit;

@@ -109,11 +109,86 @@ const nodes: StoryNode[] = [
       { id: 'fast', label: 'Sign it. I need the money now.', tone: 'sly', fx: [{ k: 'money', v: 1500 }, rep('hustle', 2), rep('integrity', -2), bond('afia', -2), f('ms_bank_signed'), mem('You signed the bank offer against Afia\'s advice. The money was real. So was page six.', 'bad', 'money')] },
     ],
   },
+  // ── Hot Jollof: the first played mission (NL-1.1) ──────────────────────
+  // call → a timed run (kitchen, then the radio station) → a medal → the
+  // story goes four different ways. The pattern every mission follows.
+  {
+    id: 'mx_jollof_call', arc: 'missions', channel: 'call', from: 'esi', expires: 1, hours: [11, 21], title: 'Mama Esi: hot jollof',
+    lines: [
+      { who: 'esi', text: "{name}! You have a car, eh? Radio K just called — the whole Midnight Cypher crew wants my jollof before they go on air, and my delivery boy's okada has broken down." },
+      { who: 'esi', text: "Come and take it from the kitchen and get it to Hot 101.9 while it's still hot. Cold jollof is an insult, and my name is on it." },
+    ],
+    choices: [
+      { id: 'go', label: 'On my way, Mama.', tone: 'kind', goto: 'mx_jollof_run' },
+      { id: 'no', label: "I can't right now, sorry.", tone: 'quiet', fx: [bond('esi', -1)] },
+    ],
+  },
+  {
+    id: 'mx_jollof_run', arc: 'missions', channel: 'play', from: 'esi', expires: 1, title: 'Hot Jollof',
+    lines: [
+      { who: 'narr', text: 'Two big foil trays, wrapped in a kitchen towel, are waiting on the counter. The smell alone could stop traffic.' },
+      { who: 'esi', text: 'Straight there. No detours, no showing off at the junction.' },
+    ],
+    choices: [],
+    play: {
+      task: { verb: 'run', via: ['kitchen'], to: 'radio', pace: 10, steps: ["Pick up the jollof at Mama's Kitchen", "Get it to Hot 101.9 while it's hot"] },
+      objective: "Collect the jollof at Mama's Kitchen and get it to Hot 101.9 before it goes cold.",
+      minutes: 25,
+      tries: 3,
+      outcomes: {
+        gold: {
+          say: 'Steam is still rising off the trays. Radio K takes one bite, closes his eyes, and reaches for the mic.',
+          fx: [bond('radiok', 3), bond('esi', 2), { k: 'fans', v: 120 }, { k: 'fame', v: 1 }, f('mx_jollof_gold'), mem("You got Mama's jollof to the Midnight Cypher with the steam still on it. Radio K put you on air.", 'good', 'people')],
+          goto: 'mx_jollof_onair',
+        },
+        silver: {
+          say: 'Still warm. The crew cheers when you walk in, and somebody presses a tip into your hand.',
+          fx: [bond('radiok', 2), bond('esi', 1), { k: 'money', v: 80 }, mem("You delivered Mama's jollof to Hot 101.9, still warm. The crew cheered.", 'good', 'people')],
+          goto: 'mx_jollof_thanks',
+        },
+        bronze: {
+          say: "Lukewarm. Radio K laughs: \"Mama's jollof, served at room temperature. A first.\" He eats it anyway.",
+          fx: [bond('radiok', 1), mem("The jollof reached the radio station lukewarm. Radio K made a joke of it on air.", 'neutral', 'people')],
+        },
+        miss: {
+          say: 'Mama sent her nephew in a taxi in the end. He got there first.',
+          fx: [bond('esi', -1), mem("You didn't get Mama's jollof to the radio station. Her nephew took it in a taxi.", 'bad', 'people')],
+          goto: 'mx_jollof_sorry',
+        },
+      },
+    },
+  },
+  {
+    id: 'mx_jollof_onair', arc: 'missions', channel: 'scene', from: 'radiok', title: 'On the Midnight Cypher',
+    lines: [
+      { who: 'narr', text: 'The ON AIR light is red. Radio K slides a second microphone across the desk towards you without looking up.' },
+      { who: 'radiok', text: "City, this is the person who just saved my whole crew from starving. Mama Esi's jollof, still hot. Say something to the people, {name}." },
+    ],
+    choices: [
+      { id: 'mama', label: "Shout out Mama's Kitchen.", tone: 'kind', fx: [rep('heart', 2), bond('esi', 2), bond('radiok', 1), { k: 'fans', v: 80 }, mem("Live on the Midnight Cypher, you gave the shout-out to Mama's Kitchen instead of yourself.", 'good', 'people')] },
+      { id: 'plug', label: 'Plug your next record.', tone: 'sly', fx: [rep('hustle', 2), { k: 'fans', v: 180 }, f('mx_radio_plug'), mem('Live on the Midnight Cypher, you used the moment to plug your next record.')] },
+    ],
+  },
+  {
+    id: 'mx_jollof_thanks', arc: 'missions', channel: 'text', from: 'esi', title: 'Mama Esi',
+    lines: [{ who: 'esi', text: 'Radio K called. He said the food was still warm and you were polite. Both make me proud.' }],
+    choices: [{ id: 'ok', label: 'Anytime, Mama.', tone: 'kind', fx: [bond('esi', 1)] }],
+  },
+  {
+    id: 'mx_jollof_sorry', arc: 'missions', channel: 'text', from: 'esi', title: 'Mama Esi',
+    lines: [{ who: 'esi', text: "My nephew made it, and the food was fine. Next time, tell me if you can't, eh? I would rather know." }],
+    choices: [
+      { id: 'sorry', label: "Sorry, Mama. It won't happen again.", tone: 'honest', fx: [rep('integrity', 1)] },
+      { id: 'busy', label: 'Things came up.', tone: 'quiet' },
+    ],
+  },
 ];
 
 export const missionsArc: Arc = {
   id: 'missions', title: 'Out in the city', path: 'all', nodes,
   triggers: [
+    // The first played mission comes early: your first week, at home.
+    { node: 'mx_jollof_call', if: { k: 'all', of: [{ k: 'day', min: 3 }, { k: 'not', c: { k: 'flag', id: 'away' } }] } },
     { node: 'ms_mall_call', if: { k: 'all', of: [{ k: 'day', min: 10 }, { k: 'stat', id: 'fame', min: 5 }] } },
     { node: 'ms_stadium_call', if: { k: 'all', of: [{ k: 'day', min: 16 }, { k: 'stat', id: 'fame', min: 12 }] } },
     { node: 'ms_lot_call', if: { k: 'all', of: [{ k: 'day', min: 22 }, { k: 'stat', id: 'songs', min: 1 }] } },

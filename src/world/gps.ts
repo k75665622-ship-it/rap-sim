@@ -3,6 +3,7 @@ import { useGameStore } from '../store/gameStore';
 import { NODES } from '../story/engine';
 import { CAST } from '../story/cast';
 import { cityLayout, ROAD_CENTRES, WORLD } from './layout';
+import { missionGps } from '../missions/target';
 
 export interface Target { x: number; z: number; label: string; placeId: string }
 export type Pt = { x: number; z: number };
@@ -18,14 +19,16 @@ export function setGpsPlace(id: string | null): void {
   if (id) gpsState.on = true;
 }
 
-function doorTarget(pid: string): Target | null {
+/** The spot just outside a place's door (a city place id: food, studio, radio…). */
+export function doorTarget(pid: string): Target | null {
   const b = cityLayout().buildings.find((x) => x.place?.id === pid && x.door);
   if (!b || !b.door) return null;
   return { x: b.door.x + b.door.nx * 3.2, z: b.door.z + b.door.nz * 3.2, label: b.place!.name, placeId: pid };
 }
 
-/** The place the player picked, else the one the story is waiting at, if any. */
+/** A live mission's next stop, else the place the player picked, else the one the story is waiting at. */
 export function gpsTarget(): Target | null {
+  if (missionGps.live) return missionGps.target;
   if (manual) { const t = doorTarget(manual); if (t) return t; manual = null; }
   const st = useGameStore.getState().story;
   if (!st) return null;
@@ -68,7 +71,7 @@ export const length = (r: Pt[]) => r.reduce((s, p, i) => (i ? s + Math.hypot(p.x
 export const gpsState: { target: Target | null; route: Pt[]; dist: number; on: boolean } = { target: null, route: [], dist: 0, on: true };
 
 export function refreshGps(from: Pt): void {
-  if (!gpsState.on) { gpsState.target = null; gpsState.route = []; return; }
+  if (!gpsState.on && !missionGps.live) { gpsState.target = null; gpsState.route = []; return; }
   let t = gpsTarget();
   // Arrived at the place they picked: the line goes away, and the story's target (if any) returns.
   if (manual && t && Math.hypot(from.x - t.x, from.z - t.z) < 6) { manual = null; t = gpsTarget(); }

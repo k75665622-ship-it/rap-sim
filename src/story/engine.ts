@@ -1,7 +1,7 @@
 // ─── STORY ENGINE ──────────────────────────────────────────────────────────
 // Pure: operates on a StoryState (an immer draft, in the store). The store
 // applies the returned world effects (money, fame, memories…).
-import type { Arc, Cond, Delivery, Effect, Path, StoryNode, StoryState, TaskKind } from './types';
+import type { Arc, Cond, Delivery, Effect, Medal, Path, PlayOutcome, PlaySpec, StoryNode, StoryState, TaskKind } from './types';
 import { ARCS } from './content';
 
 export const NODES: Record<string, StoryNode> = {};
@@ -69,6 +69,9 @@ export function deliver(st: StoryState, nodeId: string, ctx: Ctx) {
   if (!st.arcs[n.arc]) st.arcs[n.arc] = { status: 'active' };
 }
 
+/** What an ignored node does. A mission beat with no `lapse` of its own counts as a miss. */
+const lapseOf = (n: StoryNode): StoryNode['lapse'] => n.lapse ?? (n.play ? { fx: n.play.outcomes.miss.fx, goto: n.play.outcomes.miss.goto } : undefined);
+
 const hourOk = (n: StoryNode, hour: number) => !n.hours || (n.hours[0] <= n.hours[1] ? hour >= n.hours[0] && hour < n.hours[1] : hour >= n.hours[0] || hour < n.hours[1]);
 
 /** The Director: runs on day, hour and place changes. Returns world effects from lapses. */
@@ -89,15 +92,17 @@ export function tick(st: StoryState, ctx: Ctx): Effect[] {
       deliver(st, t.task.miss, ctx);
     }
   }
-  // 2. lapses
+  // 2. lapses (a mission beat you said yes to still lapses if you never play it)
   for (const d of st.inbox) {
-    if (d.status === 'new' && d.due !== undefined && ctx.day > d.due) {
+    const waiting = d.status === 'new' || (d.status === 'open' && NODES[d.node]?.channel === 'play');
+    if (waiting && d.due !== undefined && ctx.day > d.due) {
       d.status = 'lapsed';
       const n = NODES[d.node];
       st.done[d.node] = 'lapsed';
-      world.push(...applyEffects(st, n.lapse?.fx, ctx, d.node));
-      if (n.lapse?.goto) deliver(st, n.lapse.goto, ctx);
-      if (n.lapse?.schedule) st.scheduled.push({ node: n.lapse.schedule.node, due: ctx.day + n.lapse.schedule.days });
+      const lp = lapseOf(n);
+      world.push(...applyEffects(st, lp?.fx, ctx, d.node));
+      if (lp?.goto) deliver(st, lp.goto, ctx);
+      if (lp?.schedule) st.scheduled.push({ node: lp.schedule.node, due: ctx.day + lp.schedule.days });
       st.log.push({ day: ctx.day, node: n.id, title: n.title, choice: 'no answer' });
     }
   }
@@ -129,9 +134,78 @@ export function choose(st: StoryState, nodeId: string, choiceId: string, ctx: Ct
   st.log.push({ day: ctx.day, node: nodeId, title: n.title, choice: c.label });
   const world = applyEffects(st, c.fx, ctx, nodeId);
   for (const d of st.inbox) if (d.node === nodeId && d.status !== 'lapsed') d.status = 'done';
-  if (c.goto && !st.done[c.goto]) { for (const d of st.inbox) if (d.node === c.goto) d.status = 'done'; if (!st.inbox.some((d) => d.node === c.goto)) st.inbox.push({ id: `${c.goto}@${ctx.day}`, node: c.goto, at: ctx.day, status: 'open' }); }
+  goOn(st, c.goto, ctx);
   return { next: c.goto, world };
 }
+
+/** Continue straight into the next node: it opens now (a mission beat keeps its deadline). */
+function goOn(st: StoryState, to: string | undefined, ctx: Ctx) {
+  if (!to || st.done[to]) return;
+  const n = NODES[to];
+  if (n?.channel === 'play') {
+    // A beat stays waiting until it is played (or lapses), so it isn't marked done here.
+    if (!st.inbox.some((d) => d.node === to && (d.status === 'new' || d.status === 'open'))) {
+      st.inbox.push({ id: `${to}@${ctx.day}`, node: to, at: ctx.day, status: 'open', due: n.expires !== undefined ? ctx.day + n.expires : undefined });
+      if (!st.arcs[n.arc]) st.arcs[n.arc] = { status: 'active' };
+    }
+    return;
+  }
+  for (const d of st.inbox) if (d.node === to) d.status = 'done';
+  if (!st.inbox.some((d) => d.node === to)) st.inbox.push({ id: `${to}@${ctx.day}`, node: to, at: ctx.day, status: 'open' });
+}
+
+// ─── mission beats ─────────────────────────────────────────────────────────
+
+export const DEFAULT_TRIES = 3;
+export const DEFAULT_MINUTES = 20;
+/** Score needed per medal when a beat doesn't set its own. Finishing at all is bronze. */
+export const VERB_MEDALS: Record<PlaySpec['task']['verb'], { gold: number; silver: number }> = { run: { gold: 35, silver: 15 } };
+
+export function medalOf(spec: PlaySpec, score: number): Exclude<Medal, 'miss'> {
+  const m = spec.medals ?? VERB_MEDALS[spec.task.verb];
+  return score >= m.gold ? 'gold' : score >= m.silver ? 'silver' : 'bronze';
+}
+
+const DOWN: Medal[] = ['gold', 'silver', 'bronze', 'miss'];
+/** The outcome for a medal; a medal the author left out falls back to the next one down. */
+export function outcomeFor(spec: PlaySpec, medal: Medal): PlayOutcome {
+  for (const m of DOWN.slice(DOWN.indexOf(medal))) { const o = spec.outcomes[m as keyof PlaySpec['outcomes']]; if (o) return o; }
+  return spec.outcomes.miss;
+}
+
+export const triesLeft = (st: StoryState, nodeId: string): number => {
+  const spec = NODES[nodeId]?.play;
+  return spec ? Math.max(0, (spec.tries ?? DEFAULT_TRIES) - (st.plays?.[nodeId]?.tries ?? 0)) : 0;
+};
+
+/** One attempt at a beat was played (finished or not). */
+export function recordTry(st: StoryState, nodeId: string, score: number) {
+  const p = (st.plays ??= {});
+  const cur = p[nodeId] ?? { tries: 0, best: 0 };
+  p[nodeId] = { tries: cur.tries + 1, best: Math.max(cur.best, Math.round(score)) };
+}
+
+const MEDAL_LABEL: Record<Medal, string> = { gold: '🥇 Gold', silver: '🥈 Silver', bronze: '🥉 Bronze', miss: "Didn't make it" };
+
+/**
+ * The beat is over: write the medal (as the node's "choice", so `done` conditions
+ * can branch on it), apply the outcome, and open the next node.
+ */
+export function finishPlay(st: StoryState, nodeId: string, medal: Medal, score: number, ctx: Ctx, note?: string): { next?: string; world: Effect[] } {
+  const n = NODES[nodeId];
+  if (!n?.play || st.done[nodeId] !== undefined) return { world: [] };
+  const o = outcomeFor(n.play, medal);
+  st.done[nodeId] = medal;
+  st.flags[`play:${nodeId}`] = Math.round(score);
+  st.log.push({ day: ctx.day, node: nodeId, title: n.title, choice: note ? `${MEDAL_LABEL[medal]} · ${note}` : MEDAL_LABEL[medal] });
+  const world = applyEffects(st, o.fx, ctx, nodeId);
+  for (const d of st.inbox) if (d.node === nodeId && d.status !== 'lapsed') d.status = 'done';
+  goOn(st, o.goto, ctx);
+  return { next: o.goto, world };
+}
+
+/** Make a node arrive now (Street Jobs, tests). Same rules as the Director delivering it. */
+export function deliverNow(st: StoryState, nodeId: string, ctx: Ctx) { deliver(st, nodeId, ctx); }
 
 export const arcTitle = (arc: string) => ARCS.find((a) => a.id === arc)?.title ?? arc;
 export type { Arc };
@@ -143,9 +217,10 @@ export function lapseNow(st: StoryState, nodeId: string, ctx: Ctx): Effect[] {
   if (!d || !n) return [];
   d.status = 'lapsed';
   st.done[nodeId] = 'lapsed';
-  const world = applyEffects(st, n.lapse?.fx, ctx, nodeId);
-  if (n.lapse?.goto) deliver(st, n.lapse.goto, ctx);
-  if (n.lapse?.schedule) st.scheduled.push({ node: n.lapse.schedule.node, due: ctx.day + n.lapse.schedule.days });
+  const lp = lapseOf(n);
+  const world = applyEffects(st, lp?.fx, ctx, nodeId);
+  if (lp?.goto) deliver(st, lp.goto, ctx);
+  if (lp?.schedule) st.scheduled.push({ node: lp.schedule.node, due: ctx.day + lp.schedule.days });
   st.log.push({ day: ctx.day, node: n.id, title: n.title, choice: 'let it ring' });
   return world;
 }

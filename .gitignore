@@ -1,3 +1,4 @@
 data-store/
 dist/
 _test/.*.bundle.mjs
+node_modules/
